@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@zk-kit/binary-merkle-root.circom": "^2.0.0"
+  }
+}
