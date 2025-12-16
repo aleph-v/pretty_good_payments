@@ -2,7 +2,7 @@
 pragma solidity ^0.8.13;
 
 import "./Spine.sol";
-import "./library/LeafLib.sol";
+import "./library/PredictableMerkleLib.sol";
 
 // Handles user withdraws
 
@@ -14,15 +14,15 @@ import "./library/LeafLib.sol";
 //        might be too much of a burden if they are being censored (because it requires staking).
 
 contract Withdraw is Spine {
-    using LeafLib for Leaf;
+    using PredictableMerkleLib for Leaf;
 
     mapping(uint256 => bool) public withdrawn;
 
     function withdraw(Leaf memory leaf, bytes32 anchor, uint256 index, bytes32[] memory proof) external {
         // Checks that the anchor is confirmed and that the leaf is in the tree
         require(isConfirmed(anchor));
-        require(leaf.enforceInTree(anchor, index, proof));
         require(!withdrawn[index]);
+        leaf.enforceInTree(anchor, index, proof);
         // Next we check that the leaf is actually withdrawable
         // The user submits a transaction which is to a key which
         require(leaf.publicKey >> 160 == 0);

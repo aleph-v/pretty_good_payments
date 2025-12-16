@@ -3,12 +3,12 @@ pragma solidity ^0.8.13;
 
 import "./Spine.sol";
 import "./library/BlobData.sol";
-import "./library/LeafLib.sol";
+import "./library/PredictableMerkleLib.sol";
 
 // The component of the challange system which enforces deposits are done properly
 
 contract Deposits is Spine {
-    using LeafLib for Leaf;
+    using PredictableMerkleLib for Leaf;
 
     uint256 constant MAX_DEPOSITS = 100;
     uint256 highestDeposit;

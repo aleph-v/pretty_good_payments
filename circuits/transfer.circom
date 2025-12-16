@@ -1,6 +1,5 @@
 pragma circom 2.1.5;
 
-// Audited PSE Merkle Lib
 include "binary-merkle-root.circom";
 include "poseidon.circom";
 include "bitify.circom";
@@ -29,7 +28,6 @@ template Transfer () {
    signal output leavesOut[3]; 
 
    // Compute leaf hashes (note even if we do not use both leaves we require a hash preimage)
-   // TODO - Use width 2 poseidon?
    var computedLeaf0 = Poseidon(4)(notesIn[0]);
    var computedLeaf1 = Poseidon(4)(notesIn[1]);
 

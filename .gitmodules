@@ -7,3 +7,6 @@
 [submodule "lib/openzeppelin-contracts"]
 	path = lib/openzeppelin-contracts
 	url = https://github.com/OpenZeppelin/openzeppelin-contracts
+[submodule "lib/poseidon-solidity"]
+	path = lib/poseidon-solidity
+	url = https://github.com/chancehudson/poseidon-solidity

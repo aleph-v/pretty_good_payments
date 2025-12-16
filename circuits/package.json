@@ -1,5 +1,10 @@
 {
   "dependencies": {
     "@zk-kit/binary-merkle-root.circom": "^2.0.0"
+  },
+  "scripts": {
+    "build": "circom transfer.circom --r1cs --json --O2 -o ./outputs/transfer/ -l ../node_modules/@zk-kit/binary-merkle-root.circom/src/ -l ../node_modules/circomlib/circuits/ ; circom predictableUpdate.circom --r1cs --json --O2 -o ./outputs/predictableUpdate/ -l ../node_modules/@zk-kit/binary-merkle-root.circom/src/ -l ../node_modules/circomlib/circuits/",
+    "keys": "snarkjs groth16 setup ./outputs/transfer/transfer.r1cs ./setups/powersOfTau28_hez_final_15.ptau ./outputs/transfer/transfer.zkey ; snarkjs zkey export verificationkey ./outputs/transfer/transfer.zkey ./outputs/transfer/transferVKey.json ;  snarkjs groth16 setup ./outputs/predictableUpdate/predictableUpdate.r1cs ./setups/powersOfTau28_hez_final_16.ptau ./outputs/predictableUpdate/predictableUpdate.zkey ; snarkjs zkey export verificationkey ./outputs/predictableUpdate/predictableUpdate.zkey ./outputs/predictableUpdate/predictableUpdateVKey.json ",
+    "solgen": "snarkjs zkey export solidityverifier ./outputs/transfer/transfer.zkey ./verifiers/transferVerifier.sol ; snarkjs zkey export solidityverifier ./outputs/predictableUpdate/predictableUpdate.zkey ./verifiers/predictableUpdateVerifier.sol"
   }
 }

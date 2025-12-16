@@ -9,6 +9,8 @@ out/
 
 # Ignores the node modules
 circuits/node_modules
+node_modules
+lib
 
 # Docs
 docs/
