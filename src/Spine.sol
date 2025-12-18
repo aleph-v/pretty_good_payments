@@ -75,7 +75,7 @@ contract Spine {
             // Never added
             return false;
         }
-        if (roots[blockdata[root].timestamp] != root) {
+        if (roots[blockdata[root].index] != root) {
             // Reorged
             return false;
         }

@@ -61,32 +61,9 @@ library PredictableMerkleLib {
     /// @notice Computes the hash of a leaf in the tree using posiedon
     /// @param leaf The leaf
     /// @dev Note that we are doing a width 4 for the leaves and a width 2 in the tree, so do not use a domain seprator for leaves
-    function hashLeaf(Leaf memory leaf) public pure returns (bytes32) {
+    function hash(Leaf memory leaf) public pure returns (bytes32) {
         bytes32[4] memory data = [(bytes32)(bytes20(leaf.asset)), (bytes32)(leaf.amount), leaf.blinding, leaf.publicKey];
         // Hashes a leaf, should match the hash in the zk proof.
         return (bytes32)(data.hash());
-    }
-
-    // TODO Not actually used
-    function enforceInTree(Leaf memory leaf, bytes32 root, uint256 index, bytes32[] memory proof) public pure {
-        assert(proof.length == TREE_DEPTH);
-        assert(index < 2 ** TREE_DEPTH);
-
-        bytes32 computed = hashLeaf(leaf);
-        uint256 currentIndex = index;
-        bytes32[2] memory held = [bytes32(0), bytes32(0)];
-        for (uint256 i = 0; i < TREE_DEPTH; i++) {
-            if (currentIndex % 2 == 0) {
-                held[0] = computed;
-                held[1] = proof[i];
-            } else {
-                held[0] = proof[i];
-                held[1] = computed;
-            }
-            computed = held.hash();
-            currentIndex = currentIndex / 2;
-        }
-
-        assert(computed == root);
     }
 }

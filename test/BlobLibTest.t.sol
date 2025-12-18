@@ -6,22 +6,18 @@ import "../src/library/BlobData.sol";
 import {console} from "forge-std/console.sol";
 
 contract BlobDataTest is BlobData {
-
     function validateSingleTest(
         bytes32 rootHash,
         bytes calldata commitment,
         uint256 index,
         bytes32 data,
         bytes calldata proof
-    ) external
-    {
+    ) external {
         validateSingle(rootHash, commitment, index, data, proof);
     }
-
 }
 
 contract CounterTest is Test {
-
     BlobDataTest blob;
 
     struct TestData {
@@ -56,10 +52,14 @@ contract CounterTest is Test {
         vm.blobhashes(blobhashes);
         console.logBytes32(blobhash(0));
         vm.expectRevert();
-        blob.validateSingleTest(data.hash & (bytes32)(uint256(2**240 - 1)), data.commitment, data.index, data.claim, data.proof);
+        blob.validateSingleTest(
+            data.hash & (bytes32)(uint256(2 ** 240 - 1)), data.commitment, data.index, data.claim, data.proof
+        );
         vm.expectRevert();
         blob.validateSingleTest(data.hash, data.commitment, data.index + 1, data.claim, data.proof);
         vm.expectRevert();
-        blob.validateSingleTest(data.hash, data.commitment, data.index, (bytes32)((uint256)(data.claim) + 1), data.proof);
+        blob.validateSingleTest(
+            data.hash, data.commitment, data.index, (bytes32)((uint256)(data.claim) + 1), data.proof
+        );
     }
 }

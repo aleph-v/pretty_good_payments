@@ -2,15 +2,14 @@
 pragma solidity ^0.8.13;
 
 import {LibBit} from "solady/utils/LibBit.sol";
-import {console} from "forge-std/console.sol"; 
+import {console} from "forge-std/console.sol";
 
 // We implement a protocol which does kzg opening against blob commitments.
 // In the simplest version it just proves that the commitment evaluated at the bit revevered root of unity
 // for an index is equal to the the claimed data.
 // We might be able to highly optimise by doing a multi point opening.
 
-
-// Blobs are structured as follows: 
+// Blobs are structured as follows:
 // [deposits range][transactions range]
 // each desposit is [leaf1, leaf2, leaf3, new_root] and each leaf must match the deposit leaf in the array for this block
 // each transaction is [[zk proof], anchor id, nullifier0, nullifier1, leaf0, leaf1, leaf2, new_root]
@@ -18,48 +17,67 @@ import {console} from "forge-std/console.sol";
 
 // Has to be a contract because libs can't do immutables
 contract BlobData {
-
     uint256 constant BLS_MODULUS = 52435875175126190479447740508185965837690552500527637822603658699938581184513;
     uint256 immutable ROOT = exp(7, (BLS_MODULUS - 1) / 4096);
 
+    uint256 constant TREE_DEPTH = 40;
+    uint256 constant DAY_DEPTH = 12;
+    uint256 constant BLOCK_DEPTH = 12;
+
     // Next we want some functions related to the actual blob layout
 
-    function txStartIndex(uint256 txNumber, uint256 numDeposits) internal pure returns(uint256) {
-        uint256 deposits = numDeposits*4;
-        uint256 prior = (txNumber - 1)*15;
+    function parseIndexInfo(uint256 index) internal pure returns (uint256, uint256, uint256) {
+        require(index < 2 ** TREE_DEPTH);
+        uint256 day = index >> DAY_DEPTH + BLOCK_DEPTH;
+        uint256 blockNr = (index >> BLOCK_DEPTH) & ((2 ** DAY_DEPTH) - 1);
+        uint256 txNr = index & ((2 ** BLOCK_DEPTH) - 1);
+        return (day, blockNr, txNr);
+    }
+
+    function txMemoryAddress(uint256 txNumber, uint256 numDeposits) internal pure returns (uint256) {
+        uint256 deposits = numDeposits * 4;
+        uint256 prior = (txNumber - 1) * 15;
         // TODO - Might be 0 indexed?
         return (deposits + prior);
     }
 
-    function leafIndex(uint256 number, uint256 numDeposits, bool isDeposit, uint256 which) internal pure returns(uint256) {
+    function leafMemoryAddress(uint256 number, uint256 numDeposits, bool isDeposit, uint256 which)
+        internal
+        pure
+        returns (uint256)
+    {
         assert(which < 3);
         if (isDeposit) {
-            assert(number < numDeposits);
-            uint256 prior = (number -1) * 4;
+            assert(number <= numDeposits);
+            uint256 prior = (number - 1) * 4;
             return (prior + which);
         } else {
-            uint256 deposits = numDeposits*4;
-            uint256 prior = (number -1) * 15;
+            uint256 deposits = numDeposits * 4;
+            uint256 prior = (number - 1) * 15;
             // 4 entries per deposit, 15 per prior tx, 11 (8 zk, 1 root, 2 nullifiers)
             return (deposits + prior + 11 + which);
         }
     }
 
-    function nullifierIndex(uint256 txNumber, uint256 numDeposits, uint256 which) internal pure returns(uint256) {
-        uint256 deposits = numDeposits*4;
-        uint256 prior = (txNumber -1) * 15;
+    function nullifierMemoryAddress(uint256 txNumber, uint256 numDeposits, uint256 which)
+        internal
+        pure
+        returns (uint256)
+    {
+        uint256 deposits = numDeposits * 4;
+        uint256 prior = (txNumber - 1) * 15;
         assert(which < 2);
         // 4 entries per deposit, 15 per prior tx, 11 (8 zk, 1 root, 2 nullifiers)
         return (deposits + prior + 9 + which);
     }
 
-    function rootIndex(uint256 number, bool isDeposit, uint256 numDeposits) internal pure returns(uint256) {
+    function rootIndex(uint256 number, bool isDeposit, uint256 numDeposits) internal pure returns (uint256) {
         if (isDeposit) {
             assert(number < numDeposits);
-            return (number*4 -1);
+            return (number * 4 - 1);
         } else {
-            uint256 deposits = numDeposits*4;
-            return(deposits + number*15 - 1);
+            uint256 deposits = numDeposits * 4;
+            return (deposits + number * 15 - 1);
         }
     }
 
@@ -85,7 +103,7 @@ contract BlobData {
         bytes32 data,
         bytes calldata proof
     ) internal view {
-        // To do a single validation we use the point open precompile and prove that the polynomial at 
+        // To do a single validation we use the point open precompile and prove that the polynomial at
         // the bit reversed root of unity for that index is equal to the data field
         uint256 evalRoot = bitReversedRoot(index);
 
@@ -120,7 +138,7 @@ contract BlobData {
     }
 
     // Computes the bit reverse of i as if it is a 12 bit number (ie less than 4096)
-    function bitReversedRoot(uint256 i) internal view returns(uint256) {
+    function bitReversedRoot(uint256 i) internal view returns (uint256) {
         uint256 reversed = LibBit.reverseBits(i);
         console.log(reversed);
         reversed = (reversed >> 244);
@@ -131,10 +149,10 @@ contract BlobData {
         return (exp(ROOT, reversed));
     }
 
-    // Should give good preformance for our exp < 4096 compared to modexp 
-    function exp(uint256 b, uint256 e) internal pure returns(uint256) {
+    // Should give good preformance for our exp < 4096 compared to modexp
+    function exp(uint256 b, uint256 e) internal pure returns (uint256) {
         if (e == 0) {
-            return(1);
+            return (1);
         }
         uint256 ret = 1;
         while (e != 0) {
