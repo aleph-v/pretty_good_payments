@@ -11,6 +11,7 @@ out/
 circuits/node_modules
 node_modules
 lib
+.DS_Store
 
 # Docs
 docs/
