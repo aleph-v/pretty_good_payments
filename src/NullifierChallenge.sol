@@ -32,10 +32,10 @@ contract NullifierChallenge is Spine, SequencerRegistry {
             require(txNumberChallanged != txNumberPrior);
         }
 
-        bytes32 rootChallanged = roots[blockNumberChallanged];
-        ProposedBlock memory blockDataChallanged = blockdata[roots[blockNumberChallanged]];
-        bytes32 rootPrior = roots[blockNumberChallanged];
-        ProposedBlock memory blockDataPrior = blockdata[roots[blockNumberPrior]];
+        // bytes32 rootChallanged = roots[blockNumberChallanged];
+        // ProposedBlock memory blockDataChallanged = blockdata[roots[blockNumberChallanged]];
+        // bytes32 rootPrior = roots[blockNumberChallanged];
+        // ProposedBlock memory blockDataPrior = blockdata[roots[blockNumberPrior]];
         // TODO specify the blob to load for both
 
         // Load the blob roots then
@@ -46,7 +46,7 @@ contract NullifierChallenge is Spine, SequencerRegistry {
 
         // This means then that both of the blobs have a nullifier which is equal so then we do
         // TODO - Other checks.
-        slash(blockDataChallanged.sequencer, blockNumberChallanged);
+        // slash(blockDataChallanged.sequencer, blockNumberChallanged);
         rollback(blockNumberChallanged - 1);
     }
 

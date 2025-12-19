@@ -19,11 +19,11 @@ contract DepositChallenge is Deposits, SequencerRegistry {
         bytes32[] memory merkleProof,
         uint256 merkleIndex
     ) external {
-        ProposedBlock memory blockData = blockdata[roots[blockNumber]];
-        checkDepositChallange(blockNumber, depositNumber, blobData, kzgProof, merkleProof, merkleIndex);
+        // BlockData memory blockData = blockdata[roots[blockNumber]];
+        // checkDepositChallange(blockNumber, depositNumber, blobData, kzgProof, merkleProof, merkleIndex);
         // TODO - Other checks.
-        slash(blockData.sequencer, blockNumber);
-        rollback(blockNumber - 1);
+        // slash(blockData.sequencer, blockNumber);
+        // rollback(blockNumber - 1);
     }
 
     // This proceeds to check each case in order (1) that the number of deposits doesn't match (2) that the n th

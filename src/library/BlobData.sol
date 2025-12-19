@@ -96,6 +96,7 @@ contract BlobData {
         }
     }
 
+    // takes 54k gas based on testing.
     function validateSingle(
         bytes32 rootHash,
         bytes calldata commitment,
@@ -140,12 +141,8 @@ contract BlobData {
     // Computes the bit reverse of i as if it is a 12 bit number (ie less than 4096)
     function bitReversedRoot(uint256 i) internal view returns (uint256) {
         uint256 reversed = LibBit.reverseBits(i);
-        console.log(reversed);
         reversed = (reversed >> 244);
-        console.log(reversed);
         // TODO - Check that this is the right offset
-        console.logBytes32(bytes32(ROOT));
-        console.log(exp(ROOT, reversed));
         return (exp(ROOT, reversed));
     }
 

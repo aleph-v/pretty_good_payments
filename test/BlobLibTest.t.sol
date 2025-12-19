@@ -39,7 +39,6 @@ contract CounterTest is Test {
         bytes32[] memory blobhashes = new bytes32[](1);
         blobhashes[0] = data.hash;
         vm.blobhashes(blobhashes);
-        console.logBytes32(blobhash(0));
 
         blob.validateSingleTest(data.hash, data.commitment, data.index, data.claim, data.proof);
     }
@@ -50,7 +49,6 @@ contract CounterTest is Test {
         bytes32[] memory blobhashes = new bytes32[](1);
         blobhashes[0] = data.hash;
         vm.blobhashes(blobhashes);
-        console.logBytes32(blobhash(0));
         vm.expectRevert();
         blob.validateSingleTest(
             data.hash & (bytes32)(uint256(2 ** 240 - 1)), data.commitment, data.index, data.claim, data.proof

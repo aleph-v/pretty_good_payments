@@ -10,7 +10,6 @@ import "./library/PredictableMerkleLib.sol";
 contract Deposits is Spine {
     using PredictableMerkleLib for Leaf;
 
-    uint256 constant MAX_DEPOSITS = 100;
     uint256 highestDeposit;
     //Records the required deposits in each block
     mapping(uint256 => bytes32[]) perBlockDeposits;
