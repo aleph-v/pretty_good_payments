@@ -3,7 +3,6 @@ pragma solidity ^0.8.13;
 
 import "./Spine.sol";
 import "./library/PredictableMerkleLib.sol";
-import "./library/BlobData.sol";
 
 // Handles user withdraws
 
@@ -15,7 +14,7 @@ import "./library/BlobData.sol";
 // TODO - We might want to work on an escape hatch or other mechanism, requiring the user to self seqeunce a withdraw tx
 //        might be too much of a burden if they are being censored (because it requires staking).
 
-contract Withdraw is Spine, BlobData {
+contract Withdraw is Spine {
     using PredictableMerkleLib for Leaf;
 
     mapping(uint256 => mapping(uint256 => bool)) public withdrawn;
@@ -31,7 +30,7 @@ contract Withdraw is Spine, BlobData {
         bytes calldata proof
     ) external {
         // Checks that the anchor is confirmed and that the leaf is in the tree
-        require(isConfirmed(data, blockNr));
+        require(isConfirmed(data));
         // TODO need more index info on withdraws
         require(!withdrawn[blockNr][txNr << 2 + which]);
 

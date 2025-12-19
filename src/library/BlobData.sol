@@ -34,11 +34,18 @@ contract BlobData {
         return (day, blockNr, txNr);
     }
 
+    // Each deposit is a single field but for each 3 deposits we have to include a root.
+    function numDepositsToMemoryLength(uint256 num) private pure returns (uint256) {
+        uint256 depositRounding = num % 3 == 0 ? 0 : 1;
+        return (num + num / 3 + depositRounding);
+    }
+
     function txMemoryAddress(uint256 txNumber, uint256 numDeposits) internal pure returns (uint256) {
-        uint256 deposits = numDeposits * 4;
+        // Each deposit is a single leaf
+        uint256 depositsLength = numDepositsToMemoryLength(numDeposits);
         uint256 prior = (txNumber - 1) * 15;
         // TODO - Might be 0 indexed?
-        return (deposits + prior);
+        return (depositsLength + prior);
     }
 
     function leafMemoryAddress(uint256 number, uint256 numDeposits, bool isDeposit, uint256 which)
@@ -48,14 +55,13 @@ contract BlobData {
     {
         assert(which < 3);
         if (isDeposit) {
-            assert(number <= numDeposits);
-            uint256 prior = (number - 1) * 4;
-            return (prior + which);
+            // Each deposit number is one field, but each three fields we include a root.
+            return (number + number / 3);
         } else {
-            uint256 deposits = numDeposits * 4;
-            uint256 prior = (number - 1) * 15;
+            uint256 depositsLength = numDepositsToMemoryLength(numDeposits);
+            uint256 prior = number * 15;
             // 4 entries per deposit, 15 per prior tx, 11 (8 zk, 1 root, 2 nullifiers)
-            return (deposits + prior + 11 + which);
+            return (depositsLength + prior + 11 + which);
         }
     }
 
@@ -64,26 +70,33 @@ contract BlobData {
         pure
         returns (uint256)
     {
-        uint256 deposits = numDeposits * 4;
-        uint256 prior = (txNumber - 1) * 15;
+        uint256 deposits = numDepositsToMemoryLength(numDeposits);
+        uint256 prior = txNumber * 15;
         assert(which < 2);
         // 4 entries per deposit, 15 per prior tx, 11 (8 zk, 1 root, 2 nullifiers)
         return (deposits + prior + 9 + which);
     }
 
-    function rootIndex(uint256 number, bool isDeposit, uint256 numDeposits) internal pure returns (uint256) {
+    // Returns the root for the BEFORE root reverts on the 0 deposit
+    // Here we use number = update number, meaning if a its a deposit its each group of three leaves or if transaction
+    // each transaction
+    function priorRootMemoryLocation(uint256 number, bool isDeposit, uint256 numDeposits)
+        internal
+        pure
+        returns (uint256)
+    {
         if (isDeposit) {
-            assert(number < numDeposits);
+            assert(number <= numDeposits / 3);
             return (number * 4 - 1);
         } else {
-            uint256 deposits = numDeposits * 4;
+            uint256 deposits = numDepositsToMemoryLength(numDeposits);
             return (deposits + number * 15 - 1);
         }
     }
 
     /// @dev Checks that the kzg proof validates that the polynomial interpolates data at the roots of unity indexed by the bitreversed
     ///      roots of unity
-    function validateDataOpening(
+    function validateDataOpenings(
         bytes32 rootHash,
         bytes calldata commitment,
         uint256[] memory dataIndicies,
