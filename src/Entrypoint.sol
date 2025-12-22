@@ -4,12 +4,13 @@ pragma solidity ^0.8.13;
 import "./DepositChallenge.sol";
 import "./TransactionChallenge.sol";
 import "./NullifierChallenge.sol";
+import "./TreeUpdateChallange.sol";
 import "./Withdraw.sol";
 
 // This is the main entrypoint for seqeuncing and handles the percentage payouts.
 // Through the inheritance system this pulls in all of the logic needed.
 
-contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, NullifierChallenge {
+contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, NullifierChallenge, TreeUpdateChallange {
     mapping(uint256 => uint256) public totalTx;
     mapping(uint256 => mapping(address => uint256)) public sequencerTx;
 

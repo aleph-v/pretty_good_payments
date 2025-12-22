@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import "./Deposits.sol";
 import "./SequencerRegistry.sol";
 import "./library/PredictableMerkleLib.sol";
-import {Proof} from "./library/ZKVerifier.sol";
 
 // The component of the challange system which enforces deposits are done properly
 
@@ -38,6 +37,6 @@ contract DepositChallenge is Deposits, SequencerRegistry {
 
         // Since the seqeuncer submitted the wrong deposit leaf at this index we slash and roll back.
         slash(data.sequencer, blockNr);
-        rollback(data.blockNr - 1);
+        rollback(data.blockNr);
     }
 }

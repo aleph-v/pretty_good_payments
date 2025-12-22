@@ -37,7 +37,7 @@ contract NullifierChallenge is Spine, SequencerRegistry {
 
         // Rollback the second time we saw the nullifier
         slash(second.data.sequencer, second.data.blockNr);
-        rollback(second.data.blockNr - 1);
+        rollback(second.data.blockNr);
     }
 
     function validateNullifierOpening(NullifierLoader calldata loader, bytes32 nullifier) internal view {

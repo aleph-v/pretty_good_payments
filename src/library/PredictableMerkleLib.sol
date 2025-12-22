@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 import {PoseidonT5} from "poseidon-solidity/PoseidonT5.sol";
 import {IUpdateVerifier} from "../interfaces/IUpdateVerifier.sol";
-import {Proof} from "./ZKVerifier.sol";
 
 // Implements verification functions for an append only merkle tree addition verification
 
@@ -13,6 +12,12 @@ struct Leaf {
     uint256 amount;
     bytes32 blinding;
     bytes32 publicKey;
+}
+
+struct Proof {
+    uint256[2] _pA;
+    uint256[2][2] _pB;
+    uint256[2] _pC;
 }
 
 library Bytes32Poseidon {

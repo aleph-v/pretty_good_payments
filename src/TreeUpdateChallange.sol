@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 import "./library/PredictableMerkleLib.sol";
-import {Proof} from "./library/ZKVerifier.sol";
 import "./Spine.sol";
 import "./SequencerRegistry.sol";
 
@@ -26,7 +25,6 @@ contract TreeUpdateChallange is Spine, SequencerRegistry {
         bytes32 trueAnchor,
         Proof memory zk
     ) external {
-        uint256 blockNr = data.blockNr;
         // Check the block is in the tree
         require(isBlockIncluded(data));
 
@@ -56,7 +54,7 @@ contract TreeUpdateChallange is Spine, SequencerRegistry {
 
         // Now we have validated that the positions that the seqeuncer submitted are equal to claimed seqeuncerSubmittedData
         // So we have to check that the prior anchor when updated is not equal to seqeuncerSubmittedData[3] which is the new root
-        validatePriorAnchor(priorAnchor, data, updateNr, true, priorAnchorCommitment, priorAnchorProof);
+        validatePriorAnchor(priorAnchor, data, updateNr, isTx, priorAnchorCommitment, priorAnchorProof);
 
         // Now we can prove that the update from priorAnchor to current anchor is not correct using the zk update proof
         // TODO - Fix block index in tree
@@ -82,8 +80,8 @@ contract TreeUpdateChallange is Spine, SequencerRegistry {
         } // the else here is just that you should be slashed
 
         // Since the seqeuncer submitted the wrong deposit leaf at this index we slash and roll back.
-        slash(data.sequencer, blockNr);
-        rollback(data.blockNr - 1);
+        slash(data.sequencer, data.blockNr);
+        rollback(data.blockNr);
     }
 }
 
