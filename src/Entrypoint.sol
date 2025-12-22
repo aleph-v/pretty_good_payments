@@ -33,11 +33,11 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
         // Tracking this basis of blob data usage gives a fair tradeoff on cost
         uint256 rawBlobUse = data.numTransactions*15 + data.numDeposits*4;
         uint256 adjustedTx = currentlyPriorty? rawBlobUse*priorityBonus/BASE: rawBlobUse;
-        totalTx[epoc] += adjustedTx;
+        totalBlobUse[epoc] += adjustedTx;
         sequencerBlobUse[epoc][msg.sender] += adjustedTx;
     }
 
     function allocateRewards(uint256 epocNumber, address sequencer) external {
-        // Allows you to push percent rewards into the yield system for a sequencer
+        // TODO - Build with the yield subsystem
     }
 }

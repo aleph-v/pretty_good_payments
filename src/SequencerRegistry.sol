@@ -11,7 +11,8 @@ contract SequencerRegistry is Ownable {
     uint256 constant EPOC_LENGTH = 10;
     uint256 constant CHALLENGE_WINDOW = 10;
     uint256 immutable START = block.timestamp;
-    uint256 constant STAKE_DIVISOR = 10^15;
+    // Allows at most denoms of 1/10000th of an ether
+    uint256 constant STAKE_DIVISOR = 10^14;
     uint256 constant MAX_STAKE = 200 ether / STAKE_DIVISOR;
 
     uint256 requiredStake = 20 ether / STAKE_DIVISOR;
@@ -53,7 +54,7 @@ contract SequencerRegistry is Ownable {
         require(sequencers[msg.sender].challenger == address(0));
         // TODO Need to trigger deposit into the yield system
         sequencers[msg.sender].isActive = true;
-        sequencers[msg.sender] += (msg.value/STAKE_DIVISOR)
+        sequencers[msg.sender].stakeAmount += uint64(msg.value/STAKE_DIVISOR);
     }
 
     function slash(address sequencer, uint256 blockNumber) internal {
@@ -92,7 +93,7 @@ contract SequencerRegistry is Ownable {
         if (sequencers[msg.sender].isPriority) {
             _remove(sequencers[msg.sender].priorityIndex);
         }
-        exits = block.timestamp;
+        exits[msg.sender] = block.timestamp;
     }
 
     function exit(address who) external {
