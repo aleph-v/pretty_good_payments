@@ -24,6 +24,16 @@ contract BlobData {
     uint256 constant DAY_DEPTH = 12;
     uint256 constant BLOCK_DEPTH = 12;
 
+    // Used to validate an opening of a region of memory
+    struct Region {
+        uint256 length;
+        uint256 memoryAddress;
+        bytes32[] data;
+        bytes[] proofs;
+        bytes commitment;
+        bytes32 hash;
+    }
+
     // Next we want some functions related to the actual blob layout
 
     function parseIndexInfo(uint256 index) internal pure returns (uint256, uint256, uint256) {
@@ -106,6 +116,16 @@ contract BlobData {
         // TODO we could optimize the memory use here by overwriting the last one in assembly
         for (uint256 i = 0; i < dataIndicies.length; i++) {
             validateSingle(rootHash, commitment, dataIndicies[i], data[i], kzgProofs[i]);
+        }
+    }
+
+    // Validate a contigious region of memory in a blob starting at a memory address
+    function validateRegionOpening(Region calldata region) internal view {
+        assert(region.length == region.data.length);
+        uint256 memoryAddress = region.memoryAddress;
+        for (uint256 i = 0; i < region.data.length; i++) {
+            validateSingle(region.hash, region.commitment, memoryAddress, region.data[i], region.proofs[i]);
+            memoryAddress++;
         }
     }
 

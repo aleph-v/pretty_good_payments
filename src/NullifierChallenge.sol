@@ -40,7 +40,7 @@ contract NullifierChallenge is Spine, SequencerRegistry {
         rollback(second.data.blockNr - 1);
     }
 
-    function validateNullifierOpening(NullifierLoader calldata loader, bytes32 nullifier) internal {
+    function validateNullifierOpening(NullifierLoader calldata loader, bytes32 nullifier) internal view {
         require(loader.txNr <= loader.data.numTransactions);
         require(isBlockIncluded(loader.data));
 
