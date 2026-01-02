@@ -102,6 +102,7 @@ contract SequencerRegistry is Ownable {
         require(status.challenger == address(0));
         // Now we can remove and refund them
         delete sequencers[who];
+        delete exits[who];
         (bool success,) = payable(who).call{value: status.stakeAmount * STAKE_DIVISOR}("");
         // TODO burn the other half into yield using the yield system
         require(success, "Payout failed");
@@ -118,7 +119,7 @@ contract SequencerRegistry is Ownable {
     }
 
     // NOTE - Invalid uses of this will lock the seqeuncing
-    function updateStake(uint256 amount) public onlyOwner {
+    function updateStakeRequirment(uint256 amount) public onlyOwner {
         require(amount < MAX_STAKE);
         requiredStake = amount;
     }
