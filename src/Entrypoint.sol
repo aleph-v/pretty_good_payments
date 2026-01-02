@@ -34,9 +34,9 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
         sequencerBlobUse[epoch][msg.sender] += adjustedTx;
         // We report and allocate the previous priority sequencer's rewards
         uint256 index = epoch % firstLookSequencers.length;
-        uint256 priorSequencerIndex = index == 0?  firstLookSequencers.length - 1: index - 1;
+        uint256 priorSequencerIndex = index == 0 ? firstLookSequencers.length - 1 : index - 1;
         address priorSequencer = firstLookSequencers[priorSequencerIndex];
-        allocateRewards(epoch-1, priorSequencer);
+        allocateRewards(epoch - 1, priorSequencer);
     }
 
     function allocateRewards(uint256 epoch, address sequencer) public {
