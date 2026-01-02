@@ -7,8 +7,8 @@ import "./library/PredictableMerkleLib.sol";
 import "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 
 // Deposits are structured such that even if the L2 reorgs because of bad block submission the deposits remain valid
-// each leaf is appended to either the higest ever seen position for deposits or to the current block number + 2.
-// The seqeuncer is required to include the deposits in order and include exactly the deposits in perBlockDeposit
+// each leaf is appended to either the highest ever seen position for deposits or to the current block number + 2.
+// The sequencer is required to include the deposits in order and include exactly the deposits in perBlockDeposit
 // or they will be slashed in fraud proof.
 
 // TODO - There is a griefing attack in this system where a sequencer makes 1000s of fake blocks and reorgs them all
@@ -27,12 +27,12 @@ contract Deposits is Spine {
     event Deposit(bytes32 indexed leafHash, uint256 block, uint256 number);
 
     // Works by doing the posiedon hashing of leaf and then pushing it into the deposits for the next possible block
-    // If the chain is reorged due to fraud this deposits tree does not rollback, new blocks created at new indicies must
+    // If the chain is reorged due to fraud this deposits tree does not rollback, new blocks created at new indices must
     // also include the same deposits.
     function deposit(Leaf memory leaf) external {
         // First we transfer from the user to the yield system and trigger deposit
-        IERC20(leaf.asset).transferFrom(msg.sender, yieldRouter, leaf.amount);
-        // yieldRouter.triggerDeposit(asset, amount)
+        IERC20(leaf.asset).transferFrom(msg.sender, address(yieldRouter), leaf.amount);
+        yieldRouter.triggerDeposit(leaf.asset, leaf.amount);
 
         // The blinding factors have internal hash structure so to special case them for recursive zk we have a constant in deposits
         leaf.blinding = BLINDING;

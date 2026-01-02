@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 import "./Spine.sol";
 import "./SequencerRegistry.sol";
 
-// The component of the challange system which enforces that nullifiers are not repeated
+// The component of the challenge system which enforces that nullifiers are not repeated
 
 contract NullifierChallenge is Spine, SequencerRegistry {
     struct NullifierLoader {
@@ -55,4 +55,3 @@ contract NullifierChallenge is Spine, SequencerRegistry {
         validateSingle(memoryBlobHash, loader.commitment, relativeMemoryAddress, nullifier, loader.proof);
     }
 }
-

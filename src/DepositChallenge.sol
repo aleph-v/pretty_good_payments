@@ -5,17 +5,17 @@ import "./Deposits.sol";
 import "./SequencerRegistry.sol";
 import "./library/PredictableMerkleLib.sol";
 
-// The component of the challange system which enforces deposits are done properly
+// The component of the challenge system which enforces deposits are done properly
 
 contract DepositChallenge is Deposits, SequencerRegistry {
     using PredictableMerkleLib for IUpdateVerifier;
 
-    // We load the block data and we get the expected deposit at a deposits index provided. The challanger
+    // We load the block data and we get the expected deposit at a deposits index provided. The challenger
     // provides a predictable merkle tree update data and also a blob opening proof.
-    function challangeDepositWrongLeaf(
+    function challengeDepositWrongLeaf(
         BlockData memory data,
         uint256 depositNr,
-        bytes32 seqeuncerSubmittedLeaf,
+        bytes32 sequencerSubmittedLeaf,
         bytes calldata commitment,
         bytes calldata proof
     ) external {
@@ -29,11 +29,11 @@ contract DepositChallenge is Deposits, SequencerRegistry {
         // Deposits are Always in the first blob as the max deposits is small enough to fit all deposits in one blob
         // and deposits are always first.
         bytes32 l2blobhash = data.blobhashes[0];
-        validateSingle(l2blobhash, commitment, leafAddress, seqeuncerSubmittedLeaf, proof);
+        validateSingle(l2blobhash, commitment, leafAddress, sequencerSubmittedLeaf, proof);
 
         // We have established that the field at leafAddress is equal to seqeuncerSubmittedLeaf now we check that
         // this is the wrong value
-        require(perBlockDeposits[blockNr][depositNr] != seqeuncerSubmittedLeaf, "No Fraud");
+        require(perBlockDeposits[blockNr][depositNr] != sequencerSubmittedLeaf, "No Fraud");
 
         // Since the seqeuncer submitted the wrong deposit leaf at this index we slash and roll back.
         slash(data.sequencer, blockNr);

@@ -11,7 +11,7 @@ import "./library/PredictableMerkleLib.sol";
 // with 96 bits of first zeros requires roughly 2^96 tries but would only allow theft if you could also find a matching
 // address priv key requring far more bits.
 
-// TODO - We might want to work on an escape hatch or other mechanism, requiring the user to self seqeunce a withdraw tx
+// TODO - We might want to work on an escape hatch or other mechanism, requiring the user to self sequence a withdraw tx
 //        might be too much of a burden if they are being censored (because it requires staking).
 
 contract Withdraw is Spine {
@@ -57,6 +57,6 @@ contract Withdraw is Spine {
 
         // Now process
         withdrawn[blockNr][txNr << 2 + which] = true;
-        //yieldRouter.triggerWithdraw(leaf.asset, leaf.amount, address(leaf.publicKey));
+        yieldRouter.triggerWithdraw(address(leaf.asset), leaf.amount, address(bytes20(leaf.publicKey)));
     }
 }

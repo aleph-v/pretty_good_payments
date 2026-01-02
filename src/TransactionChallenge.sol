@@ -9,7 +9,7 @@ import "./library/PredictableMerkleLib.sol";
 // The component of the challange system which enforces deposits are done properly
 
 contract TransactionChallenge is Spine, SequencerRegistry {
-    function challangeTxZK(
+    function challengeTxZK(
         BlockData memory data,
         uint256 txNr,
         Region calldata region,
@@ -31,7 +31,7 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         require(region.hash == data.blobhashes[firstBlobNumber]);
         require(region.memoryAddress == (memoryAddress % 4096));
         validateRegionOpening(region);
-        // Because tx are 15 elements we can have them aligned at memory region boundries.
+        // Because tx are 15 elements we can have them aligned at memory region boundaries.
         // We check for length 14 because we don't need to open the anchor after (very last in mem)
         if (region.length != 14) {
             // We still want 4 in total

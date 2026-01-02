@@ -4,17 +4,18 @@ pragma solidity ^0.8.13;
 import {BlobData} from "./library/BlobData.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "./interfaces/ITransferVerifier.sol";
+import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
 
 // The core library managing new blocks
 
 contract Spine is BlobData {
     // TODO real number
-    uint256 constant CHALLANGE_PERIOD = 100;
+    uint256 constant CHALLENGE_PERIOD = 100;
     uint256 constant MAX_TX = 4096;
     uint256 constant MAX_DEPOSITS = 1024;
 
     // Needed in the deposit withdraw libs downstream.
-    address immutable yieldRouter;
+    IYieldRouter immutable yieldRouter;
     IUpdateVerifier immutable predictableUpdateVerifier;
     ITransferVerifier immutable transactionZkVerifier;
 
@@ -34,10 +35,10 @@ contract Spine is BlobData {
         bytes24 partialHash;
     }
 
-    // We optimise the storage footprint of submission by storing the hash of the block info
+    // We optimism the storage footprint of submission by storing the hash of the block info
     // to use this block info later we have to provide the whole block
     bytes32[] roots;
-    // We need to store the anchors so they can be looked up in the challange protocol
+    // We need to store the anchors so they can be looked up in the challenge protocol
     // We do a bit of a trick here we only need 64 bits for index so we store 24 bytes of the hash
     // using one store, and can compare this to the block hash, which to break would require two
     // roots matching at 192 bits (birthday attack is 96 bits to attack)
@@ -47,12 +48,12 @@ contract Spine is BlobData {
     event NewRoot(uint256 indexed blocknumber, bytes32 indexed anchor, bytes32 indexed l2BlockHash, BlockData data);
 
     // Pushes a block into the chain of roots, records the data
-    function addBlock(BlockData memory data, uint256[] memory blobIndicies) internal {
+    function addBlock(BlockData memory data, uint256[] memory blobIndices) internal {
         // Enforce the claimed data is correct
         data.timestamp = block.timestamp;
         data.blockNr = roots.length;
-        for (uint256 i = 0; i < blobIndicies.length; i++) {
-            bytes32 hash = blobhash(blobIndicies[i]);
+        for (uint256 i = 0; i < blobIndices.length; i++) {
+            bytes32 hash = blobhash(blobIndices[i]);
             require(hash != 0);
             data.blobhashes[i] = hash;
         }
@@ -98,7 +99,7 @@ contract Spine is BlobData {
         if (!isBlockIncluded(data)) {
             return false;
         }
-        return (data.timestamp + CHALLANGE_PERIOD < block.timestamp);
+        return (data.timestamp + CHALLENGE_PERIOD < block.timestamp);
     }
 
     // Checks that a block is currently in the tree
@@ -120,7 +121,7 @@ contract Spine is BlobData {
         return (partialHash == (bytes24)(roots[uint256(index)]));
     }
 
-    // Checks that the provided anchor is either the anchor after blockNr - 1 or that it is the anchor after udpate given by updateNr in block blockNr
+    // Checks that the provided anchor is either the anchor after blockNr - 1 or that it is the anchor after update given by updateNr in block blockNr
     function validatePriorAnchor(
         bytes32 anchor,
         BlockData memory data,

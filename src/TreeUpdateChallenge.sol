@@ -7,13 +7,13 @@ import "./SequencerRegistry.sol";
 
 // The component of the challange system which enforces deposits are done properly
 
-contract TreeUpdateChallange is Spine, SequencerRegistry {
+contract TreeUpdateChallenge is Spine, SequencerRegistry {
     using PredictableMerkleLib for IUpdateVerifier;
 
-    // Note- the updateNr corresponds to which group of three elements plus root is challanged
+    // Note- the updateNr corresponds to which group of three elements plus root is challenged
     // TODO - This function is requiring us to use via-ir, we could just get better structs, see whats
-    //        natural after the other challange protocols
-    function challangeTreeUpdate(
+    //        natural after the other challenge protocols
+    function challengeTreeUpdate(
         BlockData memory data,
         uint256 updateNr,
         bool isTx,
@@ -41,7 +41,7 @@ contract TreeUpdateChallange is Spine, SequencerRegistry {
         require(region.hash == data.blobhashes[firstBlobNumber]);
         require(region.memoryAddress == (memoryAddress % 4096));
         validateRegionOpening(region);
-        // Because tx are 15 elements we can have them aligned at memory region boundries.
+        // Because tx are 15 elements we can have them aligned at memory region boundaries.
         if (region.length != 4) {
             // We still want 4 in total
             assert(region.length + extensionRegion.length == 4);
@@ -52,8 +52,8 @@ contract TreeUpdateChallange is Spine, SequencerRegistry {
             validateRegionOpening(extensionRegion);
         }
 
-        // Now we have validated that the positions that the seqeuncer submitted are equal to claimed seqeuncerSubmittedData
-        // So we have to check that the prior anchor when updated is not equal to seqeuncerSubmittedData[3] which is the new root
+        // Now we have validated that the positions that the sequencer submitted are equal to claimed sequencerSubmittedData
+        // So we have to check that the prior anchor when updated is not equal to sequencerSubmittedData[3] which is the new root
         validatePriorAnchor(priorAnchor, data, updateNr, isTx, priorAnchorCommitment, priorAnchorProof);
 
         // Now we can prove that the update from priorAnchor to current anchor is not correct using the zk update proof
@@ -64,24 +64,23 @@ contract TreeUpdateChallange is Spine, SequencerRegistry {
         uint256 absoluteIndex = region.memoryAddress + 2;
         zkProofInputs[4] = absoluteIndex >= 4096 ? extensionRegion.data[absoluteIndex % 4096] : region.data[2];
         absoluteIndex = region.memoryAddress + 3;
-        bytes32 seqeuncerSubmitedRoot =
+        bytes32 sequencerSubmittedRoot =
             absoluteIndex >= 4096 ? extensionRegion.data[absoluteIndex % 4096] : region.data[3];
 
         // This call validates a zk update proof that the update of the prior anchor with the three new leaves equals
         // the "true anchor" provided by the caller.
-        require(predictableUpdateVerifier.verfiyPredictableUpdate(zkProofInputs, zk), "Invalid ZK update proof");
+        require(predictableUpdateVerifier.verifyPredictableUpdate(zkProofInputs, zk), "Invalid ZK update proof");
 
-        // We have two options (1) that the seqeuncer has not added the correct root to the blob
-        // (2) that if this is the last tx in the block that the seqeuncer has set their "anchor" field correctly
-        if (trueAnchor == seqeuncerSubmitedRoot) {
+        // We have two options (1) that the sequencer has not added the correct root to the blob
+        // (2) that if this is the last tx in the block that the sequencer has set their "anchor" field correctly
+        if (trueAnchor == sequencerSubmittedRoot) {
             bool isLast =
                 (updateNr == data.numTransactions) || (data.numTransactions == 0 && updateNr == data.numDeposits);
             require(isLast && trueAnchor != data.anchor, "No Fraud");
         } // the else here is just that you should be slashed
 
-        // Since the seqeuncer submitted the wrong deposit leaf at this index we slash and roll back.
+        // Since the sequencer submitted the wrong deposit leaf at this index we slash and roll back.
         slash(data.sequencer, data.blockNr);
         rollback(data.blockNr);
     }
 }
-
