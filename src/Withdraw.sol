@@ -52,11 +52,10 @@ contract Withdraw is Spine {
 
         // Next we check that the leaf is actually withdrawable
         // The user submits a transaction which is to a key which
-        // TODO - New Wwithdraw scheme
-        require(leaf.publicKey >> 160 == 0);
+        require(leaf.publicKey == 0);
 
         // Now process
         withdrawn[blockNr][txNr << 2 + which] = true;
-        yieldRouter.triggerWithdraw(address(leaf.asset), leaf.amount, address(bytes20(leaf.publicKey)));
+        yieldRouter.triggerWithdraw(address(leaf.asset), leaf.amount, address(bytes20(leaf.blinding)));
     }
 }
