@@ -5,6 +5,7 @@ import {BlobData} from "./library/BlobData.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "./interfaces/ITransferVerifier.sol";
 import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
+import {ITransactionRegistry} from "./TransactionRegistry.sol";
 
 // The core library managing new blocks
 
@@ -18,6 +19,7 @@ contract Spine is BlobData {
     IYieldRouter immutable yieldRouter;
     IUpdateVerifier immutable predictableUpdateVerifier;
     ITransferVerifier immutable transactionZkVerifier;
+    ITransactionRegistry immutable transferRegistry;
 
     // The anchor is the root of the merkle tree at the end of this block
     struct BlockData {

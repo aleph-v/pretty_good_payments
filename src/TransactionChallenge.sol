@@ -14,10 +14,10 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         uint256 txNr,
         Region calldata region,
         Region calldata extensionRegion,
+        bytes32 anchor,
+        BlockData memory priorAnchorBlock,
         bytes calldata priorAnchorCommitment,
-        bytes calldata priorAnchorProof,
-        uint256 priorRootBlock,
-        uint256 priorRootTx
+        bytes calldata priorAnchorProof
     ) external {
         // Check the block is in the tree
         require(isBlockIncluded(data));
@@ -57,18 +57,84 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         _pB[0] = [uint256(raw[2]), uint256(raw[3])];
         _pB[1] = [uint256(raw[4]), uint256(raw[5])];
         uint256[2] memory _pC = [uint256(raw[6]), uint256(raw[7])];
-        uint256[6] memory publicInputs =
-            [uint256(raw[8]), uint256(raw[9]), uint256(raw[10]), uint256(raw[11]), uint256(raw[12]), uint256(raw[13])];
+        // We decode the encoded root and ethereum key information
+        (uint256 anchorBlockNr, uint256 anchorUpdateNr, bool isDeposit, address ethKey) = decodeTxInfo(bytes32(raw[8]));
+        uint256[7] memory publicInputs =
+            [0, uint256(uint160(ethKey)), uint256(raw[9]), uint256(raw[10]), uint256(raw[11]), uint256(raw[12]), uint256(raw[13])];
 
-        // TODO - We want a more comprehensive system for prior roots with IDs, now we just check that the anchor was included
-        bool anchorIncluded = isAnchorIncluded(raw[8]);
-        // TODO - Is it possible to break the system by including a tx with a ref to a future anchor? (I think it would then include a hash of itself making it upredictable)
-        bool proofVerifies = transactionZkVerifier.verifyProof(_pA, _pB, _pC, publicInputs);
 
-        // Either the anchor is not included or
-        require((!anchorIncluded) || (!proofVerifies), "No Fraud");
+        bool noFraud = anchorBlockNr <= data.blockNr;
+        if (anchorBlockNr == data.blockNr) {
+            // If we are loading a tx in the same block we require it is less than this tx (or that it is a deposit)
+            noFraud = noFraud && (anchorUpdateNr < txNr || isDeposit);
+        }
+
+        // If the transaction has not been set with invalid update or block numbers then we check that the challenger
+        // has given the correct block and if so that the transaction has valid anchor ref values (ie not more than tx num)
+        if (noFraud) {
+            require(isBlockIncluded(priorAnchorBlock), "Invalid anchor block info");
+            require(priorAnchorBlock.blockNr == anchorBlockNr, "Invalid anchor block info");
+
+            // Checks if the user has submitted an invalid update number
+            noFraud = isDeposit
+                ? anchorUpdateNr <= priorAnchorBlock.numDeposits
+                : anchorUpdateNr < priorAnchorBlock.numTransactions;
+        }
+
+        // If the user has not formatted the reference to the anchor wrong we validate that the challenger has given us the correct
+        // anchor for that combo of block number and update number then use that as the anchor for the zk and check if the transaction
+        // zk proof is correct.
+        if (noFraud) {
+            // Now we show that the challenger has provided the anchor at the actual index of the user's tx
+            validatePriorAnchor(
+                anchor, priorAnchorBlock, anchorUpdateNr, isDeposit, priorAnchorCommitment, priorAnchorProof
+            );
+            // Finally we validate the zk proof
+            publicInputs[0] = uint256(anchor);
+            noFraud = transactionZkVerifier.verifyProof(_pA, _pB, _pC, publicInputs);
+        }
+
+        // If the rest of the transaction is valid and correctly formatted we check for the case that this is an ethereum keyed
+        // transaction and check that the proof is missing its approval in the transaction registry
+        if (noFraud) {
+            // If the eth key is address zero and the proof validates there is no fraud and we revert
+            require(ethKey != address(0));
+            // quick assembly conversion to get the fields
+            bytes32[5] memory fields;
+            assembly ("memory-safe") {
+                fields := add(publicInputs, 32)
+            }
+            // Since all other fraud opportunities have been excused we require the fraud is here by requiring the query to return false.
+            require(!transferRegistry.query(ethKey, fields));
+        }
 
         slash(data.sequencer, data.blockNr);
         rollback(data.blockNr);
+    }
+
+    /// @notice Encodes the block number transaction number and address into a bytes32
+    /// @param blockNr The block number
+    /// @param updateNr The tree update number
+    /// @param isDeposit If the update is a deposit this is true if it is a transaction this is false
+    /// @param ethAddress The eth address to encode
+    function encodeTxIntoBytes32(uint32 blockNr, uint32 updateNr, bool isDeposit, address ethAddress)
+        external
+        pure
+        returns (bytes32 ret)
+    {
+        ret = isDeposit ? bytes32(uint256(1) << 255) : bytes32(uint256(0));
+        ret = ret | bytes32((uint256(blockNr) << 223) + (uint256(updateNr) << 195));
+        ret = ret | bytes32(bytes20(ethAddress));
+    }
+
+    /// @notice Decodes block number tx number and address from bytes32
+    /// @param data The encoded 32 byte blob
+    /// @return (blockNr, txNr, ethAddress)
+    function decodeTxInfo(bytes32 data) public pure returns (uint256, uint256, bool, address) {
+        bool isDeposit = data & bytes32(uint256(1) << 255) != bytes32(0);
+        uint256 blockNr = uint256((data << 1) >> 224);
+        uint256 txNr = uint256((data << 33) >> 224);
+        address ethAddress = address(bytes20((data << 76) >> 76));
+        return (blockNr, txNr, isDeposit, ethAddress);
     }
 }
