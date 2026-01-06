@@ -5,7 +5,7 @@ import "./library/PredictableMerkleLib.sol";
 import "./Spine.sol";
 import "./SequencerRegistry.sol";
 
-// The component of the challange system which enforces deposits are done properly
+// The component of the challenge system which enforces deposits are done properly
 
 contract TreeUpdateChallenge is Spine, SequencerRegistry {
     using PredictableMerkleLib for IUpdateVerifier;
@@ -23,7 +23,8 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         bytes calldata priorAnchorCommitment,
         bytes calldata priorAnchorProof,
         bytes32 trueAnchor,
-        Proof memory zk
+        Proof memory zk,
+        BlockData memory rollbackTargetBlock
     ) external {
         // Check the block is in the tree
         require(isBlockIncluded(data));
@@ -56,10 +57,12 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         // So we have to check that the prior anchor when updated is not equal to sequencerSubmittedData[3] which is the new root
         validatePriorAnchor(priorAnchor, data, updateNr, isTx, priorAnchorCommitment, priorAnchorProof);
 
+        // We calculate the actual block index as the day*blocksPerDay + blockIndex
+        uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
+
         // Now we can prove that the update from priorAnchor to current anchor is not correct using the zk update proof
-        // TODO - Fix block index in tree
         bytes32[6] memory zkProofInputs =
-            [priorAnchor, bytes32(uint256(0)), region.data[0], bytes32(uint256(0)), bytes32(uint256(0)), trueAnchor];
+            [priorAnchor, bytes32(treeIndex), region.data[0], bytes32(uint256(0)), bytes32(uint256(0)), trueAnchor];
         zkProofInputs[3] = region.memoryAddress + 1 == 4096 ? extensionRegion.data[0] : region.data[1];
         uint256 absoluteIndex = region.memoryAddress + 2;
         zkProofInputs[4] = absoluteIndex >= 4096 ? extensionRegion.data[absoluteIndex % 4096] : region.data[2];
@@ -81,6 +84,6 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
 
         // Since the sequencer submitted the wrong deposit leaf at this index we slash and roll back.
         slash(data.sequencer, data.blockNr);
-        rollback(data.blockNr);
+        rollback(data.blockNr, rollbackTargetBlock);
     }
 }

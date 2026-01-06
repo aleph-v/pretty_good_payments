@@ -6,7 +6,7 @@ import "./SequencerRegistry.sol";
 import "./library/BlobData.sol";
 import "./library/PredictableMerkleLib.sol";
 
-// The component of the challange system which enforces deposits are done properly
+// The component of the challenge system which enforces deposits are done properly
 
 contract TransactionChallenge is Spine, SequencerRegistry {
     function challengeTxZK(
@@ -17,7 +17,8 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         bytes32 anchor,
         BlockData memory priorAnchorBlock,
         bytes calldata priorAnchorCommitment,
-        bytes calldata priorAnchorProof
+        bytes calldata priorAnchorProof,
+        BlockData memory rollbackTargetBlock
     ) external {
         // Check the block is in the tree
         require(isBlockIncluded(data));
@@ -59,9 +60,15 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         uint256[2] memory _pC = [uint256(raw[6]), uint256(raw[7])];
         // We decode the encoded root and ethereum key information
         (uint256 anchorBlockNr, uint256 anchorUpdateNr, bool isDeposit, address ethKey) = decodeTxInfo(bytes32(raw[8]));
-        uint256[7] memory publicInputs =
-            [0, uint256(uint160(ethKey)), uint256(raw[9]), uint256(raw[10]), uint256(raw[11]), uint256(raw[12]), uint256(raw[13])];
-
+        uint256[7] memory publicInputs = [
+            0,
+            uint256(uint160(ethKey)),
+            uint256(raw[9]),
+            uint256(raw[10]),
+            uint256(raw[11]),
+            uint256(raw[12]),
+            uint256(raw[13])
+        ];
 
         bool noFraud = anchorBlockNr <= data.blockNr;
         if (anchorBlockNr == data.blockNr) {
@@ -109,7 +116,7 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         }
 
         slash(data.sequencer, data.blockNr);
-        rollback(data.blockNr);
+        rollback(data.blockNr, rollbackTargetBlock);
     }
 
     /// @notice Encodes the block number transaction number and address into a bytes32

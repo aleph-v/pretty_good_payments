@@ -14,6 +14,7 @@ interface ITransactionRegistry {
 
 /// TODO - There is an edge case griefing here where a sequencer withholds an approval tx then tries to front run a
 ///        challenge transaction -- will not fix, recommend private relayer
+/// TODO - Add a path to sign approvals instead of directly calling
 contract TransactionRegistry {
     mapping(bytes32 => bool) public allowed;
 

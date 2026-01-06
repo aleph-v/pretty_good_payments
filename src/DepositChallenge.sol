@@ -17,7 +17,8 @@ contract DepositChallenge is Deposits, SequencerRegistry {
         uint256 depositNr,
         bytes32 sequencerSubmittedLeaf,
         bytes calldata commitment,
-        bytes calldata proof
+        bytes calldata proof,
+        BlockData memory priorBlock
     ) external {
         uint256 blockNr = data.blockNr;
         // Check the block is in the tree
@@ -37,6 +38,6 @@ contract DepositChallenge is Deposits, SequencerRegistry {
 
         // Since the seqeuncer submitted the wrong deposit leaf at this index we slash and roll back.
         slash(data.sequencer, blockNr);
-        rollback(data.blockNr);
+        rollback(data.blockNr, priorBlock);
     }
 }

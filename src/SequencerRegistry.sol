@@ -2,15 +2,15 @@
 pragma solidity ^0.8.13;
 
 import {Ownable} from "solady/auth/Ownable.sol";
+import {Spine} from "./Spine.sol";
 
 // The module which handles the registration of the sequencers
 
 // TODO - Yield System integration, need weth support
 
-contract SequencerRegistry is Ownable {
+contract SequencerRegistry is Spine, Ownable {
     uint256 constant EPOCH_LENGTH = 10;
     uint256 constant CHALLENGE_WINDOW = 10;
-    uint256 immutable START = block.timestamp;
     // Allows at most denoms of 1/10000th of an ether
     uint256 constant STAKE_DIVISOR = 10 ^ 14;
     uint256 constant MAX_STAKE = 200 ether / STAKE_DIVISOR;

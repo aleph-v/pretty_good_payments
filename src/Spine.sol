@@ -21,6 +21,16 @@ contract Spine is BlobData {
     ITransferVerifier immutable transactionZkVerifier;
     ITransactionRegistry immutable transferRegistry;
 
+    struct TimestampAndIndex {
+        uint128 day;
+        uint128 index;
+    }
+    // Helps track the actual block index
+
+    TimestampAndIndex lastTimestamp;
+    uint256 constant DAY = 86400;
+    uint256 immutable START = block.timestamp;
+
     // The anchor is the root of the merkle tree at the end of this block
     struct BlockData {
         bytes32 anchor;
@@ -28,6 +38,7 @@ contract Spine is BlobData {
         uint256 numTransactions;
         uint256 numDeposits;
         uint256 blockNr;
+        TimestampAndIndex blockIndex;
         address sequencer;
         bytes32[] blobhashes;
     }
@@ -62,6 +73,13 @@ contract Spine is BlobData {
         require(data.numDeposits <= MAX_DEPOSITS);
         require(data.numTransactions <= MAX_TX);
 
+        // The tree is split such that each day we start in a new subbranch to track this using the prior block
+        uint256 actualDay = (block.timestamp - START) / DAY;
+        uint256 nextBlock = lastTimestamp.day == actualDay ? lastTimestamp.index + 1 : 0;
+        TimestampAndIndex memory timestamp = TimestampAndIndex(uint128(actualDay), uint128(nextBlock));
+        lastTimestamp = timestamp;
+        data.blockIndex = timestamp;
+
         // TODO - Meter the gas use possible opt target
         bytes32 l2BlockHash = keccak256(abi.encode(data));
 
@@ -81,10 +99,15 @@ contract Spine is BlobData {
     event Rollback(uint256 from, uint256 to);
 
     // Uses assembly to rollback the state array
-    function rollback(uint256 index) internal {
+    function rollback(uint256 index, BlockData memory priorBlock) internal {
         // TODO - Should we enforce no rollback to timestamps which are too old?
         require(index < roots.length);
         emit Rollback(roots.length, index);
+
+        // TODO - Meter the gas use possible opt target
+        bytes32 l2BlockHash = keccak256(abi.encode(priorBlock));
+        require(l2BlockHash == roots[index - 1]);
+        lastTimestamp = priorBlock.blockIndex;
 
         assembly {
             sstore(roots.slot, index)

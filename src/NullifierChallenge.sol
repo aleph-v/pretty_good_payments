@@ -21,7 +21,8 @@ contract NullifierChallenge is Spine, SequencerRegistry {
     function challengeNullifier(
         bytes32 reusedNullifier,
         NullifierLoader calldata first,
-        NullifierLoader calldata second
+        NullifierLoader calldata second,
+        BlockData memory rollbackTargetBlock
     ) external {
         // We cannot open the same nullifier to prove reuse
         if (first.data.blockNr == second.data.blockNr) {
@@ -37,7 +38,7 @@ contract NullifierChallenge is Spine, SequencerRegistry {
 
         // Rollback the second time we saw the nullifier
         slash(second.data.sequencer, second.data.blockNr);
-        rollback(second.data.blockNr);
+        rollback(second.data.blockNr, rollbackTargetBlock);
     }
 
     function validateNullifierOpening(NullifierLoader calldata loader, bytes32 nullifier) internal view {
