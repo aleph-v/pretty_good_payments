@@ -19,7 +19,7 @@ contract Deposits is Spine {
     using PredictableMerkleLib for Leaf;
 
     // A preset constant blinding factor set less than the BLS modulus
-    bytes32 constant BLINDING = keccak256("0x") & bytes32(uint256(2 ** 255 - 1));
+    bytes32 constant BLINDING = keccak256("0x") & bytes32(uint256(2 ** 252 - 1));
     uint256 highestDeposit;
     //Records the required deposits in each block
     mapping(uint256 => bytes32[]) public perBlockDeposits;

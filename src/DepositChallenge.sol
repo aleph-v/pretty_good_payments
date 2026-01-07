@@ -36,7 +36,7 @@ contract DepositChallenge is Deposits, SequencerRegistry {
         // this is the wrong value
         require(perBlockDeposits[blockNr][depositNr] != sequencerSubmittedLeaf, "No Fraud");
 
-        // Since the seqeuncer submitted the wrong deposit leaf at this index we slash and roll back.
+        // Since the sequencer submitted the wrong deposit leaf at this index we slash and roll back.
         slash(data.sequencer, blockNr);
         rollback(data.blockNr, priorBlock);
     }

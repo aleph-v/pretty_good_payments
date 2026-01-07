@@ -6,7 +6,7 @@ include "bitify.circom";
 include "comparators.circom";
 
 // Note format:
-// [asset id - 252 bit][amount - 180 bits][bliding factor - 252 bits][public key - 252 bits]
+// [asset id - 252 bit][amount - 180 bits][blinding factor - 252 bits][public key - 252 bits]
 // Here we use preimages as keys: eg we enforce that public key = poseidon(private key)
 // Blinding factor is derived from hash(rand, hash(leaf0, leaf1))
 // Nullifiers are derived as hash(privateKey, blindingFactor, index)
@@ -15,26 +15,6 @@ include "comparators.circom";
 // We provide two input paths, the second is optional. 
 // We provide three output notes so you can send partial value and create a fee note.
 
-// Ethereum owned accounts:
-// An account with a private key with less than 180 bits is considered ethereum owned. When an account is
-// ethereum owned a public input ethKey is turned on which must be equal to the private key (eg the eth address)
-// When the public input is set the verifier contract will enforce that the eth address which is the public input
-// has recorded approval for this transaction by signing the output notes and nullifiers.
-// Ethereum owned accounts do not have sender privacy for transactions which are initiated using permission from the
-// ethereum l1, but have amount and destination sender privacy.
-
-// Keyless actions:
-// Ethereum owned accounts can be withdrawn without authorization from the eth L1 because they must be withdrawn onto L1
-// WARNING - Because of this they should use strong key management contracts (eg not multi caller like contracts)
-// Ethereum owned accounts can have their notes merged or split without authorization from the ethereum L1.
-// This is done intentionally to allow a form of delegated note management, where a semi trusted l2 note manager
-// can collect a large number of payments to an ethereum EOA, consolidate them and then transfer them to the L1 without
-// requiring ethereum l1 transactions, increasing privacy for the recipient over many withdraws of specific amounts.
-// WARNING - Ethereum owned account notes can therefore be abused by whoever knows the blinding factor, we recommend
-//           that when receiving funds controlled by an ethereum account the receiver EOA owner transfer again to
-//           a private blinding factor note. 
-// WARNING - Since 0 is considered a special case input in the ethereum l1 contract, accounts owned by the ethereum owned 0 address
-//           can be used and spent by any user. To burn assets you must send them public key == 0 or ethereum key == 0xdead
 
 // Withdraws:
 // Withdraws are initiated by sending notes to a public key equal to zero, and then setting the blinding factor to
@@ -163,10 +143,10 @@ template IsEthKeyed() {
    signal input key;
    signal output isEthKeyed;
 
-   var binary[254] = Num2Bits(254)(key);
+   var binary[252] = Num2Bits(252)(key);
    var bitsum = 0;
-   for(var i = 0; i < 74; i++) {
-      bitsum += binary[180 + i];
+   for(var i = 0; i < 96; i++) {
+      bitsum += binary[160 + i];
    }
    isEthKeyed <== IsZero()(bitsum);
 }

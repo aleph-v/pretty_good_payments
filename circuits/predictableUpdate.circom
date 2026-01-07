@@ -6,7 +6,6 @@ include "comparators.circom";
 
 // Doing the poseidon tree update onchain would cost around over 200 poseidon hashes and therefore cost 4 million gas
 // therefore we do a small zk compression of the proof.
-// NOTE - need to check that the 
 
 template PredictableUpdate () { 
 
@@ -31,7 +30,7 @@ template PredictableUpdate () {
     var computedRoot = BinaryMerkleRoot(12)(nonzeroField, 12, inBlockIndex - isIndexNonZero, blockProofs[0]);
     var isRootEqual = IsEqual()([computedRoot, blockRootBefore]);
     // Enforces root equal and the field at index-1 is not zero
-    // If the index is equal to zero, then isElementNonzero will be 0 (as no nonzero elemnts are in the tree)
+    // If the index is equal to zero, then isElementNonzero will be 0 (as no nonzero elements are in the tree)
     // and isIndexZero will be 1. Otherwise isIndexZero is 0 and both isRootEqual and isElementNonzero must be 1 to pass.
     1 === isRootEqual*isElementNonzero + isIndexZero;
 

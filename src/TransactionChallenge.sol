@@ -35,10 +35,10 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         // Because tx are 15 elements we can have them aligned at memory region boundaries.
         // We check for length 14 because we don't need to open the anchor after (very last in mem)
         if (region.length != 14) {
-            // We still want 4 in total
-            assert(region.length + extensionRegion.length == 4);
+            // We still want 14 in total
+            assert(region.length + extensionRegion.length == 14);
             // We enforce that this actually at the end of the blob.
-            assert(region.memoryAddress + region.length + 1 == 4096);
+            assert((region.memoryAddress + region.length + 1) % 4096 == 0);
             require(extensionRegion.hash == data.blobhashes[firstBlobNumber + 1]);
             require(extensionRegion.memoryAddress == 0);
             validateRegionOpening(extensionRegion);

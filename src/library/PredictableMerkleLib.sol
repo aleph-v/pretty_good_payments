@@ -63,9 +63,9 @@ library PredictableMerkleLib {
         return verifier.verifyProof(proof._pA, proof._pB, proof._pC, converted);
     }
 
-    /// @notice Computes the hash of a leaf in the tree using posiedon
+    /// @notice Computes the hash of a leaf in the tree using poseidon
     /// @param leaf The leaf
-    /// @dev Note that we are doing a width 4 for the leaves and a width 2 in the tree, so do not use a domain seprator for leaves
+    /// @dev Note that we are doing a width 4 for the leaves and a width 2 in the tree, so do not use a domain separator for leaves
     function hash(Leaf memory leaf) public pure returns (bytes32) {
         bytes32[4] memory data = [(bytes32)(bytes20(leaf.asset)), (bytes32)(leaf.amount), leaf.blinding, leaf.publicKey];
         // Hashes a leaf, should match the hash in the zk proof.
