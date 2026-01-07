@@ -72,6 +72,7 @@ contract Spine is BlobData {
         }
         require(data.numDeposits <= MAX_DEPOSITS);
         require(data.numTransactions <= MAX_TX);
+        require(data.numDeposits * 4 + data.numTransactions * 15 < 4096 * blobIndices.length);
 
         // The tree is split such that each day we start in a new subbranch to track this using the prior block
         uint256 actualDay = (block.timestamp - START) / DAY;
