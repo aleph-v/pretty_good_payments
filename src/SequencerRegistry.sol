@@ -131,7 +131,7 @@ contract SequencerRegistry is Spine, Ownable {
         // Delete from array
         uint256 lenAfter = firstLookSequencers.length - 1;
         firstLookSequencers[which] = firstLookSequencers[lenAfter];
-        assembly {
+        assembly  ("memory-safe") {
             sstore(firstLookSequencers.slot, lenAfter)
         }
     }

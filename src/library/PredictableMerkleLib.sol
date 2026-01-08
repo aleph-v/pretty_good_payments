@@ -57,7 +57,7 @@ library PredictableMerkleLib {
         returns (bool)
     {
         uint256[6] memory converted;
-        assembly {
+        assembly  ("memory-safe")  {
             converted := publicInputs
         }
         return verifier.verifyProof(proof._pA, proof._pB, proof._pC, converted);

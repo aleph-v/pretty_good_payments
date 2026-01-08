@@ -11,15 +11,17 @@ import {ITransactionRegistry} from "./TransactionRegistry.sol";
 
 contract Spine is BlobData {
     // TODO real number
-    uint256 constant CHALLENGE_PERIOD = 100;
-    uint256 constant MAX_TX = 4096;
-    uint256 constant MAX_DEPOSITS = 1024;
+    uint256 constant public CHALLENGE_PERIOD = 100;
+    uint256 constant public MAX_TX = 4096;
+    // Each deposit is a single field plus one root for three deposits, and we want them to fit in one blob (3072/3) + 3072 = 4096
+    uint256 constant public MAX_DEPOSITS = 3072;
+    bytes32 immutable public GENESIS_ANCHOR;
 
     // Needed in the deposit withdraw libs downstream.
-    IYieldRouter immutable yieldRouter;
-    IUpdateVerifier immutable predictableUpdateVerifier;
-    ITransferVerifier immutable transactionZkVerifier;
-    ITransactionRegistry immutable transferRegistry;
+    IYieldRouter immutable public yieldRouter;
+    IUpdateVerifier immutable public predictableUpdateVerifier;
+    ITransferVerifier immutable public transactionZkVerifier;
+    ITransactionRegistry immutable public transferRegistry;
 
     struct TimestampAndIndex {
         uint128 day;
@@ -27,7 +29,7 @@ contract Spine is BlobData {
     }
     // Helps track the actual block index
 
-    TimestampAndIndex lastTimestamp;
+    TimestampAndIndex public lastTimestamp;
     uint256 constant DAY = 86400;
     uint256 immutable START = block.timestamp;
 
@@ -72,11 +74,16 @@ contract Spine is BlobData {
         }
         require(data.numDeposits <= MAX_DEPOSITS);
         require(data.numTransactions <= MAX_TX);
-        require(data.numDeposits * 4 + data.numTransactions * 15 < 4096 * blobIndices.length);
+        uint256 depositBlobUse = data.numDeposits % 3 == 0? (data.numDeposits/3)*4: (data.numDeposits/3 + 1)*4;
+        require(depositBlobUse + data.numTransactions * 15 < 4096 * blobIndices.length);
 
         // The tree is split such that each day we start in a new subbranch to track this using the prior block
         uint256 actualDay = (block.timestamp - START) / DAY;
         uint256 nextBlock = lastTimestamp.day == actualDay ? lastTimestamp.index + 1 : 0;
+        if (roots.length == 0) {
+            // Case for the very first block ever
+            nextBlock = 0;
+        }
         TimestampAndIndex memory timestamp = TimestampAndIndex(uint128(actualDay), uint128(nextBlock));
         lastTimestamp = timestamp;
         data.blockIndex = timestamp;
@@ -106,11 +113,15 @@ contract Spine is BlobData {
         emit Rollback(roots.length, index);
 
         // TODO - Meter the gas use possible opt target
-        bytes32 l2BlockHash = keccak256(abi.encode(priorBlock));
-        require(l2BlockHash == roots[index - 1]);
-        lastTimestamp = priorBlock.blockIndex;
+        if(index != 0) {
+            bytes32 l2BlockHash = keccak256(abi.encode(priorBlock));
+            require(l2BlockHash == roots[index - 1], "Prior Root Mismatch");
+            lastTimestamp = priorBlock.blockIndex;
+        } else {
+            lastTimestamp = TimestampAndIndex(0, 0);
+        }
 
-        assembly {
+        assembly ("memory-safe") {
             sstore(roots.slot, index)
         }
     }
@@ -136,6 +147,10 @@ contract Spine is BlobData {
 
     // We can use this function to check if anchor exists in the current tree (ie not reorged)
     function isAnchorIncluded(bytes32 anchor) public view returns (bool) {
+        if (anchor == GENESIS_ANCHOR) {
+            return(true);
+        }
+
         uint64 index = anchorToIndex[anchor].index;
         bytes24 partialHash = anchorToIndex[anchor].partialHash;
         if (uint256(index) >= roots.length) {
@@ -160,7 +175,11 @@ contract Spine is BlobData {
         // then we check that the index of anchor is equal to blockNr - 1
         if ((isDeposit && updateNr == 0) || (data.numDeposits == 0 && updateNr == 0)) {
             require(isAnchorIncluded(anchor));
-            require(anchorToIndex[anchor].index == data.blockNr - 1);
+            if(data.blockNr == 0) {
+                require(anchor == GENESIS_ANCHOR);
+            } else {
+                require(anchorToIndex[anchor].index == data.blockNr - 1);
+            }
             return;
         }
         // Since we are not in the easy case we have to compute the location of the prior root in blob memory and validate with a proof

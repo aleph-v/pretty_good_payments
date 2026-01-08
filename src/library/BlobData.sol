@@ -34,20 +34,10 @@ contract BlobData {
         bytes32 hash;
     }
 
-    // Next we want some functions related to the actual blob layout
-
-    function parseIndexInfo(uint256 index) internal pure returns (uint256, uint256, uint256) {
-        require(index < 2 ** TREE_DEPTH);
-        uint256 day = index >> DAY_DEPTH + BLOCK_DEPTH;
-        uint256 blockNr = (index >> BLOCK_DEPTH) & ((2 ** DAY_DEPTH) - 1);
-        uint256 txNr = index & ((2 ** BLOCK_DEPTH) - 1);
-        return (day, blockNr, txNr);
-    }
-
     // Each deposit is a single field but for each 3 deposits we have to include a root.
-    function numDepositsToMemoryLength(uint256 num) private pure returns (uint256) {
+    function numDepositsToMemoryLength(uint256 num) internal pure returns (uint256) {
         uint256 depositRounding = num % 3 == 0 ? 0 : 1;
-        return (num + num / 3 + depositRounding);
+        return ((num / 3 + depositRounding)*4);
     }
 
     function txMemoryAddress(uint256 txNumber, uint256 numDeposits) internal pure returns (uint256) {
@@ -141,7 +131,7 @@ contract BlobData {
         // the bit reversed root of unity for that index is equal to the data field
         uint256 evalRoot = bitReversedRoot(index);
 
-        assembly {
+        assembly ("memory-safe") {
             let ptr := mload(0x40)
             // Load the inputs for the point evaluation precompile into memory. The inputs to the point evaluation
             // precompile are packed, and not supposed to be ABI-encoded.
@@ -179,7 +169,7 @@ contract BlobData {
         return (exp(ROOT, reversed));
     }
 
-    // Should give good preformance for our exp < 4096 compared to modexp
+    // Should give good performance for our exp < 4096 compared to modexp
     function exp(uint256 b, uint256 e) internal pure returns (uint256) {
         if (e == 0) {
             return (1);
