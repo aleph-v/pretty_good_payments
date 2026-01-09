@@ -11,17 +11,17 @@ import {ITransactionRegistry} from "./TransactionRegistry.sol";
 
 contract Spine is BlobData {
     // TODO real number
-    uint256 constant public CHALLENGE_PERIOD = 100;
-    uint256 constant public MAX_TX = 4096;
+    uint256 public constant CHALLENGE_PERIOD = 100;
+    uint256 public constant MAX_TX = 4096;
     // Each deposit is a single field plus one root for three deposits, and we want them to fit in one blob (3072/3) + 3072 = 4096
-    uint256 constant public MAX_DEPOSITS = 3072;
-    bytes32 immutable public GENESIS_ANCHOR;
+    uint256 public constant MAX_DEPOSITS = 3072;
+    bytes32 public immutable GENESIS_ANCHOR;
 
     // Needed in the deposit withdraw libs downstream.
-    IYieldRouter immutable public yieldRouter;
-    IUpdateVerifier immutable public predictableUpdateVerifier;
-    ITransferVerifier immutable public transactionZkVerifier;
-    ITransactionRegistry immutable public transferRegistry;
+    IYieldRouter public immutable yieldRouter;
+    IUpdateVerifier public immutable predictableUpdateVerifier;
+    ITransferVerifier public immutable transactionZkVerifier;
+    ITransactionRegistry public immutable transferRegistry;
 
     struct TimestampAndIndex {
         uint128 day;
@@ -74,7 +74,7 @@ contract Spine is BlobData {
         }
         require(data.numDeposits <= MAX_DEPOSITS);
         require(data.numTransactions <= MAX_TX);
-        uint256 depositBlobUse = data.numDeposits % 3 == 0? (data.numDeposits/3)*4: (data.numDeposits/3 + 1)*4;
+        uint256 depositBlobUse = data.numDeposits % 3 == 0 ? (data.numDeposits / 3) * 4 : (data.numDeposits / 3 + 1) * 4;
         require(depositBlobUse + data.numTransactions * 15 < 4096 * blobIndices.length);
 
         // The tree is split such that each day we start in a new subbranch to track this using the prior block
@@ -113,7 +113,7 @@ contract Spine is BlobData {
         emit Rollback(roots.length, index);
 
         // TODO - Meter the gas use possible opt target
-        if(index != 0) {
+        if (index != 0) {
             bytes32 l2BlockHash = keccak256(abi.encode(priorBlock));
             require(l2BlockHash == roots[index - 1], "Prior Root Mismatch");
             lastTimestamp = priorBlock.blockIndex;
@@ -148,7 +148,7 @@ contract Spine is BlobData {
     // We can use this function to check if anchor exists in the current tree (ie not reorged)
     function isAnchorIncluded(bytes32 anchor) public view returns (bool) {
         if (anchor == GENESIS_ANCHOR) {
-            return(true);
+            return (true);
         }
 
         uint64 index = anchorToIndex[anchor].index;
@@ -175,7 +175,7 @@ contract Spine is BlobData {
         // then we check that the index of anchor is equal to blockNr - 1
         if ((isDeposit && updateNr == 0) || (data.numDeposits == 0 && updateNr == 0)) {
             require(isAnchorIncluded(anchor));
-            if(data.blockNr == 0) {
+            if (data.blockNr == 0) {
                 require(anchor == GENESIS_ANCHOR);
             } else {
                 require(anchorToIndex[anchor].index == data.blockNr - 1);

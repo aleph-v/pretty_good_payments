@@ -129,13 +129,13 @@ contract CounterTest is Test {
 
     function test_NumDepositsToMemoryLength_EdgeCases() public view {
         // Partial groups round up
-        assertEq(blob.numDepositsToMemoryLengthTest(4), 8);  // (1 + 1) * 4
-        assertEq(blob.numDepositsToMemoryLengthTest(5), 8);  // (1 + 1) * 4
+        assertEq(blob.numDepositsToMemoryLengthTest(4), 8); // (1 + 1) * 4
+        assertEq(blob.numDepositsToMemoryLengthTest(5), 8); // (1 + 1) * 4
         assertEq(blob.numDepositsToMemoryLengthTest(7), 12); // (2 + 1) * 4
         assertEq(blob.numDepositsToMemoryLengthTest(8), 12); // (2 + 1) * 4
         // Large values
-        assertEq(blob.numDepositsToMemoryLengthTest(30), 40);   // (10 + 0) * 4
-        assertEq(blob.numDepositsToMemoryLengthTest(99), 132);  // (33 + 0) * 4
+        assertEq(blob.numDepositsToMemoryLengthTest(30), 40); // (10 + 0) * 4
+        assertEq(blob.numDepositsToMemoryLengthTest(99), 132); // (33 + 0) * 4
         assertEq(blob.numDepositsToMemoryLengthTest(100), 136); // (33 + 1) * 4
     }
 
@@ -190,14 +190,14 @@ contract CounterTest is Test {
         assertEq(blob.leafMemoryAddressTest(1, 0, false, 0), 26);
 
         // With 3 deposits (depositsLength = 4)
-        assertEq(blob.leafMemoryAddressTest(0, 3, false, 0), 15);  // 4 + 0 + 11 + 0
-        assertEq(blob.leafMemoryAddressTest(1, 3, false, 0), 30);  // 4 + 15 + 11 + 0
+        assertEq(blob.leafMemoryAddressTest(0, 3, false, 0), 15); // 4 + 0 + 11 + 0
+        assertEq(blob.leafMemoryAddressTest(1, 3, false, 0), 30); // 4 + 15 + 11 + 0
 
         // With 2 deposits (depositsLength = 4, rounds up)
-        assertEq(blob.leafMemoryAddressTest(0, 2, false, 0), 15);  // 4 + 0 + 11 + 0
+        assertEq(blob.leafMemoryAddressTest(0, 2, false, 0), 15); // 4 + 0 + 11 + 0
 
         // Large values: 6 deposits (depositsLength = 8), tx 10
-        assertEq(blob.leafMemoryAddressTest(10, 6, false, 0), 169);  // 8 + 150 + 11 + 0
+        assertEq(blob.leafMemoryAddressTest(10, 6, false, 0), 169); // 8 + 150 + 11 + 0
         assertEq(blob.leafMemoryAddressTest(10, 6, false, 1), 170);
         assertEq(blob.leafMemoryAddressTest(10, 6, false, 2), 171);
     }
@@ -302,20 +302,20 @@ contract CounterTest is Test {
         assertEq(blob.nullifierMemoryAddressTest(1, 0, 1), 25);
 
         // 3 deposits (depositsLength = 4)
-        assertEq(blob.nullifierMemoryAddressTest(0, 3, 0), 13);  // 4 + 0 + 9 + 0
+        assertEq(blob.nullifierMemoryAddressTest(0, 3, 0), 13); // 4 + 0 + 9 + 0
         assertEq(blob.nullifierMemoryAddressTest(0, 3, 1), 14);
-        assertEq(blob.nullifierMemoryAddressTest(1, 3, 0), 28);  // 4 + 15 + 9 + 0
+        assertEq(blob.nullifierMemoryAddressTest(1, 3, 0), 28); // 4 + 15 + 9 + 0
 
         // 2 deposits (depositsLength = 4, rounds up)
-        assertEq(blob.nullifierMemoryAddressTest(0, 2, 0), 13);  // 4 + 0 + 9 + 0
+        assertEq(blob.nullifierMemoryAddressTest(0, 2, 0), 13); // 4 + 0 + 9 + 0
         assertEq(blob.nullifierMemoryAddressTest(0, 2, 1), 14);
 
         // 6 deposits (depositsLength = 8)
-        assertEq(blob.nullifierMemoryAddressTest(0, 6, 0), 17);  // 8 + 0 + 9 + 0
-        assertEq(blob.nullifierMemoryAddressTest(5, 6, 0), 92);  // 8 + 75 + 9 + 0
+        assertEq(blob.nullifierMemoryAddressTest(0, 6, 0), 17); // 8 + 0 + 9 + 0
+        assertEq(blob.nullifierMemoryAddressTest(5, 6, 0), 92); // 8 + 75 + 9 + 0
 
         // Large: 99 deposits (depositsLength = 132)
-        assertEq(blob.nullifierMemoryAddressTest(100, 99, 0), 1641);  // 132 + 1500 + 9 + 0
+        assertEq(blob.nullifierMemoryAddressTest(100, 99, 0), 1641); // 132 + 1500 + 9 + 0
         assertEq(blob.nullifierMemoryAddressTest(100, 99, 1), 1642);
 
         // Verify spacing: consecutive tx nullifiers are 15 apart
@@ -380,15 +380,15 @@ contract CounterTest is Test {
         assertEq(blob.priorRootMemoryLocationTest(3, false, 0), 44);
 
         // 3 deposits (depositsLength = 4)
-        assertEq(blob.priorRootMemoryLocationTest(1, false, 3), 18);  // 4 + 15 - 1
-        assertEq(blob.priorRootMemoryLocationTest(2, false, 3), 33);  // 4 + 30 - 1
+        assertEq(blob.priorRootMemoryLocationTest(1, false, 3), 18); // 4 + 15 - 1
+        assertEq(blob.priorRootMemoryLocationTest(2, false, 3), 33); // 4 + 30 - 1
 
         // 2 deposits (depositsLength = 4, rounds up)
-        assertEq(blob.priorRootMemoryLocationTest(1, false, 2), 18);  // 4 + 15 - 1
-        assertEq(blob.priorRootMemoryLocationTest(2, false, 2), 33);  // 4 + 30 - 1
+        assertEq(blob.priorRootMemoryLocationTest(1, false, 2), 18); // 4 + 15 - 1
+        assertEq(blob.priorRootMemoryLocationTest(2, false, 2), 33); // 4 + 30 - 1
 
         // Large: 99 deposits (depositsLength = 132)
-        assertEq(blob.priorRootMemoryLocationTest(100, false, 99), 1631);  // 132 + 1500 - 1
+        assertEq(blob.priorRootMemoryLocationTest(100, false, 99), 1631); // 132 + 1500 - 1
 
         // Verify consecutive tx roots are spaced 15 apart
         uint256 root1 = blob.priorRootMemoryLocationTest(1, false, 6);

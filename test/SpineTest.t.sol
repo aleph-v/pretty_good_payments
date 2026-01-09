@@ -759,7 +759,8 @@ contract SpineTest is Test {
             blobIndices[i] = i;
         }
 
-        Spine.BlockData memory data = createBlockDataForAdd(keccak256(abi.encode(numTx, numDeposits)), numTx, numDeposits, numBlobs);
+        Spine.BlockData memory data =
+            createBlockDataForAdd(keccak256(abi.encode(numTx, numDeposits)), numTx, numDeposits, numBlobs);
 
         spine.addBlockTest(data, blobIndices);
         assertEq(spine.getCurrentBlocknumber(), 1);
@@ -768,12 +769,11 @@ contract SpineTest is Test {
     // ============ validatePriorAnchor Tests ============
 
     // Helper to create BlockData for validatePriorAnchor tests
-    function createBlockDataForValidation(
-        bytes32 anchor,
-        uint256 numTx,
-        uint256 numDeposits,
-        uint256 blockNr
-    ) internal view returns (Spine.BlockData memory) {
+    function createBlockDataForValidation(bytes32 anchor, uint256 numTx, uint256 numDeposits, uint256 blockNr)
+        internal
+        view
+        returns (Spine.BlockData memory)
+    {
         bytes32[] memory blobhashes = new bytes32[](1);
         blobhashes[0] = keccak256("blobhash");
         return Spine.BlockData({
@@ -803,8 +803,8 @@ contract SpineTest is Test {
         Spine.BlockData memory data = createBlockDataForValidation(
             keccak256("currentAnchor"),
             10, // numTx
-            5,  // numDeposits
-            1   // blockNr
+            5, // numDeposits
+            1 // blockNr
         );
 
         // Validate: first deposit (updateNr=0, isDeposit=true) should check anchor at blockNr-1
@@ -812,10 +812,10 @@ contract SpineTest is Test {
         spine.validatePriorAnchorTest(
             priorAnchor,
             data,
-            0,     // updateNr
-            true,  // isDeposit
-            "",    // commitment (not used in easy case)
-            ""     // proof (not used in easy case)
+            0, // updateNr
+            true, // isDeposit
+            "", // commitment (not used in easy case)
+            "" // proof (not used in easy case)
         );
         // If we reach here, validation passed
     }
@@ -826,22 +826,10 @@ contract SpineTest is Test {
 
         bytes32 nonExistentAnchor = keccak256("nonExistent");
 
-        Spine.BlockData memory data = createBlockDataForValidation(
-            keccak256("currentAnchor"),
-            10,
-            5,
-            1
-        );
+        Spine.BlockData memory data = createBlockDataForValidation(keccak256("currentAnchor"), 10, 5, 1);
 
         vm.expectRevert();
-        spine.validatePriorAnchorTest(
-            nonExistentAnchor,
-            data,
-            0,
-            true,
-            "",
-            ""
-        );
+        spine.validatePriorAnchorTest(nonExistentAnchor, data, 0, true, "", "");
     }
 
     function test_ValidatePriorAnchor_FirstDeposit_RevertsWhenIndexMismatch() public {
@@ -859,22 +847,10 @@ contract SpineTest is Test {
 
         // Create block data with blockNr = 1
         // This expects anchor at index 0 (blockNr - 1 = 0)
-        Spine.BlockData memory data = createBlockDataForValidation(
-            keccak256("currentAnchor"),
-            10,
-            5,
-            1
-        );
+        Spine.BlockData memory data = createBlockDataForValidation(keccak256("currentAnchor"), 10, 5, 1);
 
         vm.expectRevert();
-        spine.validatePriorAnchorTest(
-            priorAnchor,
-            data,
-            0,
-            true,
-            "",
-            ""
-        );
+        spine.validatePriorAnchorTest(priorAnchor, data, 0, true, "", "");
     }
 
     // ---- Easy Case Tests: First transaction with no deposits (isDeposit=false, updateNr=0, numDeposits=0) ----
@@ -891,15 +867,15 @@ contract SpineTest is Test {
         Spine.BlockData memory data = createBlockDataForValidation(
             keccak256("currentAnchor"),
             10, // numTx
-            0,  // numDeposits (zero!)
-            1   // blockNr
+            0, // numDeposits (zero!)
+            1 // blockNr
         );
 
         // Validate: first tx with no deposits
         spine.validatePriorAnchorTest(
             priorAnchor,
             data,
-            0,     // updateNr
+            0, // updateNr
             false, // isDeposit
             "",
             ""
@@ -934,14 +910,7 @@ contract SpineTest is Test {
             3 // blockNr = 3, expects anchor at index 2
         );
 
-        spine.validatePriorAnchorTest(
-            anchor2,
-            data,
-            0,
-            true,
-            "",
-            ""
-        );
+        spine.validatePriorAnchorTest(anchor2, data, 0, true, "", "");
     }
 
     // ---- Complex Case Tests: Non-first update (requires KZG proof) ----
@@ -986,7 +955,7 @@ contract SpineTest is Test {
         spine.validatePriorAnchorTest(
             keccak256("anchor"),
             data,
-            1,     // updateNr = 1 (not first)
+            1, // updateNr = 1 (not first)
             false,
             "",
             ""
@@ -1009,14 +978,7 @@ contract SpineTest is Test {
         );
 
         // blockNr - 1 = underflow, should revert
-        spine.validatePriorAnchorTest(
-            priorAnchor,
-            data,
-            0,
-            true,
-            "",
-            ""
-        );
+        spine.validatePriorAnchorTest(priorAnchor, data, 0, true, "", "");
     }
 
     function test_ValidatePriorAnchor_LargeBlockNr_Success() public {
@@ -1039,14 +1001,7 @@ contract SpineTest is Test {
             1000 // blockNr = 1000, expects anchor at index 999
         );
 
-        spine.validatePriorAnchorTest(
-            priorAnchor,
-            data,
-            0,
-            true,
-            "",
-            ""
-        );
+        spine.validatePriorAnchorTest(priorAnchor, data, 0, true, "", "");
     }
 
     // ============ Day Boundary Condition Tests ============
@@ -1163,12 +1118,7 @@ contract SpineTest is Test {
         for (uint256 d = 0; d < 7; d++) {
             vm.warp(start + day * d);
 
-            Spine.BlockData memory data = createBlockDataForAdd(
-                keccak256(abi.encodePacked("day", d)),
-                10,
-                5,
-                1
-            );
+            Spine.BlockData memory data = createBlockDataForAdd(keccak256(abi.encodePacked("day", d)), 10, 5, 1);
             spine.addBlockTest(data, blobIndices);
 
             Spine.TimestampAndIndex memory ts = spine.getLastTimestamp();
@@ -1187,12 +1137,7 @@ contract SpineTest is Test {
 
         // Day 0: 3 blocks
         for (uint256 i = 0; i < 3; i++) {
-            Spine.BlockData memory data = createBlockDataForAdd(
-                keccak256(abi.encodePacked("d0b", i)),
-                10,
-                5,
-                1
-            );
+            Spine.BlockData memory data = createBlockDataForAdd(keccak256(abi.encodePacked("d0b", i)), 10, 5, 1);
             spine.addBlockTest(data, blobIndices);
         }
         assertEq(spine.getLastTimestamp().day, 0);
@@ -1201,12 +1146,7 @@ contract SpineTest is Test {
         // Day 1: 5 blocks
         vm.warp(start + day);
         for (uint256 i = 0; i < 5; i++) {
-            Spine.BlockData memory data = createBlockDataForAdd(
-                keccak256(abi.encodePacked("d1b", i)),
-                10,
-                5,
-                1
-            );
+            Spine.BlockData memory data = createBlockDataForAdd(keccak256(abi.encodePacked("d1b", i)), 10, 5, 1);
             spine.addBlockTest(data, blobIndices);
         }
         assertEq(spine.getLastTimestamp().day, 1);
@@ -1215,12 +1155,7 @@ contract SpineTest is Test {
         // Day 3 (skip day 2): 2 blocks
         vm.warp(start + day * 3);
         for (uint256 i = 0; i < 2; i++) {
-            Spine.BlockData memory data = createBlockDataForAdd(
-                keccak256(abi.encodePacked("d3b", i)),
-                10,
-                5,
-                1
-            );
+            Spine.BlockData memory data = createBlockDataForAdd(keccak256(abi.encodePacked("d3b", i)), 10, 5, 1);
             spine.addBlockTest(data, blobIndices);
         }
         assertEq(spine.getLastTimestamp().day, 3);
@@ -1327,12 +1262,8 @@ contract SpineTest is Test {
             vm.warp(start + day * d);
 
             for (uint256 b = 0; b < blocksPerDay; b++) {
-                Spine.BlockData memory data = createBlockDataForAdd(
-                    keccak256(abi.encodePacked("d", d, "b", b)),
-                    10,
-                    5,
-                    1
-                );
+                Spine.BlockData memory data =
+                    createBlockDataForAdd(keccak256(abi.encodePacked("d", d, "b", b)), 10, 5, 1);
                 spine.addBlockTest(data, blobIndices);
                 totalBlocks++;
 
@@ -1364,12 +1295,7 @@ contract SpineTest is Test {
 
             vm.warp(start + day * currentDay);
 
-            Spine.BlockData memory data = createBlockDataForAdd(
-                keccak256(abi.encodePacked("block", i)),
-                10,
-                5,
-                1
-            );
+            Spine.BlockData memory data = createBlockDataForAdd(keccak256(abi.encodePacked("block", i)), 10, 5, 1);
             spine.addBlockTest(data, blobIndices);
 
             Spine.TimestampAndIndex memory ts = spine.getLastTimestamp();

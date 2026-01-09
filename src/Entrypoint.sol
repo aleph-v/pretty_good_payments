@@ -13,8 +13,7 @@ import "./Withdraw.sol";
 // TODO - Look into ways to minimize the cost of the tracking system.
 
 contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, NullifierChallenge, TreeUpdateChallenge {
-
-     constructor(
+    constructor(
         bytes32 genesis,
         IYieldRouter _yieldRouter,
         IUpdateVerifier _predictableUpdateVerifier,
@@ -43,7 +42,7 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
         (uint256 epoch, bool currentlyPriority) = currentEpoch();
 
         // Tracking this basis of blob data usage gives a fair tradeoff on cost
-        uint256 depositBlobUse = data.numDeposits % 3 == 0? (data.numDeposits/3)*4: (data.numDeposits/3 + 1)*4;
+        uint256 depositBlobUse = data.numDeposits % 3 == 0 ? (data.numDeposits / 3) * 4 : (data.numDeposits / 3 + 1) * 4;
         uint256 rawBlobUse = data.numTransactions * 15 + depositBlobUse;
         uint256 adjustedTx = currentlyPriority ? rawBlobUse * priorityBonus / BASE : rawBlobUse;
         totalBlobUse[epoch] += adjustedTx;

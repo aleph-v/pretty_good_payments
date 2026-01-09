@@ -37,7 +37,7 @@ contract BlobData {
     // Each deposit is a single field but for each 3 deposits we have to include a root.
     function numDepositsToMemoryLength(uint256 num) internal pure returns (uint256) {
         uint256 depositRounding = num % 3 == 0 ? 0 : 1;
-        return ((num / 3 + depositRounding)*4);
+        return ((num / 3 + depositRounding) * 4);
     }
 
     function txMemoryAddress(uint256 txNumber, uint256 numDeposits) internal pure returns (uint256) {
