@@ -5,37 +5,39 @@ import {IERC4626} from "lib/openzeppelin-contracts/contracts/interfaces/IERC4626
 import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
-// TODO we can optimism this state usage a lot I think. Possibly we can do this with a globalized payout system?
+// TODO we can optimize this state usage a lot I think. Possibly we can do this with a globalized payout system?
 //      At very least I think we can do a period power system instead of an epoch system?
 
 contract YieldRouter is Ownable {
     // The bridge is the contract which accepts the user deposits
-    address immutable bridge;
-    mapping(address => IERC4626) sources;
+    address immutable public bridge;
+    mapping(address => IERC4626) public sources;
 
     // For tracking the yields for sequencer payouts
-    address[] trackedYieldSources;
+    address[] public trackedYieldSources;
     // Tracks the prior recorded total balance without any yield adjustments
-    mapping(address => uint256) priorBalances;
+    mapping(address => uint256) public priorBalances;
     // Maps the asset to the period to the period total payout for the asset
-    mapping(address => mapping(uint256 => uint256)) periodPayouts;
+    mapping(address => mapping(uint256 => uint256)) public periodPayouts;
     // Maps the sequencer address to the epoch, and then maps it to a percent reported by bridge
-    mapping(address => mapping(uint256 => uint256)) sequencerPercents;
+    mapping(address => mapping(uint256 => uint256)) public sequencerPercents;
     // True if period has already been reported
-    mapping(uint256 => bool) reportedPeriod;
+    mapping(uint256 => bool) public reportedPeriod;
     // True if the sequencer has withdrawn this epoch
-    mapping(address => mapping(uint256 => bool)) paidOut;
+    mapping(address => mapping(uint256 => mapping(address => bool))) public paidOut;
     // Assets which have a max interest in each period
-    mapping(address => uint256) maxInterest;
+    mapping(address => uint256) public maxInterest;
 
     // Constants to track the
     uint256 immutable EPOCHS_PER_PERIOD;
     uint256 immutable START = block.timestamp;
     uint256 immutable PERIOD_LENGTH;
 
-    constructor(uint256 periodLength, uint256 epochPerPeriod) {
+    constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked) {
         EPOCHS_PER_PERIOD = epochPerPeriod;
         PERIOD_LENGTH = periodLength;
+        bridge = _bridge;
+        trackedYieldSources = tracked;
     }
 
     modifier onlyBridge() {
@@ -62,12 +64,12 @@ contract YieldRouter is Ownable {
         uint256 totalShares = sources[asset].balanceOf(address(this));
         uint256 currentGlobalValue = sources[asset].previewRedeem(totalShares);
         uint256 userAmount = amount;
-        if (priorBalances[asset] < currentGlobalValue) {
+        if (priorBalances[asset] > currentGlobalValue) {
             uint256 fixedPercent = (priorBalances[asset] * 1e18) / currentGlobalValue;
             userAmount = fixedPercent * amount / 1e18;
         }
         sources[asset].withdraw(userAmount, destination, address(this));
-        priorBalances[asset] -= amount;
+        priorBalances[asset] -= userAmount;
     }
 
     /// @notice Allows the owner to change the yield source, should be behind a long timelock to allow withdraws
@@ -76,10 +78,13 @@ contract YieldRouter is Ownable {
     function changeYieldSource(address token, IERC4626 newSource) external onlyOwner {
         // First we withdraw from the source that currently has funds
         IERC4626 cachedSource = sources[token];
-        uint256 shares = cachedSource.balanceOf(address(this));
-        uint256 priorBalance = IERC20(token).balanceOf(address(this));
-        cachedSource.redeem(shares, address(this), address(this));
-        IERC20(token).approve(address(cachedSource), 0);
+        uint256 priorBalance = 0;
+        if (address(cachedSource) != address(0)) {
+            uint256 shares = cachedSource.balanceOf(address(this));
+            priorBalance = IERC20(token).balanceOf(address(this));
+            cachedSource.redeem(shares, address(this), address(this));
+            IERC20(token).approve(address(cachedSource), 0);   
+        }
 
         // Now we move the funds into a new source
         uint256 toMove = IERC20(token).balanceOf(address(this)) - priorBalance;
@@ -157,16 +162,29 @@ contract YieldRouter is Ownable {
     /// @param sequencer The credited sequencer
     /// @param epoch The epoch number
     function sequencerWithdrawAsset(address token, address sequencer, uint256 epoch) public {
-        require(!paidOut[sequencer][epoch]);
+        require(!paidOut[sequencer][epoch][token]);
         uint256 period = epoch / EPOCHS_PER_PERIOD;
         uint256 paidInEpoch = periodPayouts[token][period] / EPOCHS_PER_PERIOD;
         uint256 amount = (paidInEpoch * sequencerPercents[sequencer][epoch]) / 1e18;
-        paidOut[sequencer][epoch] = true;
+        paidOut[sequencer][epoch][token] = true;
         sources[token].withdraw(amount, sequencer, address(this));
     }
 
     /// @notice Computes the current period
     function currentPeriod() public view returns (uint256) {
-        return ((block.timestamp - START) % PERIOD_LENGTH);
+        return ((block.timestamp - START) / PERIOD_LENGTH);
+    }
+
+    /// @notice Changes the tracked yield source array
+    /// @param addresses The new tracked addresses
+    function changeTrackedYieldSources(address[] memory addresses) external onlyOwner {
+        trackedYieldSources = addresses;
+    }
+
+    /// @notice Sets a max interest value for an asset
+    /// @param token The token we are setting the max for
+    /// @param max The most interest we pay out for this
+    function setMaxInterest(address token, uint256 max) external onlyOwner {
+        maxInterest[token] = max;
     }
 }
