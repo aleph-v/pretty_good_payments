@@ -42,7 +42,7 @@ contract NullifierChallenge is Spine, SequencerRegistry {
     }
 
     function validateNullifierOpening(NullifierLoader calldata loader, bytes32 nullifier) internal view {
-        require(loader.txNr <= loader.data.numTransactions);
+        require(loader.txNr < loader.data.numTransactions);
         require(isBlockIncluded(loader.data));
 
         // We compute the absolute memory location

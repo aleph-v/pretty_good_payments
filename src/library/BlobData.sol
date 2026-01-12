@@ -2,16 +2,15 @@
 pragma solidity ^0.8.13;
 
 import {LibBit} from "solady/utils/LibBit.sol";
-import {console} from "forge-std/console.sol";
 
 // We implement a protocol which does kzg opening against blob commitments.
-// In the simplest version it just proves that the commitment evaluated at the bit revevered root of unity
+// In the simplest version it just proves that the commitment evaluated at the bit reversed root of unity
 // for an index is equal to the the claimed data.
 // We might be able to highly optimise by doing a multi point opening.
 
 // Blobs are structured as follows:
 // [deposits range][transactions range]
-// each desposit is [leaf1, leaf2, leaf3, new_root] and each leaf must match the deposit leaf in the array for this block
+// each deposit is [leaf1, leaf2, leaf3, new_root] and each leaf must match the deposit leaf in the array for this block
 // each transaction is [[zk proof], anchor id, nullifier0, nullifier1, leaf0, leaf1, leaf2, new_root]
 // The transaction is expected to be 15, 32 byte commitment leaves. 8 leaves for the zk proof, then 7 with 6 for inputs and 1 for new root.
 
@@ -126,7 +125,7 @@ contract BlobData {
         uint256 index,
         bytes32 data,
         bytes calldata proof
-    ) internal view {
+    ) internal view virtual {
         // To do a single validation we use the point open precompile and prove that the polynomial at
         // the bit reversed root of unity for that index is equal to the data field
         uint256 evalRoot = bitReversedRoot(index);

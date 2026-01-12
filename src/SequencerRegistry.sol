@@ -12,7 +12,7 @@ contract SequencerRegistry is Spine, Ownable {
     uint256 constant EPOCH_LENGTH = 10;
     uint256 constant CHALLENGE_WINDOW = 10;
     // Allows at most denoms of 1/10000th of an ether
-    uint256 constant STAKE_DIVISOR = 10 ^ 14;
+    uint256 constant STAKE_DIVISOR = 10 ** 14;
     uint256 constant MAX_STAKE = 200 ether / STAKE_DIVISOR;
 
     uint256 public requiredStake = 20 ether / STAKE_DIVISOR;
@@ -37,15 +37,19 @@ contract SequencerRegistry is Spine, Ownable {
     function isAllowed(address sequencer) public view returns (bool) {
         (uint256 current, bool isClosed) = currentEpoch();
         if (isClosed) {
-            return (sequencer == firstLookSequencers[current % firstLookSequencers.length]);
+            uint256 len = firstLookSequencers.length;
+            if (len == 0) {
+                return (true);
+            }
+            return (sequencer == firstLookSequencers[current % len]);
         }
         return sequencers[sequencer].isActive && (sequencers[sequencer].stakeAmount >= requiredStake);
     }
 
-    // Computes the epoc and returns if we are in the first half of an epoch
+    // Computes the epoch and returns if we are in the first half of an epoch
     function currentEpoch() public view returns (uint256, bool) {
         uint256 epoch = (block.timestamp - START) / EPOCH_LENGTH;
-        // The rounding error here tells us how much of the epoc has passed.
+        // The rounding error here tells us how much of the epoch has passed.
         uint256 elapsed = block.timestamp - (epoch * EPOCH_LENGTH + START);
         return (epoch, elapsed < EPOCH_LENGTH / 2);
     }
@@ -67,9 +71,9 @@ contract SequencerRegistry is Spine, Ownable {
                 || sequencers[sequencer].blocknumberChallenged > blockNumber
         ) {
             // In this case we add the sender as the person who is getting half the stake
-            sequencers[sequencer].challenger == msg.sender;
+            sequencers[sequencer].challenger = payable(msg.sender);
             // This is to account for an annoying case where a sequencer pushes multiple invalid blocks then slashes themselves.
-            sequencers[sequencer].blocknumberChallenged == blockNumber;
+            sequencers[sequencer].blocknumberChallenged = uint64(blockNumber);
         }
 
         if (sequencers[sequencer].isPriority) {
@@ -112,6 +116,7 @@ contract SequencerRegistry is Spine, Ownable {
         require(sequencers[who].isActive);
         firstLookSequencers.push(who);
         sequencers[who].isPriority = true;
+        sequencers[who].priorityIndex = uint8(firstLookSequencers.length - 1);
     }
 
     function removeFirstLook(uint256 which) public onlyOwner {
@@ -130,6 +135,8 @@ contract SequencerRegistry is Spine, Ownable {
         sequencers[who].isPriority = false;
         // Delete from array
         uint256 lenAfter = firstLookSequencers.length - 1;
+        // Make sure to set the index to keep things updated
+        sequencers[firstLookSequencers[lenAfter]].priorityIndex = uint8(which);
         firstLookSequencers[which] = firstLookSequencers[lenAfter];
         assembly ("memory-safe") {
             sstore(firstLookSequencers.slot, lenAfter)

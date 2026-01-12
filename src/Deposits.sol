@@ -19,17 +19,20 @@ contract Deposits is Spine {
     using PredictableMerkleLib for Leaf;
 
     // A preset constant blinding factor set less than the BLS modulus
-    bytes32 constant BLINDING = keccak256("0x") & bytes32(uint256(2 ** 252 - 1));
+    bytes32 constant BLINDING = bytes32(
+        uint256(keccak256("0x")) % 21888242871839275222246405745257275088548364400416034343698204186575808495617
+    );
     uint256 highestDeposit;
     //Records the required deposits in each block
     mapping(uint256 => bytes32[]) public perBlockDeposits;
 
     event Deposit(bytes32 indexed leafHash, uint256 block, uint256 number);
 
-    // Works by doing the posiedon hashing of leaf and then pushing it into the deposits for the next possible block
+    // Works by doing the poseidon hashing of leaf and then pushing it into the deposits for the next possible block
     // If the chain is reorged due to fraud this deposits tree does not rollback, new blocks created at new indices must
     // also include the same deposits.
     function deposit(Leaf memory leaf) external {
+        require(leaf.amount != 0, "Invalid amount");
         // First we transfer from the user to the yield system and trigger deposit
         IERC20(leaf.asset).transferFrom(msg.sender, address(yieldRouter), leaf.amount);
         yieldRouter.triggerDeposit(leaf.asset, leaf.amount);
@@ -52,6 +55,6 @@ contract Deposits is Spine {
         if (blockToDepositIn > highestDepositCache) {
             highestDeposit = blockToDepositIn;
         }
-        emit Deposit(leafHash, blockToDepositIn, perBlockDeposits[blockToDepositIn].length);
+        emit Deposit(leafHash, blockToDepositIn, perBlockDeposits[blockToDepositIn].length - 1);
     }
 }

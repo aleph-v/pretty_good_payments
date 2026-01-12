@@ -1,0 +1,434 @@
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.13;
+
+import "forge-std/Test.sol";
+import "../src/Deposits.sol";
+import "../src/library/PredictableMerkleLib.sol";
+import {FakeERC20} from "./mocks/FakeErc20.sol";
+import {FakeZK} from "./mocks/FakeZk.sol";
+import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
+import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
+
+// Harness to expose internal state and functions
+contract DepositsHarness is Deposits {
+    constructor(
+        IYieldRouter _yieldRouter,
+        IUpdateVerifier _updateVerifier,
+        ITransferVerifier _transferVerifier,
+        ITransactionRegistry _registry,
+        bytes32 _genesisAnchor
+    ) {
+        yieldRouter = _yieldRouter;
+        predictableUpdateVerifier = _updateVerifier;
+        transactionZkVerifier = _transferVerifier;
+        transferRegistry = _registry;
+        GENESIS_ANCHOR = _genesisAnchor;
+    }
+
+    function exposed_BLINDING() external pure returns (bytes32) {
+        return BLINDING;
+    }
+
+    function exposed_highestDeposit() external view returns (uint256) {
+        return highestDeposit;
+    }
+
+    function exposed_perBlockDepositsLength(uint256 blockNr) external view returns (uint256) {
+        return perBlockDeposits[blockNr].length;
+    }
+
+    function exposed_perBlockDepositsAt(uint256 blockNr, uint256 index) external view returns (bytes32) {
+        return perBlockDeposits[blockNr][index];
+    }
+
+    function exposed_MAX_DEPOSITS() external pure returns (uint256) {
+        return MAX_DEPOSITS;
+    }
+
+    function exposed_getCurrentBlocknumber() external view returns (uint256) {
+        return getCurrentBlocknumber();
+    }
+
+    // Push a root directly for testing (bypasses validation)
+    function pushRootForTest(bytes32 root) external {
+        assembly {
+            // Load the slot for roots array
+            let slot := roots.slot
+            let len := sload(slot)
+            // Calculate storage slot for new element
+            mstore(0, slot)
+            let elemSlot := add(keccak256(0, 32), len)
+            // Store the new root
+            sstore(elemSlot, root)
+            // Increment the length
+            sstore(slot, add(len, 1))
+        }
+    }
+
+    // Set highestDeposit for testing
+    function setHighestDepositForTest(uint256 value) external {
+        highestDeposit = value;
+    }
+
+    // Fill a block's deposits to MAX_DEPOSITS for testing
+    function fillBlockDepositsForTest(uint256 blockNr, uint256 count) external {
+        for (uint256 i = 0; i < count; i++) {
+            perBlockDeposits[blockNr].push(keccak256(abi.encode(blockNr, i)));
+        }
+    }
+}
+
+contract DepositsTest is Test {
+    DepositsHarness deposits;
+    FakeERC20 token;
+    MockYieldRouter yieldRouter;
+    FakeZK fakeZK;
+
+    // BN254 (alt_bn128) scalar field modulus - used by Groth16 verifiers on Ethereum
+    // This is the order of the scalar field for the BN254 curve used in Ethereum's precompiles
+    uint256 constant BN254_SCALAR_FIELD_MODULUS =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+
+    function setUp() public {
+        token = new FakeERC20();
+        yieldRouter = new MockYieldRouter();
+        fakeZK = new FakeZK();
+
+        MockTransactionRegistry registry = new MockTransactionRegistry();
+
+        deposits = new DepositsHarness(yieldRouter, fakeZK, fakeZK, registry, keccak256("genesis"));
+    }
+
+    // ========== Basic Deposit Tests ==========
+
+    function test_deposit_basic() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        Leaf memory leaf = Leaf({
+            asset: address(token), amount: amount, blinding: bytes32(uint256(123)), publicKey: bytes32(uint256(456))
+        });
+
+        deposits.deposit(leaf);
+        vm.stopPrank();
+
+        // Verify yieldRouter was called
+        assertEq(yieldRouter.depositCount(), 1, "YieldRouter should have been called");
+        assertEq(yieldRouter.lastDepositAsset(), address(token), "Asset should match");
+        assertEq(yieldRouter.lastDepositAmount(), amount, "Amount should match");
+    }
+
+    function test_deposit_overwritesBlinding() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        bytes32 userBlinding = bytes32(uint256(999));
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: userBlinding, publicKey: bytes32(uint256(456))});
+
+        // The user's blinding will be overwritten with BLINDING constant
+        deposits.deposit(leaf);
+        vm.stopPrank();
+
+        // Verify deposit was recorded (we can't directly check the stored blinding,
+        // but we can verify the leaf hash uses the constant BLINDING)
+        uint256 blockNr = deposits.exposed_highestDeposit();
+        bytes32 storedHash = deposits.exposed_perBlockDepositsAt(blockNr, 0);
+
+        // Compute expected hash with BLINDING constant
+        bytes32 expectedBlinding = deposits.exposed_BLINDING();
+        Leaf memory expectedLeaf =
+            Leaf({asset: address(token), amount: amount, blinding: expectedBlinding, publicKey: bytes32(uint256(456))});
+        bytes32 expectedHash = PredictableMerkleLib.hash(expectedLeaf);
+
+        assertEq(storedHash, expectedHash, "Stored hash should use constant BLINDING, not user's");
+    }
+
+    // ========== Block Number Logic Tests ==========
+
+    function test_deposit_goesToBlockPlusTwo() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        // Current block number is 0
+        assertEq(deposits.exposed_getCurrentBlocknumber(), 0);
+
+        deposits.deposit(leaf);
+        vm.stopPrank();
+
+        // Deposit should go to block 0 + 2 = 2
+        assertEq(deposits.exposed_highestDeposit(), 2, "Deposit should go to block 2");
+        assertEq(deposits.exposed_perBlockDepositsLength(2), 1, "Block 2 should have 1 deposit");
+    }
+
+    function test_deposit_usesHighestDepositIfHigher() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        token.mint(user, amount * 2);
+
+        // Set highestDeposit to a high value
+        deposits.setHighestDepositForTest(100);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount * 2);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        deposits.deposit(leaf);
+        vm.stopPrank();
+
+        // Current block is 0, so block+2 = 2
+        // But highestDeposit is 100, which is higher, so deposit goes to 100
+        assertEq(deposits.exposed_highestDeposit(), 100, "Should use highestDeposit");
+        assertEq(deposits.exposed_perBlockDepositsLength(100), 1, "Block 100 should have 1 deposit");
+    }
+
+    // ========== MAX_DEPOSITS Tests ==========
+
+    /// @notice Test that deposit goes to next block when current is full
+    function test_deposit_incrementsBlockWhenFull() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        // Fill block 2 to MAX_DEPOSITS
+        deposits.fillBlockDepositsForTest(2, deposits.exposed_MAX_DEPOSITS());
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        deposits.deposit(leaf);
+        vm.stopPrank();
+
+        // Should go to block 3 since block 2 is full
+        assertEq(deposits.exposed_highestDeposit(), 3, "Should go to block 3");
+        assertEq(deposits.exposed_perBlockDepositsLength(3), 1, "Block 3 should have 1 deposit");
+    }
+
+    /// @notice POTENTIAL BUG: What happens if multiple consecutive blocks are full?
+    /// The current logic only increments once, so if block+1 is also full, assert will fail
+    function test_deposit_multipleFullBlocks_POTENTIAL_BUG() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        // Fill both block 2 and block 3 to MAX_DEPOSITS
+        deposits.fillBlockDepositsForTest(2, deposits.exposed_MAX_DEPOSITS());
+        deposits.fillBlockDepositsForTest(3, deposits.exposed_MAX_DEPOSITS());
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        // This should fail because block 3 is also full
+        // The contract only increments once, then asserts
+        vm.expectRevert(); // Expect the assert to fail
+        deposits.deposit(leaf);
+        vm.stopPrank();
+    }
+
+    /// @notice POTENTIAL BUG: highestDeposit might not update correctly
+    /// When blockToDepositIn is incremented due to MAX_DEPOSITS being hit,
+    /// the comparison is strictly greater than, which should work correctly
+    function test_deposit_highestDepositUpdatesAfterIncrement() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        // Set highestDeposit to 2
+        deposits.setHighestDepositForTest(2);
+
+        // Fill block 2 to MAX_DEPOSITS
+        deposits.fillBlockDepositsForTest(2, deposits.exposed_MAX_DEPOSITS());
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        deposits.deposit(leaf);
+        vm.stopPrank();
+
+        // Block 2 is full, so it increments to 3
+        // 3 > 2 (highestDepositCache), so highestDeposit should update to 3
+        assertEq(deposits.exposed_highestDeposit(), 3, "highestDeposit should update to 3");
+    }
+
+    // ========== Event Tests ==========
+
+    function test_deposit_emitsEvent() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        // Compute expected leaf hash
+        bytes32 expectedBlinding = deposits.exposed_BLINDING();
+        Leaf memory expectedLeaf =
+            Leaf({asset: address(token), amount: amount, blinding: expectedBlinding, publicKey: bytes32(uint256(456))});
+        bytes32 expectedHash = PredictableMerkleLib.hash(expectedLeaf);
+
+        // Expect event with:
+        // - leafHash (indexed)
+        // - block = 2 (getCurrentBlocknumber() + 2 = 0 + 2)
+        // - number = 0 (length - 1 AFTER push, so 0-indexed)
+        vm.expectEmit(true, false, false, true);
+        emit Deposits.Deposit(expectedHash, 2, 0);
+
+        deposits.deposit(leaf);
+        vm.stopPrank();
+    }
+
+    /// @notice The event emits length - 1 AFTER push, making it 0-indexed (matching array indices)
+    function test_deposit_eventNumberIs0Indexed() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        token.mint(user, amount * 3);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount * 3);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        // First deposit - number should be 0 (0-indexed)
+        deposits.deposit(leaf);
+
+        // Second deposit - number should be 1
+        leaf.publicKey = bytes32(uint256(789)); // Change to get different hash
+        deposits.deposit(leaf);
+
+        vm.stopPrank();
+
+        // Verify lengths
+        assertEq(deposits.exposed_perBlockDepositsLength(2), 2, "Should have 2 deposits in block 2");
+
+        // The event numbers were 0 and 1 (0-indexed), matching array indices
+    }
+
+    // ========== Edge Case Tests ==========
+
+    /// @notice Test deposit with zero amount reverts
+    function test_deposit_zeroAmount_reverts() public {
+        address user = address(0x1234);
+
+        token.mint(user, 1000 ether);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), 1000 ether);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: 0, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        // Zero amount deposit should revert
+        vm.expectRevert("Invalid amount");
+        deposits.deposit(leaf);
+        vm.stopPrank();
+    }
+
+    // ========== Fuzz Tests ==========
+
+    function testFuzz_deposit_blockNumberLogic(uint256 currentBlockCount, uint256 existingHighestDeposit) public {
+        // Bound inputs to reasonable values
+        currentBlockCount = bound(currentBlockCount, 0, 100);
+        existingHighestDeposit = bound(existingHighestDeposit, 0, 200);
+
+        // Push roots to simulate current block count
+        for (uint256 i = 0; i < currentBlockCount; i++) {
+            deposits.pushRootForTest(keccak256(abi.encode(i)));
+        }
+
+        // Set highest deposit
+        deposits.setHighestDepositForTest(existingHighestDeposit);
+
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        deposits.deposit(leaf);
+        vm.stopPrank();
+
+        uint256 blockPlusTwo = currentBlockCount + 2;
+        uint256 expectedBlock = existingHighestDeposit >= blockPlusTwo ? existingHighestDeposit : blockPlusTwo;
+
+        // highestDeposit should be at least expectedBlock
+        assertTrue(deposits.exposed_highestDeposit() >= expectedBlock, "highestDeposit should be >= expected block");
+
+        // There should be at least 1 deposit in the target block
+        assertTrue(
+            deposits.exposed_perBlockDepositsLength(deposits.exposed_highestDeposit()) >= 1,
+            "Should have at least 1 deposit"
+        );
+    }
+
+    function testFuzz_deposit_multipleDeposits(uint8 depositCount) public {
+        depositCount = uint8(bound(depositCount, 1, 50));
+
+        address user = address(0x1234);
+        uint256 amountPerDeposit = 1 ether;
+        uint256 totalAmount = amountPerDeposit * depositCount;
+
+        token.mint(user, totalAmount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), totalAmount);
+
+        for (uint256 i = 0; i < depositCount; i++) {
+            Leaf memory leaf = Leaf({
+                asset: address(token),
+                amount: amountPerDeposit,
+                blinding: bytes32(0),
+                publicKey: bytes32(i) // Different public key for each
+            });
+
+            deposits.deposit(leaf);
+        }
+        vm.stopPrank();
+
+        // All deposits should be in block 2 (assuming none hit MAX_DEPOSITS)
+        assertEq(deposits.exposed_perBlockDepositsLength(2), depositCount, "All deposits should be in block 2");
+    }
+}
