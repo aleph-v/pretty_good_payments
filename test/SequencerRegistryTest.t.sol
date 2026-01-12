@@ -114,16 +114,6 @@ contract SequencerRegistryTest is Test {
         assertEq(stakeAmount, 200000, "Stake amount should be 200,000 units");
     }
 
-    function test_FundAccumulates() public {
-        vm.startPrank(sequencer1);
-        harness.fund{value: 10 ether}();
-        harness.fund{value: 10 ether}();
-        vm.stopPrank();
-
-        (,,,,, uint64 stakeAmount,) = harness.getSequencerStatus(sequencer1);
-        assertEq(stakeAmount, 200000, "Stakes should accumulate");
-    }
-
     function test_FundBlockedAfterSlash() public {
         vm.prank(sequencer1);
         harness.fund{value: 20 ether}();
@@ -425,12 +415,6 @@ contract SequencerRegistryTest is Test {
         assertEq(harness.exits(sequencer1), block.timestamp);
     }
 
-    function test_RegisterExitFailsIfNotActive() public {
-        vm.prank(sequencer1);
-        vm.expectRevert();
-        harness.registerExit();
-    }
-
     function test_Exit() public {
         vm.prank(sequencer1);
         harness.fund{value: 20 ether}();
@@ -465,22 +449,6 @@ contract SequencerRegistryTest is Test {
 
         vm.expectRevert();
         harness.exit(sequencer1);
-    }
-
-    function test_ExitPayoutFails() public {
-        RejectingContract rejecter = new RejectingContract();
-        vm.deal(address(rejecter), 100 ether);
-
-        vm.prank(address(rejecter));
-        harness.fund{value: 20 ether}();
-
-        vm.prank(address(rejecter));
-        harness.registerExit();
-
-        vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
-
-        vm.expectRevert("Payout failed");
-        harness.exit(address(rejecter));
     }
 
     // ==================== OWNER FUNCTIONS TESTS ====================

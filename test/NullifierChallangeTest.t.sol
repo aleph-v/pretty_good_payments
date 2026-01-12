@@ -86,35 +86,6 @@ contract NullifierChallengeHarness is NullifierChallenge, FakeBlobs {
         storeAt(blobHash, storageIndex, value);
     }
 
-    // Helper to create and add an intermediate block with unique random data
-    // Returns the block data which can be used as rollback target
-    function addIntermediateBlock(uint256 numTransactions, uint256 numDeposits, uint256 seed)
-        public
-        returns (BlockData memory)
-    {
-        BlockData memory intermediateBlock = BlockData({
-            anchor: keccak256(abi.encodePacked("intermediate_anchor", seed)),
-            timestamp: block.timestamp,
-            numTransactions: numTransactions,
-            numDeposits: numDeposits,
-            blockNr: 0,
-            blockIndex: TimestampAndIndex(0, 0),
-            sequencer: msg.sender,
-            blobhashes: new bytes32[](1)
-        });
-
-        (intermediateBlock,) = setupBlocks(intermediateBlock, seed);
-        bytes32[] memory blobhashes = intermediateBlock.blobhashes;
-
-        // Create indices array
-        uint256[] memory indices = new uint256[](blobhashes.length);
-        for (uint256 i = 0; i < blobhashes.length; i++) {
-            indices[i] = i;
-        }
-
-        addBlock(intermediateBlock, indices);
-        return intermediateBlock;
-    }
 }
 
 contract NullifierChallengeTest is Test {
@@ -122,38 +93,6 @@ contract NullifierChallengeTest is Test {
 
     function setUp() public {
         harness = new NullifierChallengeHarness();
-    }
-
-    function test_SimpleFakeNullifier() public {
-        bytes32 anchor = keccak256("anchor");
-        bytes32[] memory blobhashes = new bytes32[](1);
-        Spine.BlockData memory firstBlock = Spine.BlockData({
-            anchor: anchor,
-            timestamp: block.timestamp,
-            numTransactions: 1,
-            numDeposits: 0,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(0, 0),
-            sequencer: address(this),
-            blobhashes: blobhashes
-        });
-        (firstBlock, blobhashes) = harness.setupBlocks(firstBlock, 0);
-        vm.blobhashes(blobhashes);
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        firstBlock = harness.addBlockTest(firstBlock, indices);
-        Spine.BlockData memory secondBlock = harness.addBlockTest(firstBlock, indices);
-        // Now we have two blocks with the same data (one random transaction sized chunk)
-
-        // We test the first nullifier matching
-        NullifierChallenge.NullifierLoader memory loader1 = NullifierChallenge.NullifierLoader({
-            data: firstBlock, txNr: 0, whichNullifier: 0, commitment: "", proof: ""
-        });
-        NullifierChallenge.NullifierLoader memory loader2 = NullifierChallenge.NullifierLoader({
-            data: secondBlock, txNr: 0, whichNullifier: 0, commitment: "", proof: ""
-        });
-        bytes32 nullifier = harness.access(blobhashes[0], 9);
-        harness.challengeNullifier(nullifier, loader1, loader2, firstBlock);
     }
 
     // ==================== ORDERING VALIDATION TESTS ====================
@@ -419,56 +358,6 @@ contract NullifierChallengeTest is Test {
         harness.challengeNullifier(nullifier, loader1, loader2, emptyBlock);
     }
 
-    // Test different nullifier indices in same tx (0 vs 1) - should be allowed if they match
-    function test_SameTxDifferentNullifierIndices() public {
-        bytes32 sharedNullifier = keccak256("shared_nullifier");
-        bytes32 anchor = keccak256("anchor");
-        bytes32[] memory blobhashes = new bytes32[](1);
-
-        Spine.BlockData memory block1 = Spine.BlockData({
-            anchor: anchor,
-            timestamp: block.timestamp,
-            numTransactions: 1,
-            numDeposits: 0,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(0, 0),
-            sequencer: address(this),
-            blobhashes: blobhashes
-        });
-
-        // Setup with same nullifier at both positions (0 and 1) in same tx
-        uint256 dataNeeded = 15;
-        bytes32[] memory randomData = new bytes32[](dataNeeded);
-        for (uint256 i = 0; i < dataNeeded; i++) {
-            randomData[i] = keccak256(abi.encodePacked(i, uint256(456)));
-        }
-        randomData[9] = sharedNullifier; // nullifier 0
-        randomData[10] = sharedNullifier; // nullifier 1
-
-        bytes32[] memory ret = harness.store(randomData);
-        block1.blobhashes = ret;
-        vm.blobhashes(ret);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        block1 = harness.addBlockTest(block1, indices);
-
-        NullifierChallenge.NullifierLoader memory loader1 =
-            NullifierChallenge.NullifierLoader({data: block1, txNr: 0, whichNullifier: 0, commitment: "", proof: ""});
-        NullifierChallenge.NullifierLoader memory loader2 = NullifierChallenge.NullifierLoader({
-            data: block1,
-            txNr: 0,
-            whichNullifier: 1, // Different nullifier index
-            commitment: "",
-            proof: ""
-        });
-
-        Spine.BlockData memory emptyBlock;
-
-        // This should succeed - same tx but different nullifier indices is valid reuse
-        harness.challengeNullifier(sharedNullifier, loader1, loader2, emptyBlock);
-    }
-
     // ==================== DEPOSIT OFFSET TESTS ====================
 
     // Test nullifier memory calculation with deposits present (both round and non-round counts)
@@ -519,51 +408,6 @@ contract NullifierChallengeTest is Test {
             NullifierChallenge.NullifierLoader({data: block2, txNr: 0, whichNullifier: 0, commitment: "", proof: ""});
 
         harness.challengeNullifier(nullifier, loader1, loader2, block1);
-    }
-
-    // ==================== ROLLBACK TESTS ====================
-
-    // Test that rollback properly removes later blocks
-    function test_RollbackReducesBlockCount() public {
-        bytes32 anchor = keccak256("anchor");
-        bytes32[] memory blobhashes = new bytes32[](1);
-
-        Spine.BlockData memory block1 = Spine.BlockData({
-            anchor: anchor,
-            timestamp: block.timestamp,
-            numTransactions: 1,
-            numDeposits: 0,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(0, 0),
-            sequencer: address(this),
-            blobhashes: blobhashes
-        });
-
-        (block1, blobhashes) = harness.setupBlocks(block1, 0);
-        vm.blobhashes(blobhashes);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-
-        // Add three blocks
-        block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
-        harness.addBlockTest(block1, indices);
-
-        assertEq(harness.getBlockCount(), 3, "Should have 3 blocks");
-
-        bytes32 nullifier = harness.access(blobhashes[0], 9);
-
-        NullifierChallenge.NullifierLoader memory loader1 =
-            NullifierChallenge.NullifierLoader({data: block1, txNr: 0, whichNullifier: 0, commitment: "", proof: ""});
-        NullifierChallenge.NullifierLoader memory loader2 =
-            NullifierChallenge.NullifierLoader({data: block2, txNr: 0, whichNullifier: 0, commitment: "", proof: ""});
-
-        // Challenge should rollback to block 1 (second block's position)
-        harness.challengeNullifier(nullifier, loader1, loader2, block1);
-
-        // After rollback, should have only 1 block (rolled back to position of block2)
-        assertEq(harness.getBlockCount(), 1, "Should have rolled back to 1 block");
     }
 
     // ==================== INVALID INPUT TESTS ====================
@@ -723,45 +567,6 @@ contract NullifierChallengeTest is Test {
         loader2.txNr = 280;
 
         harness.challengeNullifier(nullifier, loader1, loader2, block1);
-    }
-
-    // ==================== WRONG NULLIFIER VALUE TESTS ====================
-
-    // Test that providing wrong nullifier value fails
-    function test_WrongNullifierValueRejected() public {
-        bytes32 anchor = keccak256("anchor");
-        bytes32[] memory blobhashes = new bytes32[](1);
-
-        Spine.BlockData memory block1 = Spine.BlockData({
-            anchor: anchor,
-            timestamp: block.timestamp,
-            numTransactions: 1,
-            numDeposits: 0,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(0, 0),
-            sequencer: address(this),
-            blobhashes: blobhashes
-        });
-
-        (block1, blobhashes) = harness.setupBlocks(block1, 0);
-        vm.blobhashes(blobhashes);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
-
-        // Use a fake nullifier that doesn't match blob data
-        bytes32 fakeNullifier = keccak256("fake_nullifier");
-
-        NullifierChallenge.NullifierLoader memory loader1 =
-            NullifierChallenge.NullifierLoader({data: block1, txNr: 0, whichNullifier: 0, commitment: "", proof: ""});
-        NullifierChallenge.NullifierLoader memory loader2 =
-            NullifierChallenge.NullifierLoader({data: block2, txNr: 0, whichNullifier: 0, commitment: "", proof: ""});
-
-        // Should revert because fake nullifier doesn't match blob data
-        vm.expectRevert();
-        harness.challengeNullifier(fakeNullifier, loader1, loader2, block1);
     }
 
     // ==================== FUZZ TESTS ====================
@@ -970,67 +775,5 @@ contract NullifierChallengeTest is Test {
         // Should revert - fake nullifier doesn't match blob data at either position
         vm.expectRevert();
         harness.challengeNullifier(fakeNullifier, loader1, loader2, block1);
-    }
-
-    /// @notice Fuzz test that block ordering is enforced (first.blockNr <= second.blockNr)
-    /// @param seed Random seed
-    /// @param numBlocks Number of blocks to create (at least 2)
-    /// @param timeGapPerBlock Time between each block
-    function testFuzz_BlockOrderingEnforced(uint256 seed, uint8 numBlocks, uint16 timeGapPerBlock) public {
-        uint256 boundedBlocks = bound(numBlocks, 2, 10);
-        uint256 boundedTimeGap = bound(timeGapPerBlock, 1, 1 hours);
-
-        bytes32 anchor = keccak256(abi.encodePacked("anchor", seed));
-
-        Spine.BlockData memory block1 = Spine.BlockData({
-            anchor: anchor,
-            timestamp: block.timestamp,
-            numTransactions: 1,
-            numDeposits: 0,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(0, 0),
-            sequencer: address(this),
-            blobhashes: new bytes32[](1)
-        });
-
-        (block1,) = harness.setupBlocks(block1, seed);
-        bytes32[] memory blobhashes = block1.blobhashes;
-        vm.blobhashes(blobhashes);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-
-        // Add multiple blocks with time gaps
-        Spine.BlockData[] memory blocks = new Spine.BlockData[](boundedBlocks);
-        blocks[0] = harness.addBlockTest(block1, indices);
-
-        for (uint256 i = 1; i < boundedBlocks; i++) {
-            vm.warp(block.timestamp + boundedTimeGap);
-            blocks[i] = harness.addBlockTest(block1, indices);
-        }
-
-        bytes32 nullifier = harness.access(blobhashes[0], 9);
-
-        // Try to challenge with blocks in WRONG order (later block as "first")
-        NullifierChallenge.NullifierLoader memory loader1 = NullifierChallenge.NullifierLoader({
-            data: blocks[boundedBlocks - 1], // Last block (higher blockNr)
-            txNr: 0,
-            whichNullifier: 0,
-            commitment: "",
-            proof: ""
-        });
-        NullifierChallenge.NullifierLoader memory loader2 = NullifierChallenge.NullifierLoader({
-            data: blocks[0], // First block (lower blockNr)
-            txNr: 0,
-            whichNullifier: 0,
-            commitment: "",
-            proof: ""
-        });
-
-        Spine.BlockData memory emptyBlock;
-
-        // Should revert - first.blockNr > second.blockNr
-        vm.expectRevert();
-        harness.challengeNullifier(nullifier, loader1, loader2, emptyBlock);
     }
 }

@@ -22,7 +22,6 @@ contract Withdraw is Spine {
     function withdraw(
         Leaf memory leaf,
         BlockData memory data,
-        uint256 blockNr,
         uint256 blobHashIndex,
         uint256 txNr,
         uint256 which,
@@ -32,7 +31,7 @@ contract Withdraw is Spine {
         // Checks that the anchor is confirmed and that the leaf is in the tree
         require(isConfirmed(data));
         // TODO need more index info on withdraws
-        require(!withdrawn[blockNr][txNr << 2 + which]);
+        require(!withdrawn[data.blockNr][(txNr << 2) + which]);
 
         // Get the leaf hash and the blob hash
         bytes32 leafHash = leaf.hash();
@@ -42,10 +41,8 @@ contract Withdraw is Spine {
         require(which < 3);
         require(txNr < data.numTransactions);
         // We cannot withdraw from deposit leafs
-        // NOTE - We treat the case of multiple blobs as simple multiple conjoined memory regions so the leafMemoryAddress function
-        //        will return a value greater than 4096 but will still give the correct location. Therefore we subtract out
-        //        extra blob field elements to get the true "in blob" 32 byte memory address
-        uint256 blobIndex = leafMemoryAddress(txNr, data.numDeposits, false, which) - 4096 * blobHashIndex;
+        // TODO - Consider allowing withdraws from deposit leaves?
+        uint256 blobIndex = leafMemoryAddress(txNr, data.numDeposits, false, which) % 4096;
         // Validate will revert on any problems but will otherwise prove that the is an output leaf
         // of transaction number txNumber
         validateSingle(l2blobhash, commitment, blobIndex, leafHash, proof);
@@ -55,7 +52,7 @@ contract Withdraw is Spine {
         require(leaf.publicKey == 0);
 
         // Now process
-        withdrawn[blockNr][txNr << 2 + which] = true;
+        withdrawn[data.blockNr][(txNr << 2) + which] = true;
         yieldRouter.triggerWithdraw(address(leaf.asset), leaf.amount, address(bytes20(leaf.blinding)));
     }
 }

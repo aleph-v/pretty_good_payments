@@ -2,11 +2,17 @@
 pragma solidity ^0.8.13;
 
 import {IYieldRouter} from "../../src/interfaces/IYieldRouter.sol";
+import {IERC20} from "forge-std/interfaces/IERC20.sol";
 
 contract MockYieldRouter is IYieldRouter {
     uint256 public depositCount;
     address public lastDepositAsset;
     uint256 public lastDepositAmount;
+
+    uint256 public withdrawCount;
+    address public lastWithdrawAsset;
+    uint256 public lastWithdrawAmount;
+    address public lastWithdrawRecipient;
 
     function triggerDeposit(address asset, uint256 amount) external override {
         depositCount++;
@@ -14,6 +20,14 @@ contract MockYieldRouter is IYieldRouter {
         lastDepositAmount = amount;
     }
 
-    function triggerWithdraw(address, uint256, address) external override {}
+    function triggerWithdraw(address asset, uint256 amount, address recipient) external override {
+        withdrawCount++;
+        lastWithdrawAsset = asset;
+        lastWithdrawAmount = amount;
+        lastWithdrawRecipient = recipient;
+        // Transfer tokens to recipient (assumes this contract holds the tokens)
+        IERC20(asset).transfer(recipient, amount);
+    }
+
     function reportPayoutPercent(address, uint256, uint256) external override {}
 }
