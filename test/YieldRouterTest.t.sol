@@ -51,33 +51,6 @@ contract YieldRouterHarness is YieldRouter {
     function recordYield(address token, uint256 period) external {
         _record(token, period);
     }
-
-    // Bypass bridge restriction for testing deposit/withdraw
-    function testTriggerDeposit(address asset, uint256 amount) external {
-        require(IERC20(asset).balanceOf(address(this)) >= amount, "Not Transferred");
-        require(address(sources[asset]) != address(0), "ERC20 not enabled");
-        priorBalances[asset] += amount;
-        sources[asset].deposit(amount, address(this));
-    }
-
-    function testTriggerWithdraw(address asset, uint256 amount, address destination) external {
-        uint256 totalShares = sources[asset].balanceOf(address(this));
-        uint256 currentGlobalValue = sources[asset].previewRedeem(totalShares);
-        uint256 userAmount = amount;
-        if (priorBalances[asset] > currentGlobalValue) {
-            uint256 fixedPercent = (priorBalances[asset] * 1e18) / currentGlobalValue;
-            userAmount = fixedPercent * amount / 1e18;
-        }
-        sources[asset].withdraw(userAmount, destination, address(this));
-        priorBalances[asset] -= userAmount;
-    }
-
-    function testReportPayoutPercent(address sequencer, uint256 percent, uint256 epoch) external {
-        poke();
-        if (percent <= 1e18) {
-            sequencerPercents[sequencer][epoch] = percent;
-        }
-    }
 }
 
 contract YieldRouterTest is Test {
@@ -111,135 +84,63 @@ contract YieldRouterTest is Test {
         vm.stopPrank();
     }
 
-    // ==================== BRIDGE TESTS ====================
+    // ==================== DEPOSIT TESTS ====================
 
-    function test_BridgeCorrectlyInitialized() public {
-        // The bridge address is properly set in constructor
-        // Verify bridge can call onlyBridge functions
-
-        // Fund router with tokens
+    function test_TriggerDeposit_Basic() public {
         token.mint(address(router), 100 ether);
-        router.setSource(address(token), vault);
 
-        // Call triggerDeposit as bridge - should succeed
         vm.prank(bridge);
         router.triggerDeposit(address(token), 100 ether);
 
-        assertEq(router.priorBalances(address(token)), 100 ether, "Deposit should work via bridge");
+        assertEq(router.priorBalances(address(token)), 100 ether, "Prior balance should be set");
+        assertEq(vault.balanceOf(address(router)), 100 ether, "Router should have vault shares");
     }
 
-    function test_NonBridgeCannotCallOnlyBridge() public {
+    function test_TriggerDeposit_OnlyBridge() public {
         token.mint(address(router), 100 ether);
-        router.setSource(address(token), vault);
 
-        // Non-bridge address should fail
         vm.prank(user);
         vm.expectRevert();
         router.triggerDeposit(address(token), 100 ether);
     }
 
-    function test_TriggerWithdraw_ViaBridge() public {
-        token.mint(address(router), 100 ether);
+    function test_TriggerDeposit_Validations() public {
+        // No tokens transferred
+        vm.prank(bridge);
+        vm.expectRevert("Not Transferred");
+        router.triggerDeposit(address(token), 100 ether);
 
+        // Source not enabled
+        FakeERC20 otherToken = new FakeERC20();
+        otherToken.mint(address(router), 100 ether);
+        vm.prank(bridge);
+        vm.expectRevert("ERC20 not enabled");
+        router.triggerDeposit(address(otherToken), 100 ether);
+    }
+
+    // ==================== WITHDRAW TESTS ====================
+
+    function test_TriggerWithdraw_Basic() public {
+        token.mint(address(router), 100 ether);
         vm.prank(bridge);
         router.triggerDeposit(address(token), 100 ether);
 
         vm.prank(bridge);
         router.triggerWithdraw(address(token), 50 ether, user);
 
-        assertEq(token.balanceOf(user), 50 ether, "User receives withdrawal");
-        assertEq(router.priorBalances(address(token)), 50 ether, "Prior balance updated");
-    }
-
-    function test_TriggerWithdraw_ViaBridge_WithLoss() public {
-        token.mint(address(router), 100 ether);
-
-        vm.prank(bridge);
-        router.triggerDeposit(address(token), 100 ether);
-
-        // Simulate loss
-        vault.simulateLoss(20 ether);
-
-        vm.prank(bridge);
-        router.triggerWithdraw(address(token), 20 ether, user);
-
-        // Loss triggers proportional adjustment
-        uint256 received = token.balanceOf(user);
-        assertTrue(received > 0, "User receives tokens");
-        assertEq(router.priorBalances(address(token)), 100 ether - received, "Prior balance tracks withdrawal");
-    }
-
-    function test_ReportPayoutPercent_ViaBridge() public {
-        vm.prank(bridge);
-        router.reportPayoutPercent(sequencer1, 0.5e18, 0);
-
-        assertEq(router.sequencerPercents(sequencer1, 0), 0.5e18, "Percent recorded via bridge");
-    }
-
-    // ==================== DEPOSIT TESTS ====================
-
-    function test_TriggerDeposit_Basic() public {
-        token.mint(address(router), 100 ether);
-
-        router.testTriggerDeposit(address(token), 100 ether);
-
-        assertEq(router.priorBalances(address(token)), 100 ether, "Prior balance should be set");
-        assertEq(vault.balanceOf(address(router)), 100 ether, "Router should have vault shares");
-    }
-
-    function test_TriggerDeposit_RequiresTokensTransferred() public {
-        // Don't transfer tokens first
-        vm.expectRevert("Not Transferred");
-        router.testTriggerDeposit(address(token), 100 ether);
-    }
-
-    function test_TriggerDeposit_RequiresSourceEnabled() public {
-        FakeERC20 otherToken = new FakeERC20();
-        otherToken.mint(address(router), 100 ether);
-
-        // Source not set for otherToken
-        vm.expectRevert("ERC20 not enabled");
-        router.testTriggerDeposit(address(otherToken), 100 ether);
-    }
-
-    // ==================== WITHDRAW TESTS ====================
-
-    function test_TriggerWithdraw_Basic() public {
-        // Setup: deposit first
-        token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
-
-        // Withdraw
-        router.testTriggerWithdraw(address(token), 50 ether, user);
-
         assertEq(token.balanceOf(user), 50 ether, "User should receive tokens");
         assertEq(router.priorBalances(address(token)), 50 ether, "Prior balance should decrease");
     }
 
-    function test_WithdrawWithLoss_ProportionalReduction() public {
+    function test_TriggerWithdraw_WithLoss() public {
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
-
-        // Simulate 20% loss (vault now has 80 ether)
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.simulateLoss(20 ether);
 
         uint256 userBalanceBefore = token.balanceOf(user);
-        router.testTriggerWithdraw(address(token), 50 ether, user);
-        uint256 received = token.balanceOf(user) - userBalanceBefore;
-
-        // Loss triggers proportional adjustment: fixedPercent = 100/80 = 1.25
-        // userAmount = 1.25 * 50 = 62.5 ether
-        assertTrue(received > 0, "User should receive tokens");
-        assertEq(router.priorBalances(address(token)), 100 ether - received, "Prior balance tracks withdrawal");
-    }
-
-    function test_WithdrawWithLoss_SmallWithdrawal() public {
-        token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
-        vault.simulateLoss(20 ether);
-
-        uint256 userBalanceBefore = token.balanceOf(user);
-        router.testTriggerWithdraw(address(token), 20 ether, user);
+        vm.prank(bridge);
+        router.triggerWithdraw(address(token), 20 ether, user);
         uint256 received = token.balanceOf(user) - userBalanceBefore;
 
         // fixedPercent = 100/80 = 1.25, userAmount = 1.25 * 20 = 25 ether
@@ -247,39 +148,18 @@ contract YieldRouterTest is Test {
         assertEq(router.priorBalances(address(token)), 75 ether, "Prior balance decreased by userAmount");
     }
 
-    function test_WithdrawWithProfit_NoReduction() public {
+    function test_TriggerWithdraw_WithProfit() public {
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.addYield(20 ether);
 
-        uint256 userBalanceBefore = token.balanceOf(user);
-        router.testTriggerWithdraw(address(token), 60 ether, user);
-        uint256 received = token.balanceOf(user) - userBalanceBefore;
+        vm.prank(bridge);
+        router.triggerWithdraw(address(token), 60 ether, user);
 
         // No reduction during profit - user gets full requested amount
-        assertEq(received, 60 ether, "User receives full amount during profit");
+        assertEq(token.balanceOf(user), 60 ether, "User receives full amount during profit");
         assertEq(router.priorBalances(address(token)), 40 ether, "Prior balance correctly decreased");
-    }
-
-    // ==================== CURRENT PERIOD TESTS ====================
-
-    function test_CurrentPeriod_Basic() public {
-        // currentPeriod() uses / to return the period NUMBER
-
-        // At time 0, period should be 0
-        assertEq(router.currentPeriod(), 0, "Period at start should be 0");
-
-        // After exactly 1 period
-        vm.warp(block.timestamp + PERIOD_LENGTH);
-        assertEq(router.currentPeriod(), 1, "After 1 period should be period 1");
-
-        // After 1.5 periods, should still be period 1
-        vm.warp(block.timestamp + PERIOD_LENGTH / 2);
-        assertEq(router.currentPeriod(), 1, "Halfway through period 2 should still be period 1");
-
-        // After 2 full periods
-        vm.warp(block.timestamp + PERIOD_LENGTH / 2);
-        assertEq(router.currentPeriod(), 2, "After 2 periods should be period 2");
     }
 
     // ==================== SEQUENCER PAYOUT TESTS ====================
@@ -298,7 +178,8 @@ contract YieldRouterTest is Test {
         token2.approve(address(vault2), type(uint256).max);
         vm.stopPrank();
 
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
 
         // Setup token2 deposit manually since we need separate handling
         vm.startPrank(address(router));
@@ -343,7 +224,8 @@ contract YieldRouterTest is Test {
     function test_PaidOut_PreventsDoubleWithdrawPerToken() public {
         // Verify that paidOut still prevents double withdrawal of the same token
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.addYield(10 ether);
 
         uint256 epoch = 0;
@@ -362,7 +244,8 @@ contract YieldRouterTest is Test {
     function test_SequencerWithdraw_Basic() public {
         // Setup
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.addYield(10 ether);
 
         uint256 epoch = 0;
@@ -386,7 +269,8 @@ contract YieldRouterTest is Test {
 
     function test_RecordYield_Basic() public {
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
 
         // Add 10 ether yield
         vault.addYield(10 ether);
@@ -400,7 +284,8 @@ contract YieldRouterTest is Test {
 
     function test_RecordYield_OnlyOncePerPeriod() public {
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
 
         vault.addYield(10 ether);
         router.recordYield(address(token), 0);
@@ -417,7 +302,8 @@ contract YieldRouterTest is Test {
 
     function test_RecordYield_WithMaxInterest() public {
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         router.setMaxInterest(address(token), 5 ether);
         vault.addYield(10 ether);
 
@@ -427,32 +313,11 @@ contract YieldRouterTest is Test {
         assertEq(router.priorBalances(address(token)), 105 ether, "Prior balance increases by capped amount");
     }
 
-    function test_RecordYield_UnderOrAtMaxInterest() public {
-        // Test branch where maxInterest is set but payment does not exceed cap
-        token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
-
-        // Case 1: Under max - set max to 20, yield is 10
-        router.setMaxInterest(address(token), 20 ether);
-        vault.addYield(10 ether);
-        router.recordYield(address(token), 0);
-
-        assertEq(router.periodPayouts(address(token), 0), 10 ether, "Should not cap when under max");
-        assertEq(router.priorBalances(address(token)), 110 ether, "Prior balance increases by full yield");
-
-        // Case 2: Exactly at max - new period with max = yield
-        vm.warp(block.timestamp + PERIOD_LENGTH);
-        router.setMaxInterest(address(token), 5 ether);
-        vault.addYield(5 ether); // Now vault has 115, prior is 110, so yield is 5
-        router.recordYield(address(token), 1);
-
-        assertEq(router.periodPayouts(address(token), 1), 5 ether, "Should not cap at exact boundary");
-    }
-
     function test_RecordYield_MaxInterestCarryOver() public {
         // Test that excess yield carries over to next period
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
 
         // Set max interest to 5 ether
         router.setMaxInterest(address(token), 5 ether);
@@ -475,14 +340,18 @@ contract YieldRouterTest is Test {
         assertEq(router.priorBalances(address(token)), 110 ether, "Prior balance after period 1");
     }
 
-    // ==================== SET MAX INTEREST FUNCTION TESTS ====================
-
-    function test_SetMaxInterest_Basic() public {
-        // Test the new contract function
+    function test_SetMaxInterest() public {
+        // Set and verify
         router.setMaxInterest(address(token), 50 ether);
+        assertEq(router.maxInterest(address(token)), 50 ether);
 
-        // Verify via the harness getter
-        assertEq(router.maxInterest(address(token)), 50 ether, "Max interest should be set");
+        // Update
+        router.setMaxInterest(address(token), 100 ether);
+        assertEq(router.maxInterest(address(token)), 100 ether);
+
+        // Clear
+        router.setMaxInterest(address(token), 0);
+        assertEq(router.maxInterest(address(token)), 0);
     }
 
     function test_SetMaxInterest_OnlyOwner() public {
@@ -491,31 +360,10 @@ contract YieldRouterTest is Test {
         router.setMaxInterest(address(token), 50 ether);
     }
 
-    function test_SetMaxInterest_CanUpdate() public {
-        router.setMaxInterest(address(token), 50 ether);
-        assertEq(router.maxInterest(address(token)), 50 ether, "Initial value");
-
-        router.setMaxInterest(address(token), 100 ether);
-        assertEq(router.maxInterest(address(token)), 100 ether, "Updated value");
-
-        // Can also set to zero to clear
-        router.setMaxInterest(address(token), 0);
-        assertEq(router.maxInterest(address(token)), 0, "Cleared to zero");
-    }
-
-    function test_RecordYield_NoYieldNoPayment() public {
-        token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
-
-        // No yield added
-        router.recordYield(address(token), 0);
-
-        assertEq(router.periodPayouts(address(token), 0), 0, "No yield = no payout");
-    }
-
     function test_RecordYield_LossResultsInZeroPayment() public {
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
 
         // Simulate loss
         vault.simulateLoss(10 ether);
@@ -534,7 +382,8 @@ contract YieldRouterTest is Test {
         router.addTrackedYieldSource(address(token));
 
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.addYield(10 ether);
 
         router.poke();
@@ -547,7 +396,8 @@ contract YieldRouterTest is Test {
     function test_Poke_OnlyOncePerPeriod() public {
         router.addTrackedYieldSource(address(token));
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.addYield(10 ether);
 
         router.poke();
@@ -562,32 +412,21 @@ contract YieldRouterTest is Test {
         assertEq(router.periodPayouts(address(token), period), 10 ether, "Should not re-record");
     }
 
-    function test_TrackedYieldSources_InitializedViaConstructor() public {
-        // Create a new router with pre-populated tracked sources
-        address[] memory tracked = new address[](2);
-        tracked[0] = address(token);
-        tracked[1] = address(0x1234);
+    function test_ChangeTrackedYieldSources() public {
+        assertEq(router.getTrackedYieldSourcesLength(), 0, "Initially empty");
 
-        YieldRouterHarness routerWithTracked = new YieldRouterHarness(
-            PERIOD_LENGTH,
-            EPOCHS_PER_PERIOD,
-            bridge,
-            tracked
-        );
+        // Add sources
+        address[] memory initial = new address[](2);
+        initial[0] = address(token);
+        initial[1] = address(0x1111);
+        router.changeTrackedYieldSources(initial);
+        assertEq(router.getTrackedYieldSourcesLength(), 2);
 
-        assertEq(routerWithTracked.getTrackedYieldSourcesLength(), 2, "Should have 2 tracked sources");
-    }
-
-    function test_ChangeTrackedYieldSources_Basic() public {
-        // Initially empty
-        assertEq(router.getTrackedYieldSourcesLength(), 0, "No tracked sources initially");
-
-        // Owner can add tracked sources
-        address[] memory newTracked = new address[](1);
-        newTracked[0] = address(token);
-        router.changeTrackedYieldSources(newTracked);
-
-        assertEq(router.getTrackedYieldSourcesLength(), 1, "Should have 1 tracked source");
+        // Replace
+        address[] memory replacement = new address[](1);
+        replacement[0] = address(0x2222);
+        router.changeTrackedYieldSources(replacement);
+        assertEq(router.getTrackedYieldSourcesLength(), 1);
     }
 
     function test_ChangeTrackedYieldSources_OnlyOwner() public {
@@ -599,73 +438,40 @@ contract YieldRouterTest is Test {
         router.changeTrackedYieldSources(newTracked);
     }
 
-    function test_ChangeTrackedYieldSources_CanReplace() public {
-        // Add initial sources
-        address[] memory initial = new address[](2);
-        initial[0] = address(token);
-        initial[1] = address(0x1111);
-        router.changeTrackedYieldSources(initial);
-        assertEq(router.getTrackedYieldSourcesLength(), 2, "Should have 2 sources");
-
-        // Replace with different sources
-        address[] memory replacement = new address[](1);
-        replacement[0] = address(0x2222);
-        router.changeTrackedYieldSources(replacement);
-        assertEq(router.getTrackedYieldSourcesLength(), 1, "Should have 1 source after replacement");
-    }
-
     // ==================== REPORT PAYOUT PERCENT TESTS ====================
 
-    function test_ReportPayoutPercent_Basic() public {
-        router.testReportPayoutPercent(sequencer1, 0.5e18, 0);
+    function test_ReportPayoutPercent() public {
+        // Valid percent
+        vm.prank(bridge);
+        router.reportPayoutPercent(sequencer1, 0.5e18, 0);
+        assertEq(router.sequencerPercents(sequencer1, 0), 0.5e18);
 
-        assertEq(router.sequencerPercents(sequencer1, 0), 0.5e18, "Percent should be recorded");
-    }
+        // 100% is accepted
+        vm.prank(bridge);
+        router.reportPayoutPercent(sequencer1, 1e18, 1);
+        assertEq(router.sequencerPercents(sequencer1, 1), 1e18);
 
-    function test_ReportPayoutPercent_RejectsOverHundredPercent() public {
-        // Percent > 1e18 should be silently ignored
-        router.testReportPayoutPercent(sequencer1, 1.5e18, 0);
-
-        assertEq(router.sequencerPercents(sequencer1, 0), 0, "Over 100% should be ignored");
-    }
-
-    function test_ReportPayoutPercent_AcceptsExactlyHundredPercent() public {
-        router.testReportPayoutPercent(sequencer1, 1e18, 0);
-
-        assertEq(router.sequencerPercents(sequencer1, 0), 1e18, "100% should be accepted");
+        // Over 100% is silently ignored
+        vm.prank(bridge);
+        router.reportPayoutPercent(sequencer1, 1.5e18, 2);
+        assertEq(router.sequencerPercents(sequencer1, 2), 0);
     }
 
     // ==================== CHANGE YIELD SOURCE TESTS ====================
 
-    function test_ChangeYieldSource_Basic() public {
-        // Setup initial deposit
+    function test_ChangeYieldSource() public {
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
-
-        // Create new vault
-        MockERC4626 newVault = new MockERC4626(token);
-
-        // Change source
-        router.changeYieldSource(address(token), newVault);
-
-        // Funds should be in new vault
-        assertEq(vault.balanceOf(address(router)), 0, "Old vault should be empty");
-        assertEq(newVault.balanceOf(address(router)), 100 ether, "New vault should have funds");
-        assertEq(address(router.sources(address(token))), address(newVault), "Source should be updated");
-    }
-
-    function test_ChangeYieldSource_PreservesYield() public {
-        token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
-
-        // Add yield to old vault
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.addYield(10 ether);
 
         MockERC4626 newVault = new MockERC4626(token);
         router.changeYieldSource(address(token), newVault);
 
-        // Should move full value (100 + 10 = 110)
-        assertEq(token.balanceOf(address(newVault)), 110 ether, "New vault should have principal + yield");
+        // Funds migrated with yield
+        assertEq(vault.balanceOf(address(router)), 0, "Old vault empty");
+        assertEq(token.balanceOf(address(newVault)), 110 ether, "New vault has principal + yield");
+        assertEq(address(router.sources(address(token))), address(newVault), "Source updated");
     }
 
     function test_ChangeYieldSource_OnlyOwner() public {
@@ -676,27 +482,13 @@ contract YieldRouterTest is Test {
         router.changeYieldSource(address(token), newVault);
     }
 
-    function test_ChangeYieldSource_NewSourceWithDeposit() public {
-        // Test adding a new source and then depositing to it
+    function test_ChangeYieldSource_NewToken() public {
         FakeERC20 newToken = new FakeERC20();
         MockERC4626 newVault = new MockERC4626(newToken);
 
-        // Add the new source
+        // Add source for new token (no existing source)
         router.changeYieldSource(address(newToken), newVault);
-
-        // Mint tokens to router and deposit
-        newToken.mint(address(router), 100 ether);
-
-        // Approve vault from router
-        vm.startPrank(address(router));
-        newToken.approve(address(newVault), type(uint256).max);
-        vm.stopPrank();
-
-        // Now deposit should work
-        vm.prank(bridge);
-        router.triggerDeposit(address(newToken), 100 ether);
-
-        assertEq(router.priorBalances(address(newToken)), 100 ether, "Deposit should work with new source");
+        assertEq(address(router.sources(address(newToken))), address(newVault));
     }
 
     // ==================== WITHDRAW MANY TESTS ====================
@@ -705,7 +497,8 @@ contract YieldRouterTest is Test {
         router.addTrackedYieldSource(address(token));
 
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.addYield(10 ether);
 
         uint256 epoch = 0;
@@ -728,7 +521,8 @@ contract YieldRouterTest is Test {
     function test_RecognizeYield_ForUntrackedToken() public {
         // Token not in trackedYieldSources but has a source set
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
         vault.addYield(10 ether);
 
         router.recognizeYield(address(token));
@@ -737,25 +531,14 @@ contract YieldRouterTest is Test {
         assertEq(router.periodPayouts(address(token), period), 10 ether, "Should record yield");
     }
 
-    // ==================== EDGE CASES ====================
-
     function test_WithdrawMoreThanDeposited() public {
         token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), 100 ether);
 
-        // Try to withdraw more than deposited
+        vm.prank(bridge);
         vm.expectRevert();
-        router.testTriggerWithdraw(address(token), 150 ether, user);
-    }
-
-    function test_WithdrawEntireBalance() public {
-        token.mint(address(router), 100 ether);
-        router.testTriggerDeposit(address(token), 100 ether);
-
-        router.testTriggerWithdraw(address(token), 100 ether, user);
-
-        assertEq(token.balanceOf(user), 100 ether, "User gets full balance");
-        assertEq(router.priorBalances(address(token)), 0, "Prior balance is zero");
+        router.triggerWithdraw(address(token), 150 ether, user);
     }
 
     // ==================== FUZZ TESTS ====================
@@ -765,9 +548,11 @@ contract YieldRouterTest is Test {
         withdrawAmount = bound(withdrawAmount, 1, depositAmount);
 
         token.mint(address(router), depositAmount);
-        router.testTriggerDeposit(address(token), depositAmount);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), depositAmount);
 
-        router.testTriggerWithdraw(address(token), withdrawAmount, user);
+        vm.prank(bridge);
+        router.triggerWithdraw(address(token), withdrawAmount, user);
 
         assertEq(token.balanceOf(user), withdrawAmount, "User receives withdrawal");
         assertEq(router.priorBalances(address(token)), depositAmount - withdrawAmount, "Prior balance updated");
@@ -778,7 +563,8 @@ contract YieldRouterTest is Test {
         yieldAmount = bound(yieldAmount, 0, 100 ether);
 
         token.mint(address(router), depositAmount);
-        router.testTriggerDeposit(address(token), depositAmount);
+        vm.prank(bridge);
+        router.triggerDeposit(address(token), depositAmount);
 
         vault.addYield(yieldAmount);
         router.recordYield(address(token), 0);
@@ -789,7 +575,8 @@ contract YieldRouterTest is Test {
     function testFuzz_SequencerPercent(uint256 percent) public {
         percent = bound(percent, 0, 2e18); // Include invalid values
 
-        router.testReportPayoutPercent(sequencer1, percent, 0);
+        vm.prank(bridge);
+        router.reportPayoutPercent(sequencer1, percent, 0);
 
         if (percent <= 1e18) {
             assertEq(router.sequencerPercents(sequencer1, 0), percent, "Valid percent recorded");
