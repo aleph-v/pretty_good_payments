@@ -1462,97 +1462,128 @@ contract TreeUpdateChallengeTest is Test {
     // Extension region validation tests
     // ============================================================================
 
-    /// @notice Test extension region validation - wrong hash and wrong memory address both revert
-    /// @dev Extension region must have correct blob hash and start at memoryAddress 0
-    function test_ExtensionRegion_InvalidParametersRevert() public {
-        // Setup boundary-crossing block (tx 272 starts at address 4095)
-        uint256 numDeposits = 3;
-        uint256 numTransactions = 273;
-        uint256 targetTx = 272;
+    /// @notice Helper struct to reduce stack depth in extension region tests
+    struct ExtensionTestSetup {
+        bytes32[] blobHashes;
+        bytes32 regionDataElement;
+        bytes32 extensionData0;
+        bytes32 extensionData1;
+        bytes32 extensionData2;
+        bytes32 priorAnchor;
+    }
 
-        uint256 totalData = 4 + numTransactions * 15; // depositSize + txSize
+    /// @notice Sets up common data for extension region validation tests
+    function _setupExtensionRegionTest() internal returns (ExtensionTestSetup memory setup) {
+        uint256 numTransactions = 273;
+        uint256 totalData = 4 + numTransactions * 15;
+
         bytes32[] memory allData = new bytes32[](totalData);
         for (uint256 i = 0; i < totalData; i++) {
             allData[i] = keccak256(abi.encodePacked("extension_validation_test", i));
         }
-        bytes32[] memory blobHashes = harness.store(allData);
 
-        // Prepare common data
+        setup.blobHashes = harness.store(allData);
+        setup.regionDataElement = harness.access(setup.blobHashes[0], 4095);
+        setup.extensionData0 = harness.access(setup.blobHashes[1], 0);
+        setup.extensionData1 = harness.access(setup.blobHashes[1], 1);
+        setup.extensionData2 = harness.access(setup.blobHashes[1], 2);
+        setup.priorAnchor = harness.access(setup.blobHashes[0], 4083);
+    }
+
+    /// @notice Creates and adds block for extension region tests
+    function _addExtensionTestBlock(ExtensionTestSetup memory setup) internal returns (Spine.BlockData memory data) {
+        data.numDeposits = 3;
+        data.numTransactions = 273;
+        data.sequencer = sequencer;
+        data.blobhashes = setup.blobHashes;
+        data.anchor = setup.extensionData2;
+
+        uint256[] memory indices = new uint256[](2);
+        indices[0] = 0;
+        indices[1] = 1;
+        vm.blobhashes(setup.blobHashes);
+
+        vm.prank(sequencer);
+        data = harness.addBlockTest(data, indices);
+    }
+
+    /// @notice Test extension region validation - wrong blob hash reverts
+    function test_ExtensionRegion_WrongHashReverts() public {
+        ExtensionTestSetup memory setup = _setupExtensionRegionTest();
+        Spine.BlockData memory data = _addExtensionTestBlock(setup);
+
         bytes32[] memory regionData = new bytes32[](1);
-        regionData[0] = harness.access(blobHashes[0], 4095);
+        regionData[0] = setup.regionDataElement;
+        BlobData.Region memory region = _createRegion(1, 4095, regionData, setup.blobHashes[0]);
 
         bytes32[] memory extensionData = new bytes32[](3);
-        extensionData[0] = harness.access(blobHashes[1], 0);
-        extensionData[1] = harness.access(blobHashes[1], 1);
-        extensionData[2] = harness.access(blobHashes[1], 2);
+        extensionData[0] = setup.extensionData0;
+        extensionData[1] = setup.extensionData1;
+        extensionData[2] = setup.extensionData2;
 
-        bytes32 priorAnchor = harness.access(blobHashes[0], 4083);
-        BlobData.Region memory region = _createRegion(1, 4095, regionData, blobHashes[0]);
+        BlobData.Region memory badHashExtension = _createRegion(3, 0, extensionData, keccak256("wrong_hash"));
 
-        // Test 1: Wrong blob hash reverts
-        {
-            Spine.BlockData memory data;
-            data.numDeposits = numDeposits;
-            data.numTransactions = numTransactions;
-            data.sequencer = sequencer;
-            data.blobhashes = blobHashes;
-            data.anchor = extensionData[2];
+        bytes32 trueAnchor = keccak256("some_anchor");
+        uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-            uint256[] memory indices = new uint256[](2);
-            indices[0] = 0;
-            indices[1] = 1;
-            vm.blobhashes(blobHashes);
+        uint256[6] memory signals = [
+            uint256(setup.priorAnchor),
+            treeIndex,
+            uint256(regionData[0]),
+            uint256(extensionData[0]),
+            uint256(extensionData[1]),
+            uint256(trueAnchor)
+        ];
+        fakeZK.approveUpdate(signals);
 
-            vm.prank(sequencer);
-            data = harness.addBlockTest(data, indices);
+        Proof memory zkProof;
+        Spine.BlockData memory rollbackTarget;
 
-            // Wrong hash for extension region
-            BlobData.Region memory badHashExtension = _createRegion(3, 0, extensionData, keccak256("wrong_hash"));
+        vm.prank(challenger);
+        vm.expectRevert();
+        harness.challengeTreeUpdate(
+            data, 272, true, region, badHashExtension,
+            setup.priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+        );
+    }
 
-            bytes32 trueAnchor = keccak256("some_anchor");
-            uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
-            uint256[6] memory signals = [uint256(priorAnchor), treeIndex, uint256(regionData[0]), uint256(extensionData[0]), uint256(extensionData[1]), uint256(trueAnchor)];
-            fakeZK.approveUpdate(signals);
+    /// @notice Test extension region validation - wrong memory address reverts (must be 0)
+    function test_ExtensionRegion_WrongMemoryAddressReverts() public {
+        ExtensionTestSetup memory setup = _setupExtensionRegionTest();
+        Spine.BlockData memory data = _addExtensionTestBlock(setup);
 
-            Proof memory zkProof;
-            Spine.BlockData memory rollbackTarget;
+        bytes32[] memory regionData = new bytes32[](1);
+        regionData[0] = setup.regionDataElement;
+        BlobData.Region memory region = _createRegion(1, 4095, regionData, setup.blobHashes[0]);
 
-            vm.prank(challenger);
-            vm.expectRevert();
-            harness.challengeTreeUpdate(data, targetTx, true, region, badHashExtension, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget);
-        }
+        bytes32[] memory extensionData = new bytes32[](3);
+        extensionData[0] = setup.extensionData0;
+        extensionData[1] = setup.extensionData1;
+        extensionData[2] = setup.extensionData2;
 
-        // Test 2: Wrong memory address reverts (must be 0)
-        {
-            Spine.BlockData memory data;
-            data.numDeposits = numDeposits;
-            data.numTransactions = numTransactions;
-            data.sequencer = sequencer;
-            data.blobhashes = blobHashes;
-            data.anchor = extensionData[2];
+        BlobData.Region memory badAddrExtension = _createRegion(3, 1, extensionData, setup.blobHashes[1]);
 
-            uint256[] memory indices = new uint256[](2);
-            indices[0] = 0;
-            indices[1] = 1;
-            vm.blobhashes(blobHashes);
+        bytes32 trueAnchor = keccak256("some_anchor");
+        uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-            vm.prank(sequencer);
-            data = harness.addBlockTest(data, indices);
+        uint256[6] memory signals = [
+            uint256(setup.priorAnchor),
+            treeIndex,
+            uint256(regionData[0]),
+            uint256(extensionData[0]),
+            uint256(extensionData[1]),
+            uint256(trueAnchor)
+        ];
+        fakeZK.approveUpdate(signals);
 
-            // Wrong memory address (1 instead of 0)
-            BlobData.Region memory badAddrExtension = _createRegion(3, 1, extensionData, blobHashes[1]);
+        Proof memory zkProof;
+        Spine.BlockData memory rollbackTarget;
 
-            bytes32 trueAnchor = keccak256("some_anchor");
-            uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
-            uint256[6] memory signals = [uint256(priorAnchor), treeIndex, uint256(regionData[0]), uint256(extensionData[0]), uint256(extensionData[1]), uint256(trueAnchor)];
-            fakeZK.approveUpdate(signals);
-
-            Proof memory zkProof;
-            Spine.BlockData memory rollbackTarget;
-
-            vm.prank(challenger);
-            vm.expectRevert();
-            harness.challengeTreeUpdate(data, targetTx, true, region, badAddrExtension, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget);
-        }
+        vm.prank(challenger);
+        vm.expectRevert();
+        harness.challengeTreeUpdate(
+            data, 272, true, region, badAddrExtension,
+            setup.priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+        );
     }
 }
