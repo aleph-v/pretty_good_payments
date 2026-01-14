@@ -6,7 +6,7 @@ import {LibBit} from "solady/utils/LibBit.sol";
 // We implement a protocol which does kzg opening against blob commitments.
 // In the simplest version it just proves that the commitment evaluated at the bit reversed root of unity
 // for an index is equal to the the claimed data.
-// We might be able to highly optimise by doing a multi point opening.
+// We might be able to highly optimize by doing a multi point opening.
 
 // Blobs are structured as follows:
 // [deposits range][transactions range]
@@ -42,7 +42,7 @@ contract BlobData {
     function txMemoryAddress(uint256 txNumber, uint256 numDeposits) internal pure returns (uint256) {
         // Each deposit is a single leaf
         uint256 depositsLength = numDepositsToMemoryLength(numDeposits);
-        uint256 prior = (txNumber - 1) * 15;
+        uint256 prior = txNumber * 15;
         // TODO - Might be 0 indexed?
         return (depositsLength + prior);
     }

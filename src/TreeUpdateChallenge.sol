@@ -10,7 +10,7 @@ import "./SequencerRegistry.sol";
 contract TreeUpdateChallenge is Spine, SequencerRegistry {
     using PredictableMerkleLib for IUpdateVerifier;
 
-    // Note- the updateNr corresponds to which group of three elements plus root is challenged
+    // Note- The update NR for deposits is the nth field
     // TODO - This function is requiring us to use via-ir, we could just get better structs, see whats
     //        natural after the other challenge protocols
     function challengeTreeUpdate(
@@ -31,9 +31,10 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
 
         uint256 memoryAddress;
         if (isTx) {
-            memoryAddress = txMemoryAddress(updateNr, data.numDeposits) + 12;
+            memoryAddress = txMemoryAddress(updateNr, data.numDeposits) + 11;
         } else {
-            memoryAddress = updateNr * 4;
+            // Points to the start of each group of three updates
+            memoryAddress = updateNr*4;
         }
 
         // Validate the first region
@@ -42,12 +43,12 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         require(region.hash == data.blobhashes[firstBlobNumber]);
         require(region.memoryAddress == (memoryAddress % 4096));
         validateRegionOpening(region);
-        // Because tx are 15 elements we can have them aligned at memory region boundaries.
+        // Because tx are 4 elements we can have them aligned at memory region boundaries.
         if (region.length != 4) {
             // We still want 4 in total
             assert(region.length + extensionRegion.length == 4);
             // We enforce that this actually at the end of the blob.
-            assert(region.memoryAddress + region.length + 1 == 4096);
+            assert(region.memoryAddress + region.length == 4096);
             require(extensionRegion.hash == data.blobhashes[firstBlobNumber + 1]);
             require(extensionRegion.memoryAddress == 0);
             validateRegionOpening(extensionRegion);
@@ -55,7 +56,7 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
 
         // Now we have validated that the positions that the sequencer submitted are equal to claimed sequencerSubmittedData
         // So we have to check that the prior anchor when updated is not equal to sequencerSubmittedData[3] which is the new root
-        validatePriorAnchor(priorAnchor, data, updateNr, isTx, priorAnchorCommitment, priorAnchorProof);
+        validatePriorAnchor(priorAnchor, data, updateNr, !isTx, priorAnchorCommitment, priorAnchorProof);
 
         // We calculate the actual block index as the day*blocksPerDay + blockIndex
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
@@ -77,8 +78,9 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         // We have two options (1) that the sequencer has not added the correct root to the blob
         // (2) that if this is the last tx in the block that the sequencer has set their "anchor" field correctly
         if (trueAnchor == sequencerSubmittedRoot) {
-            bool isLast =
-                (updateNr == data.numTransactions) || (data.numTransactions == 0 && updateNr == data.numDeposits);
+            // We underflow here if both numTransactions and numDeposits == 0 but this case cannot happen because add block reverts
+            // Note that since updateNr is zero indexed data.numDeposits/3 does give the correct last update nr group
+            bool isLast = data.numTransactions == 0? updateNr == data.numDeposits/3: updateNr == data.numTransactions - 1;
             require(isLast && trueAnchor != data.anchor, "No Fraud");
         } // the else here is just that you should be slashed
 

@@ -54,6 +54,11 @@ contract SequencerRegistry is Spine, Ownable {
         return (epoch, elapsed < EPOCH_LENGTH / 2);
     }
 
+    // Checks if the sequencer has a set challenger address
+    function isChallenged(address who) public view returns(bool) {
+        return (sequencers[who].challenger != address(0));
+    }
+
     // Take the money from the sequncer then
     function fund() external payable {
         require(sequencers[msg.sender].challenger == address(0));

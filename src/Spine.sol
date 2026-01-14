@@ -76,6 +76,7 @@ contract Spine is BlobData {
         require(data.numTransactions <= MAX_TX);
         uint256 depositBlobUse = data.numDeposits % 3 == 0 ? (data.numDeposits / 3) * 4 : (data.numDeposits / 3 + 1) * 4;
         require(depositBlobUse + data.numTransactions * 15 < 4096 * blobIndices.length);
+        require(data.numTransactions != 0 || data.numDeposits != 0);
 
         // The tree is split such that each day we start in a new subbranch to track this using the prior block
         uint256 actualDay = (block.timestamp - START) / DAY;

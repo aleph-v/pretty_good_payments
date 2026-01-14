@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {IERC4626} from "lib/openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {IEntrypoint} from "./interfaces/IEntrypoint.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
 // TODO we can optimize this state usage a lot I think. Possibly we can do this with a globalized payout system?
@@ -19,8 +20,6 @@ contract YieldRouter is Ownable {
     mapping(address => uint256) public priorBalances;
     // Maps the asset to the period to the period total payout for the asset
     mapping(address => mapping(uint256 => uint256)) public periodPayouts;
-    // Maps the sequencer address to the epoch, and then maps it to a percent reported by bridge
-    mapping(address => mapping(uint256 => uint256)) public sequencerPercents;
     // True if period has already been reported
     mapping(uint256 => bool) public reportedPeriod;
     // True if the sequencer has withdrawn this epoch
@@ -133,19 +132,6 @@ contract YieldRouter is Ownable {
         }
     }
 
-    /// @notice Allows the bridge address to report the percent (encoded as a fixed point 1e18) earned by a sequencer
-    /// @param sequencer The credited sequencer
-    /// @param percent The percent earned by this sequencer in this epoch encoded in 1e18 fixed point
-    /// @param epoch Which epoch, if this is repeated the prior value is overwritten
-    function reportPayoutPercent(address sequencer, uint256 percent, uint256 epoch) external onlyBridge {
-        poke();
-        // We don't want to lock up in the case there is a bug in the percent payments reporting, so we
-        // just soft ignore impossible values
-        if (percent <= 1e18) {
-            sequencerPercents[sequencer][epoch] = percent;
-        }
-    }
-
     /// @notice Helper function to group many calls to sequencerWithdrawAsset
     /// @param sequencer The credited sequencer
     /// @param epochs The epocs we will claim all assets for
@@ -162,10 +148,14 @@ contract YieldRouter is Ownable {
     /// @param sequencer The credited sequencer
     /// @param epoch The epoch number
     function sequencerWithdrawAsset(address token, address sequencer, uint256 epoch) public {
-        require(!paidOut[sequencer][epoch][token]);
+        require(!paidOut[sequencer][epoch][token], "Already Paid");
+        IEntrypoint cached = IEntrypoint(bridge);
+        require(!cached.isChallenged(sequencer));
+        uint256 percent = cached.getPercentInEpoch(sequencer, epoch); 
+
         uint256 period = epoch / EPOCHS_PER_PERIOD;
         uint256 paidInEpoch = periodPayouts[token][period] / EPOCHS_PER_PERIOD;
-        uint256 amount = (paidInEpoch * sequencerPercents[sequencer][epoch]) / 1e18;
+        uint256 amount = (paidInEpoch * percent) / 1e18;
         paidOut[sequencer][epoch][token] = true;
         sources[token].withdraw(amount, sequencer, address(this));
     }

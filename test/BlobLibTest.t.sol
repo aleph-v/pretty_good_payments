@@ -237,56 +237,56 @@ contract CounterTest is Test {
     }
 
     // Tests for txMemoryAddress
-    // Formula: depositsLength + (txNumber - 1) * 15
-    // Note: txNumber is 1-indexed (txNumber >= 1)
+    // Formula: depositsLength + txNumber * 15
+    // Note: txNumber is 0-indexed
 
     function test_TxMemoryAddress_VariousDeposits() public view {
         // No deposits (depositsLength = 0)
-        assertEq(blob.txMemoryAddressTest(1, 0), 0);
-        assertEq(blob.txMemoryAddressTest(2, 0), 15);
-        assertEq(blob.txMemoryAddressTest(3, 0), 30);
+        assertEq(blob.txMemoryAddressTest(0, 0), 0);
+        assertEq(blob.txMemoryAddressTest(1, 0), 15);
+        assertEq(blob.txMemoryAddressTest(2, 0), 30);
 
         // 3 deposits (depositsLength = 4)
-        assertEq(blob.txMemoryAddressTest(1, 3), 4);
-        assertEq(blob.txMemoryAddressTest(2, 3), 19);
-        assertEq(blob.txMemoryAddressTest(3, 3), 34);
+        assertEq(blob.txMemoryAddressTest(0, 3), 4);
+        assertEq(blob.txMemoryAddressTest(1, 3), 19);
+        assertEq(blob.txMemoryAddressTest(2, 3), 34);
 
         // 2 deposits (depositsLength = 4, rounds up)
-        assertEq(blob.txMemoryAddressTest(1, 2), 4);
-        assertEq(blob.txMemoryAddressTest(2, 2), 19);
+        assertEq(blob.txMemoryAddressTest(0, 2), 4);
+        assertEq(blob.txMemoryAddressTest(1, 2), 19);
 
         // 6 deposits (depositsLength = 8)
-        assertEq(blob.txMemoryAddressTest(1, 6), 8);
-        assertEq(blob.txMemoryAddressTest(5, 6), 68);
-        assertEq(blob.txMemoryAddressTest(10, 6), 143);
+        assertEq(blob.txMemoryAddressTest(0, 6), 8);
+        assertEq(blob.txMemoryAddressTest(4, 6), 68);
+        assertEq(blob.txMemoryAddressTest(9, 6), 143);
 
         // Large: 99 deposits (depositsLength = 132)
-        assertEq(blob.txMemoryAddressTest(100, 99), 1617);
+        assertEq(blob.txMemoryAddressTest(99, 99), 1617);
 
         // Verify consecutive tx spacing is 15
+        uint256 tx0 = blob.txMemoryAddressTest(0, 5);
         uint256 tx1 = blob.txMemoryAddressTest(1, 5);
-        uint256 tx2 = blob.txMemoryAddressTest(2, 5);
-        assertEq(tx2 - tx1, 15);
+        assertEq(tx1 - tx0, 15);
     }
 
     function testFuzz_TxMemoryAddress(uint256 txNumber, uint256 numDeposits) public view {
-        // Bound inputs - txNumber must be >= 1 to avoid underflow
-        txNumber = bound(txNumber, 1, 10_000);
+        // Bound inputs - txNumber is 0-indexed
+        txNumber = bound(txNumber, 0, 10_000);
         numDeposits = bound(numDeposits, 0, 10_000);
 
         uint256 result = blob.txMemoryAddressTest(txNumber, numDeposits);
 
-        // Verify the formula: depositsLength + (txNumber - 1) * 15
+        // Verify the formula: depositsLength + txNumber * 15
         uint256 depositRounding = numDeposits % 3 == 0 ? 0 : 1;
         uint256 depositsLength = (numDeposits / 3 + depositRounding) * 4;
-        uint256 expected = depositsLength + (txNumber - 1) * 15;
+        uint256 expected = depositsLength + txNumber * 15;
         assertEq(result, expected);
 
         // Result should always be >= depositsLength
         assertGe(result, depositsLength);
 
-        // For txNumber = 1, result should equal depositsLength
-        if (txNumber == 1) {
+        // For txNumber = 0, result should equal depositsLength
+        if (txNumber == 0) {
             assertEq(result, depositsLength);
         }
     }

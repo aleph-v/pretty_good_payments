@@ -27,7 +27,7 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
         transferRegistry = _transferRegistry;
     }
 
-    // Here we track the percent rewards per epoch for the the
+    // Here we track the percent rewards per epoch for each sequencer
     mapping(uint256 => uint256) public totalBlobUse;
     mapping(uint256 => mapping(address => uint256)) public sequencerBlobUse;
 
@@ -47,16 +47,20 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
         uint256 adjustedTx = currentlyPriority ? rawBlobUse * priorityBonus / BASE : rawBlobUse;
         totalBlobUse[epoch] += adjustedTx;
         sequencerBlobUse[epoch][msg.sender] += adjustedTx;
-        // We report and allocate the previous priority sequencer's rewards
-        uint256 index = epoch % firstLookSequencers.length;
-        uint256 priorSequencerIndex = index == 0 ? firstLookSequencers.length - 1 : index - 1;
-        address priorSequencer = firstLookSequencers[priorSequencerIndex];
-        allocateRewards(epoch - 1, priorSequencer);
     }
 
-    function allocateRewards(uint256 epoch, address sequencer) public {
-        uint256 percent = (sequencerBlobUse[epoch][sequencer] * 1e18) / totalBlobUse[epoch];
-        require(percent != 0, "Nothing to report");
-        yieldRouter.reportPayoutPercent(sequencer, percent, epoch);
+    function getPercentInEpoch(address sequencer, uint256 epoch) external view returns(uint256) {
+        (uint256 epochNow, ) = currentEpoch();
+        require(epochNow > epoch, "Not finished");
+        if (totalBlobUse[epoch] == 0) {
+            return(0);
+        }
+        return((sequencerBlobUse[epoch][sequencer] * FIXED_BASE)/totalBlobUse[epoch]);
+    }
+
+    function isFinalized(uint256 epoch) public view returns(bool) {
+        (uint256 epochNow, ) = currentEpoch();
+        uint256 minEpochsWait = CHALLENGE_PERIOD/EPOCH_LENGTH + 1;
+        return(epoch + minEpochsWait < epochNow);
     }
 }
