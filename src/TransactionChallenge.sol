@@ -86,8 +86,9 @@ contract TransactionChallenge is Spine, SequencerRegistry {
             require(priorAnchorBlock.blockNr == anchorBlockNr, "Invalid anchor block info");
 
             // Checks if the user has submitted an invalid update number
+            // For deposits, anchorUpdateNr is a GROUP index, so we use ceiling division to get the number of groups
             noFraud = isDeposit
-                ? anchorUpdateNr < priorAnchorBlock.numDeposits
+                ? anchorUpdateNr < (priorAnchorBlock.numDeposits + 2) / 3
                 : anchorUpdateNr < priorAnchorBlock.numTransactions;
         }
 

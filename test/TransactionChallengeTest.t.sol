@@ -639,13 +639,14 @@ contract TransactionChallengeTest is Test {
             _createAndAddSingleBlock(TEST_NUM_DEPOSITS, TEST_NUM_TRANSACTIONS, 12345, keccak256("anchor"));
 
         // Set tx 50 to reference a deposit in the same block (should be allowed)
+        // anchorUpdateNr is a GROUP index, not a raw deposit index
+        // With 60 deposits, valid group indices are 0-19 (ceil(60/3) = 20 groups)
         uint256 txNr = 50;
-        uint32 anchorUpdateNr = 55; // A deposit index (must be < numDeposits = 60)
+        uint32 anchorUpdateNr = 18; // A deposit GROUP index (must be < ceil(numDeposits/3) = 20)
         _setupTransaction(blobHashes, txNr, TEST_NUM_DEPOSITS, uint32(data.blockNr), anchorUpdateNr, true, address(0));
 
-        // Get the anchor for this deposit (deposit roots are at: (depositGroup) * 4 + 3)
-        uint256 depositGroup = anchorUpdateNr / 3;
-        bytes32 anchor = harness.access(blobHashes[0], depositGroup * 4 + 3);
+        // Get the anchor for this deposit group (roots are at: groupIndex * 4 + 3)
+        bytes32 anchor = harness.access(blobHashes[0], anchorUpdateNr * 4 + 3);
 
         // Approve the ZK proof
         fakeZK.approveTransfer(_getTxPublicInputs(blobHashes, txNr, TEST_NUM_DEPOSITS, anchor, address(0)));
@@ -779,13 +780,14 @@ contract TransactionChallengeTest is Test {
         assertEq(challengerAddr, challenger);
     }
 
-    /// @notice Test boundary: anchor references deposit with updateNr == numDeposits (out of bounds)
+    /// @notice Test boundary: anchor references deposit with updateNr that is out of bounds for group indices
     function test_Fraud_DepositAnchorOutOfBounds() public {
         (Spine.BlockData memory block1, Spine.BlockData memory block2,, bytes32[] memory blobHashes2) =
             _createTwoBlocks();
 
         uint256 txNr = 50;
-        // anchorUpdateNr = numDeposits is OUT OF BOUNDS for deposits (valid are 0 to numDeposits-1)
+        // anchorUpdateNr is a GROUP index. With 60 deposits, valid groups are 0-19 (ceil(60/3) = 20 groups)
+        // Using numDeposits (60) as the group index is way OUT OF BOUNDS
         _setupTransaction(
             blobHashes2, txNr, TEST_NUM_DEPOSITS, uint32(block1.blockNr), uint32(TEST_NUM_DEPOSITS), true, address(0)
         );
