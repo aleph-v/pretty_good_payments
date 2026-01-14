@@ -31,8 +31,10 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
 
         uint256 memoryAddress;
         if (isTx) {
+            require(updateNr < data.numTransactions);
             memoryAddress = txMemoryAddress(updateNr, data.numDeposits) + 11;
         } else {
+            require(updateNr < (data.numDeposits + 2) / 3);
             // Points to the start of each group of three updates
             memoryAddress = updateNr * 4;
         }
@@ -43,10 +45,13 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         require(region.hash == data.blobhashes[firstBlobNumber]);
         require(region.memoryAddress == (memoryAddress % 4096));
         validateRegionOpening(region);
+        // This check is critical even with an empty extension region as it forces an empty region
+        // to have empty data.
+        validateRegionOpening(extensionRegion);
+        require(region.length + extensionRegion.length == 4, "Not enough data");
+
         // Because tx are 4 elements we can have them aligned at memory region boundaries.
-        if (region.length != 4) {
-            // We still want 4 in total
-            assert(region.length + extensionRegion.length == 4);
+        if (extensionRegion.length != 0) {
             // We enforce that this actually at the end of the blob.
             assert(region.memoryAddress + region.length == 4096);
             require(extensionRegion.hash == data.blobhashes[firstBlobNumber + 1]);

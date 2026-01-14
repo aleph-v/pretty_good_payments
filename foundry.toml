@@ -4,5 +4,6 @@ out = "out"
 libs = ["lib"]
 fs_permissions = [{ access = "read", path = "./"}]
 no_match_coverage = "test/*"
+via_ir = true
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

@@ -22,26 +22,29 @@ contract TransactionChallenge is Spine, SequencerRegistry {
     ) external {
         // Check the block is in the tree
         require(isBlockIncluded(data));
+        require(txNr < data.numTransactions);
 
         // Get the absolute memory address implied by the number of TX
         uint256 memoryAddress = txMemoryAddress(txNr, data.numDeposits);
 
         // Validate the first region
-        assert(region.length != 0);
+        require(region.length != 0);
         uint256 firstBlobNumber = memoryAddress / 4096;
         require(region.hash == data.blobhashes[firstBlobNumber]);
         require(region.memoryAddress == (memoryAddress % 4096));
         validateRegionOpening(region);
-        // Because tx are 15 elements we can have them aligned at memory region boundaries.
-        // We check for length 14 because we don't need to open the anchor after (very last in mem)
-        if (region.length != 14) {
-            // We still want 14 in total
-            assert(region.length + extensionRegion.length == 14);
+        // This check is critical even with an empty extension region as it forces an empty region
+        // to have empty data.
+        validateRegionOpening(extensionRegion);
+        require(region.length + extensionRegion.length == 14, "Not enough data");
+
+        // If we are actually using elements from the extension region we require that we are at the end of the blob
+        // and that the blobhash matches, and that the memory region is equal to zero
+        if (extensionRegion.length != 0) {
             // We enforce that this actually at the end of the blob.
-            assert((region.memoryAddress + region.length + 1) % 4096 == 0);
+            assert((region.memoryAddress + region.length) % 4096 == 0);
             require(extensionRegion.hash == data.blobhashes[firstBlobNumber + 1]);
             require(extensionRegion.memoryAddress == 0);
-            validateRegionOpening(extensionRegion);
         }
 
         bytes32[14] memory raw;
@@ -49,7 +52,7 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         uint256 relativeLocation = region.memoryAddress;
         for (uint256 i = 1; i < 14; i++) {
             relativeLocation++;
-            raw[i] = relativeLocation >= 4096 ? region.data[i] : extensionRegion.data[relativeLocation % 4096];
+            raw[i] = relativeLocation >= 4096 ? extensionRegion.data[relativeLocation % 4096] : region.data[i];
         }
 
         // TODO - Could do this fully no copy with assembly
@@ -84,7 +87,7 @@ contract TransactionChallenge is Spine, SequencerRegistry {
 
             // Checks if the user has submitted an invalid update number
             noFraud = isDeposit
-                ? anchorUpdateNr <= priorAnchorBlock.numDeposits
+                ? anchorUpdateNr < priorAnchorBlock.numDeposits
                 : anchorUpdateNr < priorAnchorBlock.numTransactions;
         }
 
@@ -112,7 +115,7 @@ contract TransactionChallenge is Spine, SequencerRegistry {
                 fields := add(publicInputs, 32)
             }
             // Since all other fraud opportunities have been excused we require the fraud is here by requiring the query to return false.
-            require(!transferRegistry.query(ethKey, fields));
+            require(!transferRegistry.query(ethKey, fields), "No Fraud");
         }
 
         slash(data.sequencer, data.blockNr);
@@ -129,19 +132,19 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         pure
         returns (bytes32 ret)
     {
-        ret = isDeposit ? bytes32(uint256(1) << 255) : bytes32(uint256(0));
-        ret = ret | bytes32((uint256(blockNr) << 223) + (uint256(updateNr) << 195));
-        ret = ret | bytes32(bytes20(ethAddress));
+        ret = isDeposit ? (bytes32)(uint256(1) << 254) : bytes32(uint256(0));
+        ret = ret | (bytes32)((uint256(blockNr) << 222) + (uint256(updateNr) << 190));
+        ret = ret | (bytes32)(uint256(uint160(ethAddress)));
     }
 
     /// @notice Decodes block number tx number and address from bytes32
     /// @param data The encoded 32 byte blob
     /// @return (blockNr, txNr, ethAddress)
     function decodeTxInfo(bytes32 data) public pure returns (uint256, uint256, bool, address) {
-        bool isDeposit = data & bytes32(uint256(1) << 255) != bytes32(0);
-        uint256 blockNr = uint256((data << 1) >> 224);
-        uint256 txNr = uint256((data << 33) >> 224);
-        address ethAddress = address(bytes20((data << 76) >> 76));
+        bool isDeposit = data & bytes32(uint256(1) << 254) != bytes32(0);
+        uint256 blockNr = uint256((data << 2) >> 224);
+        uint256 txNr = uint256((data << 34) >> 224);
+        address ethAddress = address(uint160((uint256)((data << 77) >> 77)));
         return (blockNr, txNr, isDeposit, ethAddress);
     }
 }

@@ -214,19 +214,140 @@ contract TreeUpdateChallengeTest is Test {
         });
     }
 
+    /// @notice Creates, sets up, and adds a block to the chain
+    function _createAndAddBlock(
+        uint256 numDeposits,
+        uint256 numTx,
+        bytes32 priorAnchor,
+        uint256 blockIndex,
+        uint256 seed
+    ) internal returns (Spine.BlockData memory data, bytes32[] memory blobHashes) {
+        data = _createBlockData(numDeposits, numTx);
+        data.sequencer = sequencer;
+        (data, blobHashes) = harness.setupBlock(data, priorAnchor, blockIndex, seed, fakeZK);
+
+        uint256[] memory indices = new uint256[](blobHashes.length);
+        for (uint256 i = 0; i < blobHashes.length; i++) {
+            indices[i] = i;
+        }
+        vm.blobhashes(blobHashes);
+
+        vm.prank(sequencer);
+        data = harness.addBlockTest(data, indices);
+    }
+
+    /// @notice Builds a region for deposit group updates (4 elements)
+    function _buildDepositRegion(bytes32[] memory blobHashes, uint256 updateNr)
+        internal
+        view
+        returns (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData)
+    {
+        uint256 memoryAddress = updateNr * 4;
+        uint256 blobIndex = memoryAddress / 4096;
+        uint256 localAddr = memoryAddress % 4096;
+
+        if (localAddr + 4 <= 4096) {
+            regionData = new bytes32[](4);
+            for (uint256 i = 0; i < 4; i++) {
+                regionData[i] = harness.access(blobHashes[blobIndex], localAddr + i);
+            }
+            region = _createRegion(4, localAddr, regionData, blobHashes[blobIndex]);
+            extensionRegion = _createEmptyRegion();
+        } else {
+            uint256 firstCount = 4096 - localAddr;
+            uint256 secondCount = 4 - firstCount;
+
+            regionData = new bytes32[](4);
+            bytes32[] memory firstData = new bytes32[](firstCount);
+            for (uint256 i = 0; i < firstCount; i++) {
+                firstData[i] = harness.access(blobHashes[blobIndex], localAddr + i);
+                regionData[i] = firstData[i];
+            }
+
+            bytes32[] memory secondData = new bytes32[](secondCount);
+            for (uint256 i = 0; i < secondCount; i++) {
+                secondData[i] = harness.access(blobHashes[blobIndex + 1], i);
+                regionData[firstCount + i] = secondData[i];
+            }
+
+            region = _createRegion(firstCount, localAddr, firstData, blobHashes[blobIndex]);
+            extensionRegion = _createRegion(secondCount, 0, secondData, blobHashes[blobIndex + 1]);
+        }
+    }
+
+    /// @notice Builds a region for transaction updates (4 elements starting at tx+11)
+    function _buildTxUpdateRegion(bytes32[] memory blobHashes, uint256 updateNr, uint256 numDeposits)
+        internal
+        view
+        returns (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData)
+    {
+        uint256 memoryAddress = harness.exposedTxMemoryAddress(updateNr, numDeposits) + 11;
+        uint256 blobIndex = memoryAddress / 4096;
+        uint256 localAddr = memoryAddress % 4096;
+
+        if (localAddr + 4 <= 4096) {
+            regionData = new bytes32[](4);
+            for (uint256 i = 0; i < 4; i++) {
+                regionData[i] = harness.access(blobHashes[blobIndex], localAddr + i);
+            }
+            region = _createRegion(4, localAddr, regionData, blobHashes[blobIndex]);
+            extensionRegion = _createEmptyRegion();
+        } else {
+            uint256 firstCount = 4096 - localAddr;
+            uint256 secondCount = 4 - firstCount;
+
+            regionData = new bytes32[](4);
+            bytes32[] memory firstData = new bytes32[](firstCount);
+            for (uint256 i = 0; i < firstCount; i++) {
+                firstData[i] = harness.access(blobHashes[blobIndex], localAddr + i);
+                regionData[i] = firstData[i];
+            }
+
+            bytes32[] memory secondData = new bytes32[](secondCount);
+            for (uint256 i = 0; i < secondCount; i++) {
+                secondData[i] = harness.access(blobHashes[blobIndex + 1], i);
+                regionData[firstCount + i] = secondData[i];
+            }
+
+            region = _createRegion(firstCount, localAddr, firstData, blobHashes[blobIndex]);
+            extensionRegion = _createRegion(secondCount, 0, secondData, blobHashes[blobIndex + 1]);
+        }
+    }
+
+    /// @notice Gets prior anchor for a deposit group
+    function _getDepositPriorAnchor(bytes32[] memory blobHashes, uint256 updateNr) internal view returns (bytes32) {
+        if (updateNr == 0) return GENESIS;
+        uint256 priorRootOffset = updateNr * 4 - 1;
+        return harness.access(blobHashes[priorRootOffset / 4096], priorRootOffset % 4096);
+    }
+
+    /// @notice Gets prior anchor for a transaction
+    function _getTxPriorAnchor(bytes32[] memory blobHashes, uint256 updateNr, uint256 numDeposits)
+        internal
+        view
+        returns (bytes32)
+    {
+        uint256 depositSize = harness.exposedNumDepositsToMemoryLength(numDeposits);
+        if (updateNr == 0) {
+            if (numDeposits == 0) return GENESIS;
+            return harness.access(blobHashes[(depositSize - 1) / 4096], (depositSize - 1) % 4096);
+        }
+        uint256 priorRootOffset = depositSize + (updateNr - 1) * 15 + 14;
+        return harness.access(blobHashes[priorRootOffset / 4096], priorRootOffset % 4096);
+    }
+
     // ============================================================================
     // Challenge validation tests
     // ============================================================================
 
     function test_Challenge_RevertsIfBlockNotIncluded() public {
+        // Setup block but DON'T add it
         Spine.BlockData memory data = _createBlockData(3, 0);
         data.sequencer = sequencer;
         (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
-        // Don't add the block
 
         BlobData.Region memory region = _createEmptyRegion();
         region.length = 4;
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
 
         Proof memory zkProof;
         Spine.BlockData memory rollbackTarget;
@@ -234,55 +355,126 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert();
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion, GENESIS, "", "", bytes32(uint256(1)), zkProof, rollbackTarget
+            data, 0, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, rollbackTarget
         );
     }
 
     function test_Challenge_RevertsOnZeroLengthRegion() public {
-        Spine.BlockData memory data = _createBlockData(3, 0);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(3, 0, GENESIS, 0, 12345);
 
         BlobData.Region memory region = _createEmptyRegion();
-        region.hash = data.blobhashes[0];
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
+        region.hash = blobHashes[0];
 
         Proof memory zkProof;
-        Spine.BlockData memory rollbackTarget;
-
         vm.prank(challenger);
         vm.expectRevert();
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion, GENESIS, "", "", bytes32(uint256(1)), zkProof, rollbackTarget
+            data, 0, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
+        );
+    }
+
+    /// @notice Test that challenge reverts if updateNr >= numTransactions for transactions
+    function test_Challenge_RevertsIfTxUpdateNrOutOfBounds() public {
+        (Spine.BlockData memory data,) = _createAndAddBlock(3, 5, GENESIS, 0, 12345);
+
+        BlobData.Region memory region = _createEmptyRegion();
+        region.length = 4;
+
+        Proof memory zkProof;
+        // updateNr = 5 is out of bounds (valid range is 0-4 for 5 transactions)
+        vm.prank(challenger);
+        vm.expectRevert();
+        harness.challengeTreeUpdate(
+            data, 5, true, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
+        );
+    }
+
+    /// @notice Test that challenge reverts if updateNr >= ceil(numDeposits/3) for deposits
+    function test_Challenge_RevertsIfDepositUpdateNrOutOfBounds() public {
+        // 6 deposits = 2 groups (indices 0, 1), valid updateNr range is 0-1
+        (Spine.BlockData memory data,) = _createAndAddBlock(6, 0, GENESIS, 0, 12345);
+
+        BlobData.Region memory region = _createEmptyRegion();
+        region.length = 4;
+
+        Proof memory zkProof;
+        // updateNr = 2 is out of bounds
+        vm.prank(challenger);
+        vm.expectRevert();
+        harness.challengeTreeUpdate(
+            data, 2, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
+        );
+    }
+
+    /// @notice Test edge case: 1 deposit = 1 group, updateNr=1 is out of bounds
+    function test_Challenge_RevertsIfDepositUpdateNrOutOfBounds_SingleDeposit() public {
+        (Spine.BlockData memory data,) = _createAndAddBlock(1, 0, GENESIS, 0, 12345);
+
+        BlobData.Region memory region = _createEmptyRegion();
+        region.length = 4;
+
+        Proof memory zkProof;
+        // updateNr = 1 is out of bounds (valid is only 0)
+        vm.prank(challenger);
+        vm.expectRevert();
+        harness.challengeTreeUpdate(
+            data, 1, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
+        );
+    }
+
+    /// @notice Test edge case: 4 deposits = 2 groups, updateNr=2 is out of bounds
+    function test_Challenge_RevertsIfDepositUpdateNrOutOfBounds_FourDeposits() public {
+        (Spine.BlockData memory data,) = _createAndAddBlock(4, 0, GENESIS, 0, 12345);
+
+        BlobData.Region memory region = _createEmptyRegion();
+        region.length = 4;
+
+        Proof memory zkProof;
+        // updateNr = 2 is out of bounds
+        vm.prank(challenger);
+        vm.expectRevert();
+        harness.challengeTreeUpdate(
+            data, 2, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
+        );
+    }
+
+    /// @notice Test that valid updateNr at boundary works (numTransactions-1)
+    function test_Challenge_ValidTxUpdateNrAtBoundary() public {
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(0, 3, GENESIS, 0, 12345);
+
+        // updateNr = 2 is valid (last tx, index numTransactions-1)
+        uint256 updateNr = 2;
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildTxUpdateRegion(blobHashes, updateNr, 0);
+
+        bytes32 priorAnchor = _getTxPriorAnchor(blobHashes, updateNr, 0);
+        bytes32 trueAnchor = regionData[3];
+        uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
+
+        fakeZK.approveUpdate(
+            [
+                uint256(priorAnchor),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
+
+        Proof memory zkProof;
+        // Should not revert with out of bounds - will revert with "No Fraud" instead
+        vm.prank(challenger);
+        vm.expectRevert("No Fraud");
+        harness.challengeTreeUpdate(
+            data, updateNr, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, data
         );
     }
 
     function test_Challenge_FailsWithoutApprovedZKProof() public {
-        Spine.BlockData memory data = _createBlockData(3, 0);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(3, 0, GENESIS, 0, 12345);
 
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
-
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], i);
-        }
-
-        BlobData.Region memory region = _createRegion(4, 0, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion,) = _buildDepositRegion(blobHashes, 0);
 
         // Create a ZK proof that is NOT approved
         Proof memory zkProof = Proof({
@@ -291,12 +483,10 @@ contract TreeUpdateChallengeTest is Test {
             _pC: [uint256(7), uint256(8)]
         });
 
-        Spine.BlockData memory rollbackTarget;
-
         vm.prank(challenger);
         vm.expectRevert("Invalid ZK update proof");
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion, GENESIS, "", "", bytes32(uint256(999)), zkProof, rollbackTarget
+            data, 0, false, region, extensionRegion, GENESIS, "", "", bytes32(uint256(999)), zkProof, data
         );
     }
 
@@ -305,49 +495,33 @@ contract TreeUpdateChallengeTest is Test {
     // ============================================================================
 
     function test_Challenge_SlashesSequencerOnFraud() public {
-        Spine.BlockData memory data = _createBlockData(3, 0);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(3, 0, GENESIS, 0, 12345);
 
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
-
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], i);
-        }
-
-        BlobData.Region memory region = _createRegion(4, 0, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildDepositRegion(blobHashes, 0);
 
         // Approve a ZK proof showing the correct anchor is different (fraud)
         bytes32 trueAnchor = keccak256("different_anchor");
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(GENESIS),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(GENESIS),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
-        Spine.BlockData memory rollbackTarget;
 
         (bool isActiveBefore,,,,,,) = harness.getSequencerStatus(sequencer);
         assertTrue(isActiveBefore);
 
         vm.prank(challenger);
-        harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
-        );
+        harness.challengeTreeUpdate(data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, data);
 
         (bool isActiveAfter,,,,,, address payable challengerAddr) = harness.getSequencerStatus(sequencer);
         assertFalse(isActiveAfter, "Sequencer should be slashed");
@@ -355,271 +529,153 @@ contract TreeUpdateChallengeTest is Test {
     }
 
     /// @notice Test that valid deposit-only blocks reject fraud challenges
-    /// @dev Uses a deposit-only block (1 deposit) to avoid transaction offset bugs
     function test_Challenge_RevertsOnValidBlock() public {
-        // Use a deposit-only block to avoid tx offset bugs
-        Spine.BlockData memory data = _createBlockData(1, 0);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(1, 0, GENESIS, 0, 12345);
 
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
-
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], i);
-        }
-
-        BlobData.Region memory region = _createRegion(4, 0, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildDepositRegion(blobHashes, 0);
 
         // The true anchor equals what's in the blob (no fraud)
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(GENESIS),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(GENESIS),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
-        Spine.BlockData memory rollbackTarget;
-
         // Challenge should revert with "No Fraud" since this is a valid block
-        // 1 deposit, updateNr=0, isLast = (0==0 && 0==0) = true
-        // trueAnchor == sequencerSubmittedRoot, isLast=true, trueAnchor == data.anchor -> "No Fraud"
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
-        harness.challengeTreeUpdate(
-            data,
-            0,
-            false,
-            region,
-            extensionRegion, // isTx=false for deposit
-            GENESIS,
-            "",
-            "",
-            trueAnchor,
-            zkProof,
-            rollbackTarget
-        );
+        harness.challengeTreeUpdate(data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, data);
     }
 
     // ============================================================================
     // isLast identification tests - verify correct behavior in all cases
     // ============================================================================
 
-    /// @notice 6 deposits block: updateNr=0 is NOT the last (numDeposits/3=2)
-    ///      Valid root but not last -> "No Fraud"
-    /// @dev With 6 deposits = 2 groups (indices 0, 1), isLast when updateNr == 6/3 = 2
-    ///      But wait, that's index 2 which doesn't exist... This might be a bug.
-    ///      For now, testing updateNr=0 which is definitely not last.
+    /// @notice 6 deposits block: updateNr=0 is NOT the last
     function test_IsLast_SixDeposits_NotLast() public {
-        // 6 deposits = 2 groups (indices 0, 1)
-        // isLast = (updateNr == 6/3) = (updateNr == 2)
-        // updateNr=0 is NOT last
-        Spine.BlockData memory data = _createBlockData(6, 0);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(6, 0, GENESIS, 0, 12345);
 
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
-
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], i);
-        }
-
-        BlobData.Region memory region = _createRegion(4, 0, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildDepositRegion(blobHashes, 0);
 
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(GENESIS),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(GENESIS),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
-        Spine.BlockData memory rollbackTarget;
-
-        // isLast = (0 == 6/3) = (0 == 2) = false
-        // trueAnchor == sequencerSubmittedRoot, isLast=false -> "No Fraud"
+        // isLast = (0 == 6/3) = false, trueAnchor == sequencerSubmittedRoot -> "No Fraud"
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
-        harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
-        );
+        harness.challengeTreeUpdate(data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, data);
     }
 
     /// @notice Single transaction block: updateNr=0 is the last (and only) transaction
-    /// @dev With 0-indexed txMemoryAddress: tx 0 starts at depositsLength
-    ///      memoryAddress = txMemoryAddress(0, 0) + 11 = 0 + 11 = 11
     function test_IsLast_SingleTransaction() public {
-        // Single transaction
-        Spine.BlockData memory data = _createBlockData(0, 1);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(0, 1, GENESIS, 0, 12345);
 
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
-
-        // For tx 0 (0-indexed): memoryAddress = txMemoryAddress(0, 0) + 11 = 0 + 11 = 11
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], 11 + i);
-        }
-
-        BlobData.Region memory region = _createRegion(4, 11, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildTxUpdateRegion(blobHashes, 0, 0);
 
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(GENESIS),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(GENESIS),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
-        Spine.BlockData memory rollbackTarget;
-
-        // updateNr=0 with numTransactions=1: isLast = numTx!=0 ? (0==1-1) = true
-        // trueAnchor == sequencerSubmittedRoot, isLast=true, trueAnchor == data.anchor -> "No Fraud"
+        // updateNr=0 with numTransactions=1: isLast = true, trueAnchor == data.anchor -> "No Fraud"
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
-        harness.challengeTreeUpdate(
-            data, 0, true, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
-        );
+        harness.challengeTreeUpdate(data, 0, true, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, data);
     }
 
     /// @notice Two transactions: last tx (updateNr=1) correctly identified as isLast
-    /// @dev With 0-indexed: tx 1 at memoryAddress = 15 + 11 = 26
     function test_IsLast_TwoTransactions_LastTx() public {
-        // 2 transactions
-        Spine.BlockData memory data = _createBlockData(0, 2);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(0, 2, GENESIS, 0, 12345);
 
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildTxUpdateRegion(blobHashes, 1, 0);
 
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
-
-        // For tx 1 (0-indexed): memoryAddress = txMemoryAddress(1, 0) + 11 = 15 + 11 = 26
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], 26 + i);
-        }
-
-        BlobData.Region memory region = _createRegion(4, 26, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
-
-        // Prior anchor from first tx (root at offset 14)
-        bytes32 priorAnchor = harness.access(data.blobhashes[0], 14);
+        bytes32 priorAnchor = _getTxPriorAnchor(blobHashes, 1, 0);
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(priorAnchor),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(priorAnchor),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
-        Spine.BlockData memory rollbackTarget;
-
-        // updateNr=1 with numTransactions=2: isLast = (1==2-1) = true
-        // trueAnchor == sequencerSubmittedRoot, isLast=true, trueAnchor == data.anchor -> "No Fraud"
+        // updateNr=1 with numTransactions=2: isLast = true, trueAnchor == data.anchor -> "No Fraud"
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, 1, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 1, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, data
         );
     }
 
     /// @notice Mixed block: 3 deposits + 1 transaction, tx is the last update
-    /// @dev With 0-indexed: tx 0 at memoryAddress = 4 + 11 = 15
     function test_IsLast_MixedBlock() public {
-        // 3 deposits + 1 transaction
-        Spine.BlockData memory data = _createBlockData(3, 1);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(3, 1, GENESIS, 0, 12345);
 
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildTxUpdateRegion(blobHashes, 0, 3);
 
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
-
-        // For tx 0 with 3 deposits: memoryAddress = txMemoryAddress(0, 3) + 11 = 4 + 11 = 15
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], 15 + i);
-        }
-
-        BlobData.Region memory region = _createRegion(4, 15, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
-
-        // Prior anchor from deposit group (root at offset 3)
-        bytes32 priorAnchor = harness.access(data.blobhashes[0], 3);
+        bytes32 priorAnchor = _getTxPriorAnchor(blobHashes, 0, 3);
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(priorAnchor),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(priorAnchor),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
-        Spine.BlockData memory rollbackTarget;
-
-        // updateNr=0 with numTransactions=1: isLast = numTx!=0 ? (0==1-1) = true
-        // trueAnchor == sequencerSubmittedRoot, isLast=true, trueAnchor == data.anchor -> "No Fraud"
+        // updateNr=0 with numTransactions=1: isLast = true, trueAnchor == data.anchor -> "No Fraud"
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, 0, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 0, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, data
         );
     }
 
@@ -629,51 +685,30 @@ contract TreeUpdateChallengeTest is Test {
 
     function test_Rollback_ResetsBlockCount() public {
         // Add first block
-        Spine.BlockData memory data1 = _createBlockData(3, 0);
-        data1.sequencer = sequencer;
-        (data1,) = harness.setupBlock(data1, GENESIS, 0, 111, fakeZK);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data1.blobhashes);
-
-        vm.prank(sequencer);
-        data1 = harness.addBlockTest(data1, indices);
-
+        (Spine.BlockData memory data1,) = _createAndAddBlock(3, 0, GENESIS, 0, 111);
         assertEq(harness.getBlockCount(), 1);
 
         // Add second block
-        Spine.BlockData memory data2 = _createBlockData(3, 0);
-        data2.sequencer = sequencer;
-        (data2,) = harness.setupBlock(data2, data1.anchor, 1, 222, fakeZK);
-
-        vm.blobhashes(data2.blobhashes);
-        vm.prank(sequencer);
-        data2 = harness.addBlockTest(data2, indices);
-
+        (Spine.BlockData memory data2, bytes32[] memory blobHashes2) = _createAndAddBlock(3, 0, data1.anchor, 1, 222);
         assertEq(harness.getBlockCount(), 2);
 
         // Challenge second block to trigger rollback
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data2.blobhashes[0], i);
-        }
-
-        BlobData.Region memory region = _createRegion(4, 0, regionData, data2.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildDepositRegion(blobHashes2, 0);
 
         bytes32 trueAnchor = keccak256("fraud");
         uint256 treeIndex = uint256(data2.blockIndex.day) * (2 ** 13) + uint256(data2.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(data1.anchor),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(data1.anchor),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
 
@@ -798,54 +833,33 @@ contract TreeUpdateChallengeTest is Test {
     /// @notice Test fraud where intermediate root is wrong (trueAnchor != sequencerSubmittedRoot)
     /// @dev This triggers the else branch at line 80 - direct slash without isLast check
     function test_Fraud_WrongIntermediateRoot() public {
-        // Create a block with multiple deposit groups
-        // Challenge an intermediate group (not the last) with wrong root
-        Spine.BlockData memory data = _createBlockData(6, 0); // 2 deposit groups
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
+        // Create a block with multiple deposit groups (6 deposits = 2 groups)
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(6, 0, GENESIS, 0, 12345);
 
         // Challenge the FIRST deposit group (updateNr=0, not the last)
-        // The last would be updateNr=5 (numDeposits-1)
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], i);
-        }
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildDepositRegion(blobHashes, 0);
 
-        BlobData.Region memory region = _createRegion(4, 0, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
-
-        // The sequencer's submitted root is regionData[3]
-        bytes32 sequencerSubmittedRoot = regionData[3];
-
-        // But we claim the TRUE root is different (fraud!)
+        // The sequencer's submitted root is regionData[3], but we claim the TRUE root is different (fraud!)
         bytes32 trueAnchor = keccak256("wrong_intermediate_root");
-        require(trueAnchor != sequencerSubmittedRoot, "Test setup: anchors must differ");
+        require(trueAnchor != regionData[3], "Test setup: anchors must differ");
 
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
-
-        // Approve ZK proof showing the true anchor is different from what sequencer submitted
-        uint256[6] memory signals = [
-            uint256(GENESIS),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(GENESIS),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
         Spine.BlockData memory rollbackTarget;
 
-        // Challenge should succeed via the ELSE branch (line 80)
-        // trueAnchor != sequencerSubmittedRoot -> skip isLast check, go directly to slash
+        // Challenge should succeed via the ELSE branch - trueAnchor != sequencerSubmittedRoot -> direct slash
         vm.prank(challenger);
         harness.challengeTreeUpdate(
             data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
@@ -1358,55 +1372,34 @@ contract TreeUpdateChallengeTest is Test {
     ///      - memoryAddress = updateNr * 4 = 1 * 4 = 4 (group 1's start)
     ///      - priorRootMemoryLocation(1) = 1 * 4 - 1 = 3 (group 0's root) ✓
     function test_DepositGroup1_ValidChallenge() public {
-        // Create a block with 6 deposits (2 groups)
-        // Group 0: slots 0, 1, 2, 3 (root at 3)
-        // Group 1: slots 4, 5, 6, 7 (root at 7)
-        Spine.BlockData memory data = _createBlockData(6, 0);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
+        // Create a block with 6 deposits (2 groups: 0 and 1)
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(6, 0, GENESIS, 0, 12345);
 
         // Challenge the SECOND deposit group using updateNr=1 (group index)
-        // Contract will compute: memoryAddress = 1 * 4 = 4 (group 1's start)
-        // priorRootMemoryLocation(1) = 1 * 4 - 1 = 3 (group 0's root) ✓
         uint256 updateNr = 1;
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildDepositRegion(blobHashes, updateNr);
 
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], 4 + i); // Group 1 data
-        }
-
-        BlobData.Region memory region = _createRegion(4, 4, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
-
-        // Prior anchor is the root of group 0, at slot 3
-        bytes32 priorAnchor = harness.access(data.blobhashes[0], 3);
-
-        // True anchor matches what's in the blob (no fraud in the root itself)
+        bytes32 priorAnchor = _getDepositPriorAnchor(blobHashes, updateNr);
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(priorAnchor),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(priorAnchor),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
         Spine.BlockData memory rollbackTarget;
 
-        // This should work and revert with "No Fraud" since the root matches
-        // Note: isLast = (updateNr == (6+2)/3) = (1 == 2) = false, so "No Fraud" is expected
+        // Should revert with "No Fraud" since the root matches
+        // Note: isLast = (updateNr == (6+2)/3) = (1 == 2) = false
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
@@ -1416,38 +1409,25 @@ contract TreeUpdateChallengeTest is Test {
 
     /// @notice Test that updateNr=0 still works correctly (uses GENESIS path)
     function test_DepositGroup0_ValidChallenge() public {
-        Spine.BlockData memory data = _createBlockData(6, 0);
-        data.sequencer = sequencer;
-        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-        vm.blobhashes(data.blobhashes);
-
-        vm.prank(sequencer);
-        data = harness.addBlockTest(data, indices);
+        (Spine.BlockData memory data, bytes32[] memory blobHashes) = _createAndAddBlock(6, 0, GENESIS, 0, 12345);
 
         // Challenge with updateNr=0 (first group) - uses GENESIS as prior
-        bytes32[] memory regionData = new bytes32[](4);
-        for (uint256 i = 0; i < 4; i++) {
-            regionData[i] = harness.access(data.blobhashes[0], i);
-        }
+        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes32[] memory regionData) =
+            _buildDepositRegion(blobHashes, 0);
 
-        BlobData.Region memory region = _createRegion(4, 0, regionData, data.blobhashes[0]);
-        BlobData.Region memory extensionRegion = _createEmptyRegion();
-
-        bytes32 trueAnchor = regionData[3]; // Correct anchor = no fraud
+        bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        uint256[6] memory signals = [
-            uint256(GENESIS),
-            treeIndex,
-            uint256(regionData[0]),
-            uint256(regionData[1]),
-            uint256(regionData[2]),
-            uint256(trueAnchor)
-        ];
-        fakeZK.approveUpdate(signals);
+        fakeZK.approveUpdate(
+            [
+                uint256(GENESIS),
+                treeIndex,
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                uint256(trueAnchor)
+            ]
+        );
 
         Proof memory zkProof;
         Spine.BlockData memory rollbackTarget;
