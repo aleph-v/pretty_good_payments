@@ -49,18 +49,18 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
         sequencerBlobUse[epoch][msg.sender] += adjustedTx;
     }
 
-    function getPercentInEpoch(address sequencer, uint256 epoch) external view returns(uint256) {
-        (uint256 epochNow, ) = currentEpoch();
+    function getPercentInEpoch(address sequencer, uint256 epoch) external view returns (uint256) {
+        (uint256 epochNow,) = currentEpoch();
         require(epochNow > epoch, "Not finished");
         if (totalBlobUse[epoch] == 0) {
-            return(0);
+            return (0);
         }
-        return((sequencerBlobUse[epoch][sequencer] * FIXED_BASE)/totalBlobUse[epoch]);
+        return ((sequencerBlobUse[epoch][sequencer] * FIXED_BASE) / totalBlobUse[epoch]);
     }
 
-    function isFinalized(uint256 epoch) public view returns(bool) {
-        (uint256 epochNow, ) = currentEpoch();
-        uint256 minEpochsWait = CHALLENGE_PERIOD/EPOCH_LENGTH + 1;
-        return(epoch + minEpochsWait < epochNow);
+    function isFinalized(uint256 epoch) public view returns (bool) {
+        (uint256 epochNow,) = currentEpoch();
+        uint256 minEpochsWait = CHALLENGE_PERIOD / EPOCH_LENGTH + 1;
+        return (epoch + minEpochsWait < epochNow);
     }
 }

@@ -85,7 +85,6 @@ contract NullifierChallengeHarness is NullifierChallenge, FakeBlobs {
         uint256 storageIndex = bitReverse(logicalIndex);
         storeAt(blobHash, storageIndex, value);
     }
-
 }
 
 contract NullifierChallengeTest is Test {

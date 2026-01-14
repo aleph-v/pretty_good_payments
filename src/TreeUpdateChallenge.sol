@@ -34,7 +34,7 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
             memoryAddress = txMemoryAddress(updateNr, data.numDeposits) + 11;
         } else {
             // Points to the start of each group of three updates
-            memoryAddress = updateNr*4;
+            memoryAddress = updateNr * 4;
         }
 
         // Validate the first region
@@ -80,7 +80,8 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         if (trueAnchor == sequencerSubmittedRoot) {
             // We underflow here if both numTransactions and numDeposits == 0 but this case cannot happen because add block reverts
             // Note that since updateNr is zero indexed data.numDeposits/3 does give the correct last update nr group
-            bool isLast = data.numTransactions == 0? updateNr == data.numDeposits/3: updateNr == data.numTransactions - 1;
+            bool isLast =
+                data.numTransactions == 0 ? updateNr == data.numDeposits / 3 : updateNr == data.numTransactions - 1;
             require(isLast && trueAnchor != data.anchor, "No Fraud");
         } // the else here is just that you should be slashed
 

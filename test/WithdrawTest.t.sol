@@ -100,13 +100,7 @@ contract WithdrawTest is Test {
         // Mint tokens to yield router so it can pay out withdrawals
         token.mint(address(yieldRouter), YIELD_ROUTER_BALANCE);
 
-        harness = new WithdrawHarness(
-            keccak256("genesis"),
-            yieldRouter,
-            fakeZk,
-            fakeZk,
-            txRegistry
-        );
+        harness = new WithdrawHarness(keccak256("genesis"), yieldRouter, fakeZk, fakeZk, txRegistry);
     }
 
     // Helper to create a confirmed block with a valid leaf at a specific position
@@ -161,16 +155,10 @@ contract WithdrawTest is Test {
     function test_BasicWithdraw() public {
         address recipient = address(0xBEEF);
         uint256 amount = 100 ether;
-        Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: amount,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
-        });
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)});
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, 0, 0, 1, 0, 12345
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 12345);
 
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
         uint256 yieldRouterBalanceBefore = token.balanceOf(address(yieldRouter));
@@ -179,16 +167,15 @@ contract WithdrawTest is Test {
 
         assertTrue(harness.isWithdrawn(blockData.blockNr, 0, 0), "Correct key should be marked");
         assertEq(token.balanceOf(recipient), recipientBalanceBefore + amount, "Recipient should receive tokens");
-        assertEq(token.balanceOf(address(yieldRouter)), yieldRouterBalanceBefore - amount, "YieldRouter should send tokens");
+        assertEq(
+            token.balanceOf(address(yieldRouter)), yieldRouterBalanceBefore - amount, "YieldRouter should send tokens"
+        );
     }
 
     function test_WithdrawRevertsIfNotConfirmed() public {
         address recipient = address(0xBEEF);
         Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: 100 ether,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
+            asset: address(token), amount: 100 ether, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)
         });
 
         bytes32 anchor = keccak256("anchor");
@@ -224,9 +211,7 @@ contract WithdrawTest is Test {
             publicKey: bytes32(uint256(1)) // Non-zero - should fail
         });
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, 0, 0, 1, 0, 222
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 222);
 
         vm.expectRevert();
         harness.withdraw(leaf, blockData, 0, 0, 0, "", "");
@@ -243,15 +228,10 @@ contract WithdrawTest is Test {
 
         for (uint256 which = 0; which < 3; which++) {
             Leaf memory leaf = Leaf({
-                asset: address(token),
-                amount: amount,
-                blinding: bytes32(bytes20(recipient)),
-                publicKey: bytes32(0)
+                asset: address(token), amount: amount, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)
             });
 
-            (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-                leaf, 1, which, 2, 0, 999 + which
-            );
+            (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 1, which, 2, 0, 999 + which);
 
             uint256 recipientBalanceBefore = token.balanceOf(recipient);
 
@@ -273,15 +253,10 @@ contract WithdrawTest is Test {
     function test_WithdrawWhichBoundary() public {
         address recipient = address(0xBEEF);
         Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: 100 ether,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
+            asset: address(token), amount: 100 ether, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)
         });
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, 0, 0, 1, 0, 666
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 666);
 
         // which = 3 should fail (require which < 3)
         vm.expectRevert();
@@ -291,15 +266,10 @@ contract WithdrawTest is Test {
     function test_WithdrawTxNrBoundary() public {
         address recipient = address(0xBEEF);
         Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: 100 ether,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
+            asset: address(token), amount: 100 ether, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)
         });
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, 0, 0, 1, 0, 777
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 777);
 
         // txNr >= numTransactions should fail
         vm.expectRevert();
@@ -311,15 +281,10 @@ contract WithdrawTest is Test {
     function test_InvalidBlobHashIndex() public {
         address recipient = address(0xBEEF);
         Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: 100 ether,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
+            asset: address(token), amount: 100 ether, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)
         });
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, 0, 0, 1, 0, 999
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 999);
 
         // Try with blobHashIndex out of bounds
         vm.expectRevert();
@@ -332,16 +297,18 @@ contract WithdrawTest is Test {
         // Test withdrawal when there are deposits in the block
         address recipient = address(0xBEEF);
         uint256 amount = 100 ether;
-        Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: amount,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
-        });
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)});
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, 0, 0, 1, 5, 1111  // 5 deposits affects memory layout
-        );
+        (Spine.BlockData memory blockData,) =
+            _createConfirmedBlockWithLeaf(
+                leaf,
+                0,
+                0,
+                1,
+                5,
+                1111 // 5 deposits affects memory layout
+            );
 
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
         harness.withdraw(leaf, blockData, 0, 0, 0, "", "");
@@ -353,19 +320,13 @@ contract WithdrawTest is Test {
     function test_WithdrawFromSecondBlob() public {
         address recipient = address(0xBEEF);
         uint256 amount = 100 ether;
-        Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: amount,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
-        });
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)});
 
         uint256 numTx = 300; // This will span into second blob
-        uint256 txNr = 280;  // This tx should be in second blob
+        uint256 txNr = 280; // This tx should be in second blob
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, txNr, 0, numTx, 0, 3000
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, txNr, 0, numTx, 0, 3000);
 
         uint256 memAddress = harness.getLeafMemoryAddress(txNr, 0, false, 0);
         uint256 blobIndex = memAddress / 4096;
@@ -388,16 +349,10 @@ contract WithdrawTest is Test {
         if (recipient == address(0)) recipient = address(1);
 
         uint256 amount = bound(seed, 1, 1000 ether);
-        Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: amount,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
-        });
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)});
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, 0, whichVal, numTx, 0, seed
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, whichVal, numTx, 0, seed);
 
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
         harness.withdraw(leaf, blockData, 0, 0, whichVal, "", "");
@@ -415,16 +370,10 @@ contract WithdrawTest is Test {
         if (recipient == address(0)) recipient = address(1);
 
         uint256 amount = bound(seed, 1, 1000 ether);
-        Leaf memory leaf = Leaf({
-            asset: address(token),
-            amount: amount,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
-        });
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)});
 
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            leaf, txNr, whichVal, numTx, 0, seed
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, txNr, whichVal, numTx, 0, seed);
 
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
 
@@ -435,7 +384,11 @@ contract WithdrawTest is Test {
         // Second withdrawal should always fail (no additional tokens transferred)
         vm.expectRevert();
         harness.withdraw(leaf, blockData, 0, txNr, whichVal, "", "");
-        assertEq(token.balanceOf(recipient), recipientBalanceBefore + amount, "Balance should not change after failed withdrawal");
+        assertEq(
+            token.balanceOf(recipient),
+            recipientBalanceBefore + amount,
+            "Balance should not change after failed withdrawal"
+        );
     }
 
     // ==================== ADDITIONAL COVERAGE TESTS ====================
@@ -451,24 +404,15 @@ contract WithdrawTest is Test {
 
         // Create leaves for different txNr/which combinations
         Leaf memory leaf1 = Leaf({
-            asset: address(token),
-            amount: amount1,
-            blinding: bytes32(bytes20(recipient1)),
-            publicKey: bytes32(0)
+            asset: address(token), amount: amount1, blinding: bytes32(bytes20(recipient1)), publicKey: bytes32(0)
         });
 
         Leaf memory leaf2 = Leaf({
-            asset: address(token),
-            amount: amount2,
-            blinding: bytes32(bytes20(recipient2)),
-            publicKey: bytes32(0)
+            asset: address(token), amount: amount2, blinding: bytes32(bytes20(recipient2)), publicKey: bytes32(0)
         });
 
         Leaf memory leaf3 = Leaf({
-            asset: address(token),
-            amount: amount3,
-            blinding: bytes32(bytes20(recipient3)),
-            publicKey: bytes32(0)
+            asset: address(token), amount: amount3, blinding: bytes32(bytes20(recipient3)), publicKey: bytes32(0)
         });
 
         // Create a block with multiple transactions
@@ -533,16 +477,11 @@ contract WithdrawTest is Test {
         // Test that providing wrong leaf data fails validation
         address recipient = address(0xBEEF);
         Leaf memory correctLeaf = Leaf({
-            asset: address(token),
-            amount: 100 ether,
-            blinding: bytes32(bytes20(recipient)),
-            publicKey: bytes32(0)
+            asset: address(token), amount: 100 ether, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)
         });
 
         // Create a confirmed block with the correct leaf
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(
-            correctLeaf, 0, 0, 1, 0, 6666
-        );
+        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(correctLeaf, 0, 0, 1, 0, 6666);
 
         // Try to withdraw with different leaf data
         Leaf memory wrongLeaf = Leaf({
@@ -555,5 +494,4 @@ contract WithdrawTest is Test {
         vm.expectRevert("Blob data mismatch");
         harness.withdraw(wrongLeaf, blockData, 0, 0, 0, "", "");
     }
-
 }

@@ -11,7 +11,7 @@ import {Ownable} from "solady/auth/Ownable.sol";
 
 contract YieldRouter is Ownable {
     // The bridge is the contract which accepts the user deposits
-    address immutable public bridge;
+    address public immutable bridge;
     mapping(address => IERC4626) public sources;
 
     // For tracking the yields for sequencer payouts
@@ -82,7 +82,7 @@ contract YieldRouter is Ownable {
             uint256 shares = cachedSource.balanceOf(address(this));
             priorBalance = IERC20(token).balanceOf(address(this));
             cachedSource.redeem(shares, address(this), address(this));
-            IERC20(token).approve(address(cachedSource), 0);   
+            IERC20(token).approve(address(cachedSource), 0);
         }
 
         // Now we move the funds into a new source
@@ -151,7 +151,7 @@ contract YieldRouter is Ownable {
         require(!paidOut[sequencer][epoch][token], "Already Paid");
         IEntrypoint cached = IEntrypoint(bridge);
         require(!cached.isChallenged(sequencer));
-        uint256 percent = cached.getPercentInEpoch(sequencer, epoch); 
+        uint256 percent = cached.getPercentInEpoch(sequencer, epoch);
 
         uint256 period = epoch / EPOCHS_PER_PERIOD;
         uint256 paidInEpoch = periodPayouts[token][period] / EPOCHS_PER_PERIOD;

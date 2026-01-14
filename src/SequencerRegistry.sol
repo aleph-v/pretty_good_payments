@@ -55,7 +55,7 @@ contract SequencerRegistry is Spine, Ownable {
     }
 
     // Checks if the sequencer has a set challenger address
-    function isChallenged(address who) public view returns(bool) {
+    function isChallenged(address who) public view returns (bool) {
         return (sequencers[who].challenger != address(0));
     }
 

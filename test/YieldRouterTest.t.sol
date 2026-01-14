@@ -22,15 +22,15 @@ contract MockEntrypoint is IEntrypoint {
         challenged[sequencer] = status;
     }
 
-    function getPercentInEpoch(address sequencer, uint256 epoch) external view returns(uint256) {
+    function getPercentInEpoch(address sequencer, uint256 epoch) external view returns (uint256) {
         return percents[sequencer][epoch];
     }
 
-    function isFinalized(uint256) external pure returns(bool) {
+    function isFinalized(uint256) external pure returns (bool) {
         return true;
     }
 
-    function isChallenged(address who) external view returns(bool) {
+    function isChallenged(address who) external view returns (bool) {
         return challenged[who];
     }
 }

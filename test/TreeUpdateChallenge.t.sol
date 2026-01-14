@@ -26,16 +26,11 @@ contract TreeUpdateChallengeHarness is TreeUpdateChallenge, FakeBlobs {
         _initializeOwner(msg.sender);
     }
 
-    function setupBlock(
-        BlockData memory data,
-        bytes32 anchorBefore,
-        uint256 blockIndex,
-        uint256 seed,
-        FakeZK zk
-    ) public returns (BlockData memory, bytes32[] memory ret) {
-        uint256 depositSize = data.numDeposits % 3 == 0
-            ? (data.numDeposits / 3) * 4
-            : (data.numDeposits / 3 + 1) * 4;
+    function setupBlock(BlockData memory data, bytes32 anchorBefore, uint256 blockIndex, uint256 seed, FakeZK zk)
+        public
+        returns (BlockData memory, bytes32[] memory ret)
+    {
+        uint256 depositSize = data.numDeposits % 3 == 0 ? (data.numDeposits / 3) * 4 : (data.numDeposits / 3 + 1) * 4;
         uint256 dataNeeded = depositSize + data.numTransactions * 15;
         if (dataNeeded == 0) dataNeeded = 1;
 
@@ -85,13 +80,11 @@ contract TreeUpdateChallengeHarness is TreeUpdateChallenge, FakeBlobs {
         return (data);
     }
 
-    function validateSingle(
-        bytes32 rootHash,
-        bytes calldata,
-        uint256 index,
-        bytes32 data,
-        bytes calldata
-    ) internal view override {
+    function validateSingle(bytes32 rootHash, bytes calldata, uint256 index, bytes32 data, bytes calldata)
+        internal
+        view
+        override
+    {
         require(access(rootHash, index) == data);
     }
 
@@ -186,11 +179,7 @@ contract TreeUpdateChallengeTest is Test {
         harness.fundSequencer{value: 20 ether}(sequencer);
     }
 
-    function _createBlockData(uint256 numDeposits, uint256 numTx)
-        internal
-        pure
-        returns (Spine.BlockData memory)
-    {
+    function _createBlockData(uint256 numDeposits, uint256 numTx) internal pure returns (Spine.BlockData memory) {
         return Spine.BlockData({
             anchor: bytes32(0),
             timestamp: 0,
@@ -214,20 +203,14 @@ contract TreeUpdateChallengeTest is Test {
         });
     }
 
-    function _createRegion(
-        uint256 length,
-        uint256 memoryAddress,
-        bytes32[] memory data,
-        bytes32 blobHash
-    ) internal pure returns (BlobData.Region memory) {
+    function _createRegion(uint256 length, uint256 memoryAddress, bytes32[] memory data, bytes32 blobHash)
+        internal
+        pure
+        returns (BlobData.Region memory)
+    {
         bytes[] memory proofs = new bytes[](length);
         return BlobData.Region({
-            length: length,
-            memoryAddress: memoryAddress,
-            data: data,
-            proofs: proofs,
-            commitment: "",
-            hash: blobHash
+            length: length, memoryAddress: memoryAddress, data: data, proofs: proofs, commitment: "", hash: blobHash
         });
     }
 
@@ -251,8 +234,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert();
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion,
-            GENESIS, "", "", bytes32(uint256(1)), zkProof, rollbackTarget
+            data, 0, false, region, extensionRegion, GENESIS, "", "", bytes32(uint256(1)), zkProof, rollbackTarget
         );
     }
 
@@ -278,8 +260,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert();
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion,
-            GENESIS, "", "", bytes32(uint256(1)), zkProof, rollbackTarget
+            data, 0, false, region, extensionRegion, GENESIS, "", "", bytes32(uint256(1)), zkProof, rollbackTarget
         );
     }
 
@@ -315,8 +296,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert("Invalid ZK update proof");
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion,
-            GENESIS, "", "", bytes32(uint256(999)), zkProof, rollbackTarget
+            data, 0, false, region, extensionRegion, GENESIS, "", "", bytes32(uint256(999)), zkProof, rollbackTarget
         );
     }
 
@@ -366,8 +346,7 @@ contract TreeUpdateChallengeTest is Test {
 
         vm.prank(challenger);
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion,
-            GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
         );
 
         (bool isActiveAfter,,,,,, address payable challengerAddr) = harness.getSequencerStatus(sequencer);
@@ -421,8 +400,17 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion,  // isTx=false for deposit
-            GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
+            data,
+            0,
+            false,
+            region,
+            extensionRegion, // isTx=false for deposit
+            GENESIS,
+            "",
+            "",
+            trueAnchor,
+            zkProof,
+            rollbackTarget
         );
     }
 
@@ -479,8 +467,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion,
-            GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
         );
     }
 
@@ -530,8 +517,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, 0, true, region, extensionRegion,
-            GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 0, true, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
         );
     }
 
@@ -582,8 +568,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, 1, true, region, extensionRegion,
-            priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 1, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
     }
 
@@ -634,8 +619,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, 0, true, region, extensionRegion,
-            priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 0, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
     }
 
@@ -695,8 +679,7 @@ contract TreeUpdateChallengeTest is Test {
 
         vm.prank(challenger);
         harness.challengeTreeUpdate(
-            data2, 0, false, region, extensionRegion,
-            data1.anchor, "", "", trueAnchor, zkProof, data1
+            data2, 0, false, region, extensionRegion, data1.anchor, "", "", trueAnchor, zkProof, data1
         );
 
         assertEq(harness.getBlockCount(), 1, "Should rollback to block 1");
@@ -786,9 +769,9 @@ contract TreeUpdateChallengeTest is Test {
         uint256[6] memory signals = [
             uint256(priorAnchor),
             treeIndex,
-            uint256(regionData[0]),      // leaf0 from region
-            uint256(extensionData[0]),   // leaf1 from extension
-            uint256(extensionData[1]),   // leaf2 from extension
+            uint256(regionData[0]), // leaf0 from region
+            uint256(extensionData[0]), // leaf1 from extension
+            uint256(extensionData[1]), // leaf2 from extension
             uint256(trueAnchor)
         ];
         fakeZK.approveUpdate(signals);
@@ -799,8 +782,7 @@ contract TreeUpdateChallengeTest is Test {
         // Challenge should succeed - fraud detected at boundary crossing tx
         vm.prank(challenger);
         harness.challengeTreeUpdate(
-            data, targetTx, true, region, extensionRegion,
-            priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, targetTx, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
 
         // Verify sequencer was slashed
@@ -866,8 +848,7 @@ contract TreeUpdateChallengeTest is Test {
         // trueAnchor != sequencerSubmittedRoot -> skip isLast check, go directly to slash
         vm.prank(challenger);
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion,
-            GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
         );
 
         // Verify sequencer was slashed
@@ -943,8 +924,7 @@ contract TreeUpdateChallengeTest is Test {
         // This passes the require(isLast && trueAnchor != data.anchor) and slashes
         vm.prank(challenger);
         harness.challengeTreeUpdate(
-            data, updateNr, false, region, extensionRegion,
-            priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, updateNr, false, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
 
         // Verify sequencer was slashed
@@ -1078,8 +1058,17 @@ contract TreeUpdateChallengeTest is Test {
             vm.prank(challenger);
             vm.expectRevert("No Fraud");
             harness.challengeTreeUpdate(
-                data, updateNr, false, region, extensionRegion,
-                challengePriorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+                data,
+                updateNr,
+                false,
+                region,
+                extensionRegion,
+                challengePriorAnchor,
+                "",
+                "",
+                trueAnchor,
+                zkProof,
+                rollbackTarget
             );
         }
 
@@ -1146,8 +1135,17 @@ contract TreeUpdateChallengeTest is Test {
             vm.prank(challenger);
             vm.expectRevert("No Fraud");
             harness.challengeTreeUpdate(
-                data, updateNr, true, region, extensionRegion,
-                challengePriorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+                data,
+                updateNr,
+                true,
+                region,
+                extensionRegion,
+                challengePriorAnchor,
+                "",
+                "",
+                trueAnchor,
+                zkProof,
+                rollbackTarget
             );
         }
 
@@ -1161,12 +1159,9 @@ contract TreeUpdateChallengeTest is Test {
     /// @param numTransactions Number of transactions in the block (bounded to 1-100)
     /// @param updateNr The update index to challenge (bounded based on isTx)
     /// @param isTx Whether to challenge a transaction (true) or deposit group (false)
-    function test_Fuzz_FraudAtRandomLocation(
-        uint256 numDeposits,
-        uint256 numTransactions,
-        uint256 updateNr,
-        bool isTx
-    ) public {
+    function test_Fuzz_FraudAtRandomLocation(uint256 numDeposits, uint256 numTransactions, uint256 updateNr, bool isTx)
+        public
+    {
         vm.pauseGasMetering();
 
         // Bound inputs to reasonable ranges
@@ -1211,7 +1206,7 @@ contract TreeUpdateChallengeTest is Test {
         data.blockIndex = Spine.TimestampAndIndex(0, 0);
 
         // The final anchor is the root from the last transaction
-        uint256 finalRootOffset = numTransactions != 0? depositSize + (numTransactions - 1) * 15 + 14 : depositSize - 1;
+        uint256 finalRootOffset = numTransactions != 0 ? depositSize + (numTransactions - 1) * 15 + 14 : depositSize - 1;
         uint256 finalBlobIndex = finalRootOffset / 4096;
         bytes32 finalAnchor = harness.access(blobHashes[finalBlobIndex], finalRootOffset % 4096);
         data.anchor = finalAnchor;
@@ -1333,8 +1328,17 @@ contract TreeUpdateChallengeTest is Test {
         // Challenge - should succeed and slash the sequencer
         vm.prank(challenger);
         harness.challengeTreeUpdate(
-            data, updateNr, isTx, region, extensionRegion,
-            challengePriorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data,
+            updateNr,
+            isTx,
+            region,
+            extensionRegion,
+            challengePriorAnchor,
+            "",
+            "",
+            trueAnchor,
+            zkProof,
+            rollbackTarget
         );
 
         // Verify sequencer was slashed
@@ -1406,8 +1410,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, updateNr, false, region, extensionRegion,
-            priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, updateNr, false, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
     }
 
@@ -1453,8 +1456,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert("No Fraud");
         harness.challengeTreeUpdate(
-            data, 0, false, region, extensionRegion,
-            GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
         );
     }
 
@@ -1542,8 +1544,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert();
         harness.challengeTreeUpdate(
-            data, 272, true, region, badHashExtension,
-            setup.priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 272, true, region, badHashExtension, setup.priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
     }
 
@@ -1582,8 +1583,7 @@ contract TreeUpdateChallengeTest is Test {
         vm.prank(challenger);
         vm.expectRevert();
         harness.challengeTreeUpdate(
-            data, 272, true, region, badAddrExtension,
-            setup.priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+            data, 272, true, region, badAddrExtension, setup.priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
     }
 }
