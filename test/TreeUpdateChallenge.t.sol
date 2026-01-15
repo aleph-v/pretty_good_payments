@@ -44,30 +44,34 @@ contract TreeUpdateChallengeHarness is TreeUpdateChallenge, FakeBlobs {
         uint256 priorAnchor = uint256(anchorBefore);
         uint256 regions = (data.numDeposits + 2) / 3;
         for (uint256 i = 0; i < regions; i++) {
+            // Signal order: [trueAnchor, priorAnchor, update0, update1, update2, treeIndex]
+            uint256 newAnchor = uint256(randomData[i * 4 + 3]);
             signals = [
-                priorAnchor,
-                blockIndex,
+                newAnchor,           // trueAnchor (newAnchor after updates)
+                priorAnchor,         // priorAnchor (anchor before this group)
                 uint256(randomData[i * 4]),
                 uint256(randomData[i * 4 + 1]),
                 uint256(randomData[i * 4 + 2]),
-                uint256(randomData[i * 4 + 3])
+                blockIndex           // treeIndex
             ];
             zk.approveUpdate(signals);
-            priorAnchor = uint256(randomData[i * 4 + 3]);
+            priorAnchor = newAnchor;
         }
 
         for (uint256 i = 0; i < data.numTransactions; i++) {
             uint256 baseOffset = depositSize + i * 15 + 11;
+            // Signal order: [trueAnchor, priorAnchor, update0, update1, update2, treeIndex]
+            uint256 newAnchor = uint256(randomData[baseOffset + 3]);
             signals = [
-                priorAnchor,
-                blockIndex,
+                newAnchor,           // trueAnchor (newAnchor after updates)
+                priorAnchor,         // priorAnchor (anchor before this tx)
                 uint256(randomData[baseOffset]),
                 uint256(randomData[baseOffset + 1]),
                 uint256(randomData[baseOffset + 2]),
-                uint256(randomData[baseOffset + 3])
+                blockIndex           // treeIndex
             ];
             zk.approveUpdate(signals);
-            priorAnchor = uint256(randomData[baseOffset + 3]);
+            priorAnchor = newAnchor;
         }
 
         data.anchor = bytes32(priorAnchor);
@@ -451,14 +455,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(priorAnchor),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -504,14 +509,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = keccak256("different_anchor");
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(GENESIS),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -539,14 +545,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(GENESIS),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -571,14 +578,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(GENESIS),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -599,14 +607,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(GENESIS),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -628,14 +637,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(priorAnchor),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -659,14 +669,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(priorAnchor),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -677,6 +688,90 @@ contract TreeUpdateChallengeTest is Test {
         harness.challengeTreeUpdate(
             data, 0, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, data
         );
+    }
+
+    /// @notice Deposits-only block with FRAUD: last deposit group has wrong anchor in header
+    /// @dev Tests isLast logic when numTransactions == 0:
+    ///      isLast = (updateNr == (numDeposits - 1) / 3)
+    ///      For 6 deposits: (6-1)/3 = 1, so updateNr=1 is the last group
+    ///      Sequencer should be slashed when blob is correct but header anchor lies
+    function test_IsLast_DepositsOnly_LastGroupFraud_SlashesSequencer() public {
+        // Create a 6-deposit block with ZERO transactions (2 groups: 0 and 1)
+        // isLast for deposits with 0 tx: updateNr == (numDeposits - 1) / 3 = (6-1)/3 = 1
+        Spine.BlockData memory data = _createBlockData(6, 0); // 6 deposits, 0 transactions
+        data.sequencer = sequencer;
+        (data,) = harness.setupBlock(data, GENESIS, 0, 12345, fakeZK);
+
+        // Save the correct anchor computed by setupBlock
+        bytes32 correctAnchor = data.anchor;
+
+        // FRAUD: Modify the anchor in the block header to be wrong
+        data.anchor = keccak256("fraudulent_header_anchor");
+        require(data.anchor != correctAnchor, "Test setup: anchors must differ");
+
+        uint256[] memory indices = new uint256[](1);
+        indices[0] = 0;
+        vm.blobhashes(data.blobhashes);
+
+        vm.prank(sequencer);
+        data = harness.addBlockTest(data, indices);
+
+        // Challenge the LAST deposit group (updateNr=1)
+        // For 6 deposits with 0 tx: isLast = (1 == (6-1)/3) = (1 == 1) = true
+        uint256 updateNr = 1;
+        uint256 memoryAddress = updateNr * 4; // Group 1 starts at slot 4
+
+        bytes32[] memory regionData = new bytes32[](4);
+        for (uint256 i = 0; i < 4; i++) {
+            regionData[i] = harness.access(data.blobhashes[0], memoryAddress + i);
+        }
+
+        BlobData.Region memory region = _createRegion(4, memoryAddress, regionData, data.blobhashes[0]);
+        BlobData.Region memory extensionRegion = _createEmptyRegion();
+
+        // Prior anchor is the anchor after group 0 (at slot 3)
+        bytes32 priorAnchor = harness.access(data.blobhashes[0], 3);
+
+        // The trueAnchor from blob matches the correct anchor (sequencer put correct data in blob)
+        bytes32 trueAnchor = regionData[3];
+        assertEq(trueAnchor, correctAnchor, "Blob should contain the correct anchor");
+        assertTrue(trueAnchor != data.anchor, "Header anchor should be wrong (fraud)");
+
+        uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
+
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
+        fakeZK.approveUpdate(
+            [
+                uint256(trueAnchor),
+                uint256(priorAnchor),
+                uint256(regionData[0]),
+                uint256(regionData[1]),
+                uint256(regionData[2]),
+                treeIndex
+            ]
+        );
+
+        Proof memory zkProof;
+        Spine.BlockData memory rollbackTarget;
+
+        // Verify sequencer is active before challenge
+        (bool isActiveBefore,,,,,,) = harness.getSequencerStatus(sequencer);
+        assertTrue(isActiveBefore, "Sequencer should be active before challenge");
+
+        // Challenge should succeed because:
+        // - trueAnchor == sequencerSubmittedRoot (blob has correct root)
+        // - isLast == true (numTransactions=0, updateNr=1 == (6-1)/3 = 1)
+        // - trueAnchor != data.anchor (header lies!)
+        // This triggers the fraud path and slashes the sequencer
+        vm.prank(challenger);
+        harness.challengeTreeUpdate(
+            data, updateNr, false, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
+        );
+
+        // Verify sequencer was slashed
+        (bool isActiveAfter,,,,,, address payable challengerAddr) = harness.getSequencerStatus(sequencer);
+        assertFalse(isActiveAfter, "Sequencer should be slashed for header anchor fraud");
+        assertEq(challengerAddr, challenger, "Challenger should be recorded");
     }
 
     // ============================================================================
@@ -699,14 +794,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = keccak256("fraud");
         uint256 treeIndex = uint256(data2.blockIndex.day) * (2 ** 13) + uint256(data2.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(data1.anchor),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -801,13 +897,14 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = keccak256("fraud_at_boundary");
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         uint256[6] memory signals = [
+            uint256(trueAnchor),
             uint256(priorAnchor),
-            treeIndex,
             uint256(regionData[0]), // leaf0 from region
             uint256(extensionData[0]), // leaf1 from extension
             uint256(extensionData[1]), // leaf2 from extension
-            uint256(trueAnchor)
+            treeIndex
         ];
         fakeZK.approveUpdate(signals);
 
@@ -845,14 +942,15 @@ contract TreeUpdateChallengeTest is Test {
         require(trueAnchor != regionData[3], "Test setup: anchors must differ");
 
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(GENESIS),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -918,13 +1016,14 @@ contract TreeUpdateChallengeTest is Test {
 
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         uint256[6] memory signals = [
+            uint256(trueAnchor),
             uint256(priorAnchor),
-            treeIndex,
             uint256(regionData[0]),
             uint256(regionData[1]),
             uint256(regionData[2]),
-            uint256(trueAnchor)
+            treeIndex
         ];
         fakeZK.approveUpdate(signals);
 
@@ -1006,34 +1105,36 @@ contract TreeUpdateChallengeTest is Test {
 
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
-        // Re-approve all ZK proofs with correct treeIndex
+        // Re-approve all ZK proofs with correct signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         bytes32 priorAnchor = GENESIS;
         for (uint256 i = 0; i < numDepositGroups; i++) {
             uint256 baseOffset = i * 4;
+            bytes32 newAnchor = allData[baseOffset + 3];
             uint256[6] memory signals = [
-                uint256(priorAnchor),
-                treeIndex,
+                uint256(newAnchor),       // trueAnchor
+                uint256(priorAnchor),     // priorAnchor
                 uint256(allData[baseOffset]),
                 uint256(allData[baseOffset + 1]),
                 uint256(allData[baseOffset + 2]),
-                uint256(allData[baseOffset + 3])
+                treeIndex
             ];
             fakeZK.approveUpdate(signals);
-            priorAnchor = allData[baseOffset + 3];
+            priorAnchor = newAnchor;
         }
 
         for (uint256 i = 0; i < numTransactions; i++) {
             uint256 baseOffset = depositSize + i * 15 + 11;
+            bytes32 newAnchor = allData[baseOffset + 3];
             uint256[6] memory signals = [
-                uint256(priorAnchor),
-                treeIndex,
+                uint256(newAnchor),       // trueAnchor
+                uint256(priorAnchor),     // priorAnchor
                 uint256(allData[baseOffset]),
                 uint256(allData[baseOffset + 1]),
                 uint256(allData[baseOffset + 2]),
-                uint256(allData[baseOffset + 3])
+                treeIndex
             ];
             fakeZK.approveUpdate(signals);
-            priorAnchor = allData[baseOffset + 3];
+            priorAnchor = newAnchor;
         }
 
         Proof memory zkProof;
@@ -1297,13 +1398,14 @@ contract TreeUpdateChallengeTest is Test {
         vm.assume(trueAnchor != sequencerSubmittedRoot); // Skip if collision (extremely unlikely)
 
         // Approve the ZK proof showing the true anchor is different from what sequencer submitted
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         uint256[6] memory signals = [
+            uint256(trueAnchor),
             uint256(challengePriorAnchor),
-            treeIndex,
             uint256(regionData[0]),
             uint256(regionData[1]),
             uint256(regionData[2]),
-            uint256(trueAnchor)
+            treeIndex
         ];
         fakeZK.approveUpdate(signals);
 
@@ -1384,14 +1486,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(priorAnchor),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -1418,14 +1521,15 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = regionData[3];
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         fakeZK.approveUpdate(
             [
+                uint256(trueAnchor),
                 uint256(GENESIS),
-                treeIndex,
                 uint256(regionData[0]),
                 uint256(regionData[1]),
                 uint256(regionData[2]),
-                uint256(trueAnchor)
+                treeIndex
             ]
         );
 
@@ -1508,13 +1612,14 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = keccak256("some_anchor");
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         uint256[6] memory signals = [
+            uint256(trueAnchor),
             uint256(setup.priorAnchor),
-            treeIndex,
             uint256(regionData[0]),
             uint256(extensionData[0]),
             uint256(extensionData[1]),
-            uint256(trueAnchor)
+            treeIndex
         ];
         fakeZK.approveUpdate(signals);
 
@@ -1547,13 +1652,14 @@ contract TreeUpdateChallengeTest is Test {
         bytes32 trueAnchor = keccak256("some_anchor");
         uint256 treeIndex = uint256(data.blockIndex.day) * (2 ** 13) + uint256(data.blockIndex.index);
 
+        // Signal order: [trueAnchor, priorAnchor, u0, u1, u2, treeIndex]
         uint256[6] memory signals = [
+            uint256(trueAnchor),
             uint256(setup.priorAnchor),
-            treeIndex,
             uint256(regionData[0]),
             uint256(extensionData[0]),
             uint256(extensionData[1]),
-            uint256(trueAnchor)
+            treeIndex
         ];
         fakeZK.approveUpdate(signals);
 

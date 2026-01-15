@@ -8,8 +8,9 @@ import sys
 # Note: This is a little ugly, but I think it's cleanest to use the same lib that ckzg uses.
 #
 
-# TODO: The architecture-dependent library name
-libname = 'ckzg.cpython-313-darwin.so'
+# The architecture-dependent library name - auto-detect Python version
+import sys
+libname = f'ckzg.cpython-{sys.version_info.major}{sys.version_info.minor}-darwin.so'
 
 # Get all site-packages directories (includes both global and virtualenv)
 site_packages = site.getsitepackages() + [site.getusersitepackages()]
@@ -18,18 +19,13 @@ site_packages = site.getsitepackages() + [site.getusersitepackages()]
 for dir in site_packages:
     path = os.path.join(dir, libname)
     if os.path.exists(path):
-        print(f"Library found at: {path}")
         break
 else:
-    print("Library not found.")
-    exit()
-
-# path = '.././venv/lib/python3.11/site-packages/ckzg.cpython-311-darwin.so'
-print("Library path:", path)
+    print("Library not found.", file=sys.stderr)
+    exit(1)
 
 # Load the library
 lib = ctypes.CDLL(path)
-print("Library:", lib)
 
 
 # Define explicitly without relying on sizeof

@@ -1,5 +1,7 @@
 {
   "dependencies": {
-    "@zk-kit/binary-merkle-root.circom": "^2.0.0"
+    "@zk-kit/binary-merkle-root.circom": "^2.0.0",
+    "circomlibjs": "^0.1.7",
+    "snarkjs": "^0.7.5"
   }
 }

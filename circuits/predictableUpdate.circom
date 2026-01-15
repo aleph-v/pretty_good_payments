@@ -45,13 +45,13 @@ template PredictableUpdate () {
     var intermediateRoot = BinaryMerkleRoot(12)(0, 12, inBlockIndex + 1, blockProofs[2]);
     isRootEqual = IsEqual()([computedRoot, intermediateRoot]);
     1 === isRootEqual;
-    computedRoot = BinaryMerkleRoot(12)(updates[1], 12, inBlockIndex, blockProofs[2]);
+    computedRoot = BinaryMerkleRoot(12)(updates[1], 12, inBlockIndex + 1, blockProofs[2]);
 
     // Now we do the next update by increasing the index, enforcing its zero, and changing it
     intermediateRoot = BinaryMerkleRoot(12)(0, 12, inBlockIndex + 2, blockProofs[3]);
     isRootEqual = IsEqual()([computedRoot, intermediateRoot]);
     1 === isRootEqual;
-    var blockRootAfter = BinaryMerkleRoot(12)(updates[2], 12, inBlockIndex, blockProofs[3]);
+    var blockRootAfter = BinaryMerkleRoot(12)(updates[2], 12, inBlockIndex + 2, blockProofs[3]);
 
     // Finally we must prove that the block root itself we do this by proving the blockRoot 
     var computedAnchor = BinaryMerkleRoot(28)(blockRootBefore, 28, blockIndex, rootPath);

@@ -68,7 +68,7 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
 
         // Now we can prove that the update from priorAnchor to current anchor is not correct using the zk update proof
         bytes32[6] memory zkProofInputs =
-            [priorAnchor, bytes32(treeIndex), region.data[0], bytes32(uint256(0)), bytes32(uint256(0)), trueAnchor];
+            [trueAnchor, priorAnchor, region.data[0], bytes32(uint256(0)), bytes32(uint256(0)), bytes32(treeIndex)];
         zkProofInputs[3] = region.memoryAddress + 1 == 4096 ? extensionRegion.data[0] : region.data[1];
         uint256 absoluteIndex = region.memoryAddress + 2;
         zkProofInputs[4] = absoluteIndex >= 4096 ? extensionRegion.data[absoluteIndex % 4096] : region.data[2];
@@ -84,9 +84,9 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         // (2) that if this is the last tx in the block that the sequencer has set their "anchor" field correctly
         if (trueAnchor == sequencerSubmittedRoot) {
             // We underflow here if both numTransactions and numDeposits == 0 but this case cannot happen because add block reverts
-            // Note that since updateNr is zero indexed data.numDeposits/3 does give the correct last update nr group
+            // Note that since updateNr is zero indexed (data.numDeposits-1)/3 does give the correct last update nr group
             bool isLast =
-                data.numTransactions == 0 ? updateNr == data.numDeposits / 3 : updateNr == data.numTransactions - 1;
+                data.numTransactions == 0 ? updateNr == (data.numDeposits - 1) / 3 : updateNr == data.numTransactions - 1;
             require(isLast && trueAnchor != data.anchor, "No Fraud");
         } // the else here is just that you should be slashed
 
