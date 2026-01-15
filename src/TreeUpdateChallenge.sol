@@ -85,8 +85,9 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         if (trueAnchor == sequencerSubmittedRoot) {
             // We underflow here if both numTransactions and numDeposits == 0 but this case cannot happen because add block reverts
             // Note that since updateNr is zero indexed (data.numDeposits-1)/3 does give the correct last update nr group
-            bool isLast =
-                data.numTransactions == 0 ? updateNr == (data.numDeposits - 1) / 3 : updateNr == data.numTransactions - 1;
+            bool isLast = data.numTransactions == 0
+                ? updateNr == (data.numDeposits - 1) / 3
+                : updateNr == data.numTransactions - 1;
             require(isLast && trueAnchor != data.anchor, "No Fraud");
         } // the else here is just that you should be slashed
 

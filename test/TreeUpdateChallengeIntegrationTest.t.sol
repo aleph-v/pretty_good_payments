@@ -50,10 +50,10 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         uint256 targetNumTx;
         bytes32 targetFinalAnchor;
         // Target update info
-        uint256 targetUpdateIndex;  // Index in blockUpdates array
-        uint256 numDepositGroups;   // Number of deposit groups
-        bool targetIsTx;            // True if targeting a transaction, false for deposits
-        uint256 regionStart;        // Memory address where the challenge region starts
+        uint256 targetUpdateIndex; // Index in blockUpdates array
+        uint256 numDepositGroups; // Number of deposit groups
+        bool targetIsTx; // True if targeting a transaction, false for deposits
+        uint256 regionStart; // Memory address where the challenge region starts
         bytes32[3] targetUpdates;
         bytes32 targetPriorAnchor;
         bytes32 targetNewAnchor;
@@ -83,10 +83,10 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     MultiBlockTestData fraudTestData;
     bool fraudTestDataGenerated;
 
-    MultiBlockTestData txTestData;        // Transaction (no fraud)
+    MultiBlockTestData txTestData; // Transaction (no fraud)
     bool txTestDataGenerated;
 
-    MultiBlockTestData txFraudTestData;   // Transaction (fraud)
+    MultiBlockTestData txFraudTestData; // Transaction (fraud)
     bool txFraudTestDataGenerated;
 
     // Structure to decode KZG proof binary
@@ -162,11 +162,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         uint256 pC0 = vm.parseJsonUint(jsonStr, ".proof._pC[0]");
         uint256 pC1 = vm.parseJsonUint(jsonStr, ".proof._pC[1]");
 
-        data.zkProof = Proof({
-            _pA: [pA0, pA1],
-            _pB: [[pB00, pB01], [pB10, pB11]],
-            _pC: [pC0, pC1]
-        });
+        data.zkProof = Proof({_pA: [pA0, pA1], _pB: [[pB00, pB01], [pB10, pB11]], _pC: [pC0, pC1]});
 
         // Parse public signals
         data.publicSignals[0] = bytes32(vm.parseJsonUint(jsonStr, ".publicSignals[0]"));
@@ -313,10 +309,8 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     function test_RealZkProof_Verifies() public view {
         require(testDataGenerated, "Test data not generated");
 
-        bool isValid = IUpdateVerifier(address(realZkVerifier)).verifyPredictableUpdate(
-            testData.publicSignals,
-            testData.zkProof
-        );
+        bool isValid =
+            IUpdateVerifier(address(realZkVerifier)).verifyPredictableUpdate(testData.publicSignals, testData.zkProof);
         assertTrue(isValid, "Real ZK proof should verify");
     }
 
@@ -342,10 +336,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         bytes32[6] memory wrongSignals = testData.publicSignals;
         wrongSignals[0] = bytes32(uint256(testData.publicSignals[0]) + 1);
 
-        bool isValid = IUpdateVerifier(address(realZkVerifier)).verifyPredictableUpdate(
-            wrongSignals,
-            testData.zkProof
-        );
+        bool isValid = IUpdateVerifier(address(realZkVerifier)).verifyPredictableUpdate(wrongSignals, testData.zkProof);
         assertFalse(isValid, "Proof should fail with wrong anchor");
     }
 
@@ -356,13 +347,9 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         bytes32[6] memory wrongSignals = testData.publicSignals;
         wrongSignals[5] = bytes32(uint256(testData.publicSignals[5]) + 1);
 
-        bool isValid = IUpdateVerifier(address(realZkVerifier)).verifyPredictableUpdate(
-            wrongSignals,
-            testData.zkProof
-        );
+        bool isValid = IUpdateVerifier(address(realZkVerifier)).verifyPredictableUpdate(wrongSignals, testData.zkProof);
         assertFalse(isValid, "Proof should fail with wrong treeIndex");
     }
-
 
     // ============================================================================
     // Anchor chain verification tests
@@ -381,10 +368,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         }
 
         // First block's prior should relate to genesis
-        assertTrue(
-            testData.blockAnchors[0] != testData.genesisAnchor,
-            "First block anchor should differ from genesis"
-        );
+        assertTrue(testData.blockAnchors[0] != testData.genesisAnchor, "First block anchor should differ from genesis");
     }
 
     /// @notice Verify tree indexes follow day*2^13 + blockIdx pattern
@@ -392,15 +376,11 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         require(testDataGenerated, "Test data not generated");
 
         for (uint256 i = 0; i < testData.blockTreeIndexes.length; i++) {
-            uint256 day = i / 5;      // 5 blocks per day in test
+            uint256 day = i / 5; // 5 blocks per day in test
             uint256 blockIdx = i % 5;
             uint256 expectedTreeIndex = day * BLOCKS_PER_DAY + blockIdx;
 
-            assertEq(
-                testData.blockTreeIndexes[i],
-                expectedTreeIndex,
-                "Tree index should match formula"
-            );
+            assertEq(testData.blockTreeIndexes[i], expectedTreeIndex, "Tree index should match formula");
         }
     }
 
@@ -413,7 +393,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         harness = new TreeUpdateChallengeRealHarness(
             testData.genesisAnchor,
             IYieldRouter(address(yieldRouter)),
-            IUpdateVerifier(address(realZkVerifier)),  // Real Groth16 verifier
+            IUpdateVerifier(address(realZkVerifier)), // Real Groth16 verifier
             ITransferVerifier(address(fakeTransferVerifier)),
             ITransactionRegistry(address(txRegistry))
         );
@@ -424,10 +404,10 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     /// @param harness The harness to add blocks to
     /// @param startTime Base timestamp for time warping
     /// @return targetBlockArrayIndex The index of the target block in the array
-    function _buildBlockChain(
-        TreeUpdateChallengeRealHarness harness,
-        uint256 startTime
-    ) internal returns (uint256 targetBlockArrayIndex) {
+    function _buildBlockChain(TreeUpdateChallengeRealHarness harness, uint256 startTime)
+        internal
+        returns (uint256 targetBlockArrayIndex)
+    {
         uint256 SECONDS_PER_DAY = 86400;
         targetBlockArrayIndex = testData.targetDay * 5 + testData.targetBlockIdx;
 
@@ -520,11 +500,11 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         bytes32 blobHash,
         uint256 regionStartAddr,
         bool hasPriorAnchorProof
-    ) internal pure returns (
-        BlobData.Region memory region,
-        BlobData.Region memory emptyRegion,
-        bytes memory priorAnchorProof
-    ) {
+    )
+        internal
+        pure
+        returns (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof)
+    {
         uint256 regionProofOffset = hasPriorAnchorProof ? 1 : 0;
 
         bytes32[] memory regionData = new bytes32[](4);
@@ -573,22 +553,14 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         uint256 targetBlockArrayIndex = _buildBlockChain(harness, startTime);
 
         // Add target block with real KZG blob hash and correct anchor
-        Spine.BlockData memory targetBlockData = _addTargetBlock(
-            harness,
-            startTime,
-            testData.kzgBlobHash,
-            testData.targetFinalAnchor
-        );
+        Spine.BlockData memory targetBlockData =
+            _addTargetBlock(harness, startTime, testData.kzgBlobHash, testData.targetFinalAnchor);
 
         // Verify block was added at correct position
         assertEq(targetBlockData.blockNr, targetBlockArrayIndex, "Block number should match");
 
         // Build challenge region with real KZG proofs
-        (
-            BlobData.Region memory region,
-            BlobData.Region memory emptyRegion,
-            bytes memory priorAnchorProof
-        ) = _buildChallengeRegion(
+        (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof) = _buildChallengeRegion(
             testData.kzgClaims,
             testData.kzgProofs,
             testData.kzgCommitment,
@@ -609,7 +581,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         harness.challengeTreeUpdate(
             targetBlockData,
             testData.targetUpdateIndex,
-            testData.targetIsTx,  // isTx from test data
+            testData.targetIsTx, // isTx from test data
             region,
             emptyRegion,
             priorAnchor,
@@ -640,9 +612,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         uint256 regionStart = testData.targetUpdateIndex * 4;
         for (uint256 i = 0; i < 4; i++) {
             assertEq(
-                testData.kzgClaims[offset + i],
-                testData.blobData[regionStart + i],
-                "KZG claim should match blob data"
+                testData.kzgClaims[offset + i], testData.blobData[regionStart + i], "KZG claim should match blob data"
             );
         }
     }
@@ -665,7 +635,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         TreeUpdateChallengeRealHarness harness = new TreeUpdateChallengeRealHarness(
             fraudTestData.genesisAnchor,
             IYieldRouter(address(yieldRouter)),
-            IUpdateVerifier(address(realZkVerifier)),  // Real Groth16 verifier
+            IUpdateVerifier(address(realZkVerifier)), // Real Groth16 verifier
             ITransferVerifier(address(fakeTransferVerifier)),
             ITransactionRegistry(address(txRegistry))
         );
@@ -735,11 +705,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         targetBlockData = harness.addBlockTest(targetBlockData, indices);
 
         // Build challenge region with FRAUD KZG proofs
-        (
-            BlobData.Region memory region,
-            BlobData.Region memory emptyRegion,
-            bytes memory priorAnchorProof
-        ) = _buildChallengeRegion(
+        (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof) = _buildChallengeRegion(
             fraudTestData.kzgClaims,
             fraudTestData.kzgProofs,
             fraudTestData.kzgCommitment,
@@ -765,7 +731,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         assertEq(fraudTestData.blobData[fraudAnchorBlobPos], fraudAnchor, "Blob should contain fraud anchor");
 
         // Capture sequencer state before challenge
-        (bool isActiveBefore, , , , , uint64 stakeBefore,) = harness.getSequencerStatus(sequencer);
+        (bool isActiveBefore,,,,, uint64 stakeBefore,) = harness.getSequencerStatus(sequencer);
         assertTrue(isActiveBefore, "Sequencer should be active before");
         assertTrue(stakeBefore > 0, "Sequencer should have stake before");
 
@@ -790,7 +756,8 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         );
 
         // Verify sequencer was slashed
-        (bool isActiveAfter, , , , , uint64 stakeAfter, address payable challengerAfter) = harness.getSequencerStatus(sequencer);
+        (bool isActiveAfter,,,,, uint64 stakeAfter, address payable challengerAfter) =
+            harness.getSequencerStatus(sequencer);
         assertFalse(isActiveAfter, "Sequencer should be slashed (inactive)");
         assertEq(challengerAfter, challenger, "Challenger should be recorded");
         assertTrue(stakeAfter > 0, "Stake should still be held for later claim");
@@ -879,11 +846,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         targetBlockData = harness.addBlockTest(targetBlockData, indices);
 
         // Build challenge region
-        (
-            BlobData.Region memory region,
-            BlobData.Region memory emptyRegion,
-            bytes memory priorAnchorProof
-        ) = _buildChallengeRegion(
+        (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof) = _buildChallengeRegion(
             txTestData.kzgClaims,
             txTestData.kzgProofs,
             txTestData.kzgCommitment,
@@ -903,7 +866,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         harness.challengeTreeUpdate(
             targetBlockData,
             updateNr,
-            txTestData.targetIsTx,  // true for transaction
+            txTestData.targetIsTx, // true for transaction
             region,
             emptyRegion,
             txTestData.targetPriorAnchor,
@@ -984,7 +947,9 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             numTransactions: txFraudTestData.targetNumTx,
             numDeposits: txFraudTestData.targetNumDeposits,
             blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(uint16(txFraudTestData.targetDay), uint16(txFraudTestData.targetBlockIdx)),
+            blockIndex: Spine.TimestampAndIndex(
+                uint16(txFraudTestData.targetDay), uint16(txFraudTestData.targetBlockIdx)
+            ),
             sequencer: sequencer,
             blobhashes: fraudBlobHashes
         });
@@ -996,11 +961,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         targetBlockData = harness.addBlockTest(targetBlockData, indices);
 
         // Build challenge region
-        (
-            BlobData.Region memory region,
-            BlobData.Region memory emptyRegion,
-            bytes memory priorAnchorProof
-        ) = _buildChallengeRegion(
+        (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof) = _buildChallengeRegion(
             txFraudTestData.kzgClaims,
             txFraudTestData.kzgProofs,
             txFraudTestData.kzgCommitment,
@@ -1018,7 +979,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         uint256 updateNr = txFraudTestData.targetUpdateIndex - txFraudTestData.numDepositGroups;
 
         // Capture sequencer state before challenge
-        (bool isActiveBefore, , , , , uint64 stakeBefore,) = harness.getSequencerStatus(sequencer);
+        (bool isActiveBefore,,,,, uint64 stakeBefore,) = harness.getSequencerStatus(sequencer);
         assertTrue(isActiveBefore, "Sequencer should be active before");
         assertTrue(stakeBefore > 0, "Sequencer should have stake before");
 
@@ -1030,7 +991,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         harness.challengeTreeUpdate(
             targetBlockData,
             updateNr,
-            txFraudTestData.targetIsTx,  // true for transaction
+            txFraudTestData.targetIsTx, // true for transaction
             region,
             emptyRegion,
             txFraudTestData.targetPriorAnchor,
@@ -1042,13 +1003,13 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         );
 
         // Verify sequencer was slashed
-        (bool isActiveAfter, , , , , uint64 stakeAfter, address payable challengerAfter) = harness.getSequencerStatus(sequencer);
+        (bool isActiveAfter,,,,, uint64 stakeAfter, address payable challengerAfter) =
+            harness.getSequencerStatus(sequencer);
         assertFalse(isActiveAfter, "Sequencer should be slashed (inactive)");
         assertEq(challengerAfter, challenger, "Challenger should be recorded");
         assertTrue(stakeAfter > 0, "Stake should still be held for later claim");
     }
 }
-
 
 // ============================================================================
 // Test Harness with FakeBlobs for integration testing
@@ -1071,7 +1032,10 @@ contract TreeUpdateChallengeIntegrationHarness is TreeUpdateChallenge, FakeBlobs
         _initializeOwner(msg.sender);
     }
 
-    function addBlockTest(Spine.BlockData memory data, uint256[] memory indices) public returns (Spine.BlockData memory) {
+    function addBlockTest(Spine.BlockData memory data, uint256[] memory indices)
+        public
+        returns (Spine.BlockData memory)
+    {
         addBlock(data, indices);
         return data;
     }
@@ -1138,7 +1102,10 @@ contract TreeUpdateChallengeRealHarness is TreeUpdateChallenge {
         _initializeOwner(msg.sender);
     }
 
-    function addBlockTest(Spine.BlockData memory data, uint256[] memory indices) public returns (Spine.BlockData memory) {
+    function addBlockTest(Spine.BlockData memory data, uint256[] memory indices)
+        public
+        returns (Spine.BlockData memory)
+    {
         addBlock(data, indices);
         return data;
     }

@@ -47,12 +47,12 @@ contract TreeUpdateChallengeHarness is TreeUpdateChallenge, FakeBlobs {
             // Signal order: [trueAnchor, priorAnchor, update0, update1, update2, treeIndex]
             uint256 newAnchor = uint256(randomData[i * 4 + 3]);
             signals = [
-                newAnchor,           // trueAnchor (newAnchor after updates)
-                priorAnchor,         // priorAnchor (anchor before this group)
+                newAnchor, // trueAnchor (newAnchor after updates)
+                priorAnchor, // priorAnchor (anchor before this group)
                 uint256(randomData[i * 4]),
                 uint256(randomData[i * 4 + 1]),
                 uint256(randomData[i * 4 + 2]),
-                blockIndex           // treeIndex
+                blockIndex // treeIndex
             ];
             zk.approveUpdate(signals);
             priorAnchor = newAnchor;
@@ -63,12 +63,12 @@ contract TreeUpdateChallengeHarness is TreeUpdateChallenge, FakeBlobs {
             // Signal order: [trueAnchor, priorAnchor, update0, update1, update2, treeIndex]
             uint256 newAnchor = uint256(randomData[baseOffset + 3]);
             signals = [
-                newAnchor,           // trueAnchor (newAnchor after updates)
-                priorAnchor,         // priorAnchor (anchor before this tx)
+                newAnchor, // trueAnchor (newAnchor after updates)
+                priorAnchor, // priorAnchor (anchor before this tx)
                 uint256(randomData[baseOffset]),
                 uint256(randomData[baseOffset + 1]),
                 uint256(randomData[baseOffset + 2]),
-                blockIndex           // treeIndex
+                blockIndex // treeIndex
             ];
             zk.approveUpdate(signals);
             priorAnchor = newAnchor;
@@ -1111,8 +1111,8 @@ contract TreeUpdateChallengeTest is Test {
             uint256 baseOffset = i * 4;
             bytes32 newAnchor = allData[baseOffset + 3];
             uint256[6] memory signals = [
-                uint256(newAnchor),       // trueAnchor
-                uint256(priorAnchor),     // priorAnchor
+                uint256(newAnchor), // trueAnchor
+                uint256(priorAnchor), // priorAnchor
                 uint256(allData[baseOffset]),
                 uint256(allData[baseOffset + 1]),
                 uint256(allData[baseOffset + 2]),
@@ -1126,8 +1126,8 @@ contract TreeUpdateChallengeTest is Test {
             uint256 baseOffset = depositSize + i * 15 + 11;
             bytes32 newAnchor = allData[baseOffset + 3];
             uint256[6] memory signals = [
-                uint256(newAnchor),       // trueAnchor
-                uint256(priorAnchor),     // priorAnchor
+                uint256(newAnchor), // trueAnchor
+                uint256(priorAnchor), // priorAnchor
                 uint256(allData[baseOffset]),
                 uint256(allData[baseOffset + 1]),
                 uint256(allData[baseOffset + 2]),

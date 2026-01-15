@@ -20,6 +20,7 @@ contract BlobDataTest is BlobData {
     function validateRegionOpeningTest(Region calldata region) external view {
         validateRegionOpening(region);
     }
+
     function validateSingleTest(
         bytes32 rootHash,
         bytes calldata commitment,
