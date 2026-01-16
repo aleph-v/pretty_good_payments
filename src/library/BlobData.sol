@@ -36,12 +36,19 @@ contract BlobData {
 
     // Region has to be encoded
 
-    // Each deposit is a single field but for each 3 deposits we have to include a root.
+    /// @notice Calculates blob memory length required for deposits
+    /// @dev Each 3 deposits use 4 slots (3 leaves + 1 root). Rounds up for partial groups.
+    /// @param num Number of deposits
+    /// @return Memory slots required: ceil(num/3) * 4
     function numDepositsToMemoryLength(uint256 num) internal pure returns (uint256) {
         uint256 depositRounding = num % 3 == 0 ? 0 : 1;
         return ((num / 3 + depositRounding) * 4);
     }
 
+    /// @notice Calculates the starting memory address for a transaction in blob data
+    /// @param txNumber Transaction index (0-indexed)
+    /// @param numDeposits Total number of deposits in the block (to skip deposit region)
+    /// @return Absolute memory address where the transaction data begins
     function txMemoryAddress(uint256 txNumber, uint256 numDeposits) internal pure returns (uint256) {
         // Each deposit is a single leaf
         uint256 depositsLength = numDepositsToMemoryLength(numDeposits);
@@ -50,6 +57,12 @@ contract BlobData {
         return (depositsLength + prior);
     }
 
+    /// @notice Calculates memory address for a specific leaf (output) in blob data
+    /// @param number For deposits: deposit index [0, numDeposits). For tx: transaction index [0, numTx).
+    /// @param numDeposits Total deposits in block (to calculate offset for transactions)
+    /// @param isDeposit True for deposit leaf, false for transaction output leaf
+    /// @param which Output index within the update [0, 3). For tx: leaf0=0, leaf1=1, leaf2=2.
+    /// @return Absolute memory address of the leaf
     function leafMemoryAddress(uint256 number, uint256 numDeposits, bool isDeposit, uint256 which)
         internal
         pure
@@ -67,6 +80,11 @@ contract BlobData {
         }
     }
 
+    /// @notice Calculates memory address for a nullifier in transaction blob data
+    /// @param txNumber Transaction index (0-indexed)
+    /// @param numDeposits Total deposits in block (to calculate offset)
+    /// @param which Nullifier index [0, 2). nullifier0=0, nullifier1=1.
+    /// @return Absolute memory address of the nullifier
     function nullifierMemoryAddress(uint256 txNumber, uint256 numDeposits, uint256 which)
         internal
         pure
@@ -79,9 +97,14 @@ contract BlobData {
         return (deposits + prior + 9 + which);
     }
 
-    // Returns the root for the BEFORE root reverts on the 0 deposit
-    // Here we use number = update number, meaning if a its a deposit its each group of three leaves or if transaction
-    // each transaction
+    /// @notice Calculates memory address of the prior root (anchor before this update)
+    /// @dev For deposits, number is the group index (each group = 3 deposits). For tx, number is tx index.
+    ///      Returns address of the root field BEFORE this update (i.e., at index number*4-1 for deposits).
+    /// @param number Update group index. For deposits: [1, ceil(numDeposits/3)]. For tx: [1, numTx].
+    ///        Must be >= 1 (use validatePriorAnchor for first update which references prior block).
+    /// @param isDeposit True for deposit update, false for transaction
+    /// @param numDeposits Total deposits in block. For deposits: must satisfy number <= (numDeposits-1)/3.
+    /// @return Absolute memory address of the prior root
     function priorRootMemoryLocation(uint256 number, bool isDeposit, uint256 numDeposits)
         internal
         pure
@@ -97,8 +120,13 @@ contract BlobData {
         }
     }
 
-    /// @dev Checks that the kzg proof validates that the polynomial interpolates data at the roots of unity indexed by the bitreversed
-    ///      roots of unity
+    /// @notice Validates multiple KZG proof openings against a blob commitment
+    /// @dev Iterates through all indices and validates each opening individually
+    /// @param rootHash The versioned blob hash (from blobhash opcode)
+    /// @param commitment The 48-byte KZG commitment to the blob polynomial
+    /// @param dataIndicies Array of memory indices to validate [0, 4096)
+    /// @param data Array of expected values at each index (must match dataIndicies length)
+    /// @param kzgProofs Array of 48-byte KZG proofs (must match dataIndicies length)
     function validateDataOpenings(
         bytes32 rootHash,
         bytes calldata commitment,
@@ -112,7 +140,9 @@ contract BlobData {
         }
     }
 
-    // Validate a contigious region of memory in a blob starting at a memory address
+    /// @notice Validates KZG proofs for a contiguous region of blob memory
+    /// @dev Region.length must equal region.data.length and region.proofs.length
+    /// @param region Contains blob hash, commitment, starting memoryAddress, and arrays of data/proofs
     function validateRegionOpening(Region calldata region) internal view {
         if (region.length != region.data.length || region.length != region.proofs.length) revert RegionDataLengthMismatch();
         uint256 memoryAddress = region.memoryAddress;
@@ -122,7 +152,13 @@ contract BlobData {
         }
     }
 
-    // takes 54k gas based on testing.
+    /// @notice Validates a single KZG proof opening using the point evaluation precompile
+    /// @dev Costs ~54k gas. Reverts with InvalidProof() if verification fails.
+    /// @param rootHash The versioned blob hash
+    /// @param commitment 48-byte KZG commitment
+    /// @param index Memory index in blob [0, 4096)
+    /// @param data Expected value at the index
+    /// @param proof 48-byte KZG proof
     function validateSingle(
         bytes32 rootHash,
         bytes calldata commitment,
@@ -164,7 +200,10 @@ contract BlobData {
         }
     }
 
-    // Computes the bit reverse of i as if it is a 12 bit number (ie less than 4096)
+    /// @notice Computes the evaluation point for KZG proof at a given blob index
+    /// @dev Uses bit-reversal permutation on 12-bit index, then exponentiates the root of unity
+    /// @param i Blob memory index [0, 4096)
+    /// @return The evaluation point (root of unity raised to bit-reversed index power) mod BLS_MODULUS
     function bitReversedRoot(uint256 i) internal view returns (uint256) {
         uint256 reversed = LibBit.reverseBits(i);
         reversed = (reversed >> 244);
@@ -172,7 +211,11 @@ contract BlobData {
         return (exp(ROOT, reversed));
     }
 
-    // Should give good performance for our exp < 4096 compared to modexp
+    /// @notice Computes modular exponentiation b^e mod BLS_MODULUS using square-and-multiply
+    /// @dev Optimized for small exponents (e < 4096) compared to modexp precompile
+    /// @param b Base value
+    /// @param e Exponent
+    /// @return b^e mod BLS_MODULUS
     function exp(uint256 b, uint256 e) internal pure returns (uint256) {
         if (e == 0) {
             return (1);

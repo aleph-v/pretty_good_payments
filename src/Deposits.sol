@@ -7,14 +7,10 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {InvalidDepositAmount, MaxDepositsExceeded} from "./library/Errors.sol";
 
-// Deposits are structured such that even if the L2 reorgs because of bad block submission the deposits remain valid
-// each leaf is appended to either the highest ever seen position for deposits or to the current block number + 2.
-// The sequencer is required to include the deposits in order and include exactly the deposits in perBlockDeposit
-// or they will be slashed in fraud proof.
-
-// TODO - There is a griefing attack in this system where a sequencer makes 1000s of fake blocks and reorgs them all
-//        to delay deposits, but this costs a lot of stake. It remains to be seen if we want to fix it, but we can just
-//        a "requested block" field and enforce that its not less than the current head + 2
+/// @title Deposits
+/// @notice Handles L1 deposit creation for the L2 privacy-preserving payment system
+/// @dev Deposits survive L2 reorgs - sequencers must include deposits in order or be slashed.
+///      Deposits target block max(highestDeposit, currentBlock+2) to give sequencers a submission window.
 
 contract Deposits is Spine {
     using PredictableMerkleLib for Leaf;
@@ -30,9 +26,10 @@ contract Deposits is Spine {
 
     event Deposit(bytes32 indexed leafHash, uint256 block, uint256 number);
 
-    // Works by doing the poseidon hashing of leaf and then pushing it into the deposits for the next possible block
-    // If the chain is reorged due to fraud this deposits tree does not rollback, new blocks created at new indices must
-    // also include the same deposits.
+    /// @notice Creates a deposit by transferring tokens to yield router and recording the leaf hash
+    /// @dev Leaf hash is computed via Poseidon. Deposit targets max(highestDeposit, currentBlock+2).
+    /// @param leaf Deposit leaf with asset, amount, and publicKey. amount must be > 0.
+    ///        leaf.blinding will be overwritten with BLINDING constant.
     function deposit(Leaf memory leaf) external {
         if (leaf.amount == 0) revert InvalidDepositAmount();
         // First we transfer from the user to the yield system and trigger deposit

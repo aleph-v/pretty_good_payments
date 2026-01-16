@@ -38,8 +38,11 @@ contract SequencerRegistry is Spine, Ownable {
     mapping(address => uint256) public exits;
     address[] public firstLookSequencers;
 
-    // Checks if (1) the user is a registered sequencer (2) if the time is within the reserved sequencing period
-    // then that this is firstLookSequencer
+    /// @notice Checks if a sequencer is allowed to submit blocks at current time
+    /// @dev During first half of epoch (closed period), only priority sequencers can submit.
+    ///      During second half (open period), any active sequencer with sufficient stake can submit.
+    /// @param sequencer Address to check
+    /// @return True if sequencer can submit blocks now
     function isAllowed(address sequencer) public view returns (bool) {
         (uint256 current, bool isClosed) = currentEpoch();
         if (isClosed) {
@@ -52,7 +55,9 @@ contract SequencerRegistry is Spine, Ownable {
         return sequencers[sequencer].isActive && (sequencers[sequencer].stakeAmount >= requiredStake);
     }
 
-    // Computes the epoch and returns if we are in the first half of an epoch
+    /// @notice Returns current epoch number and whether we're in the closed (priority) period
+    /// @return epoch Current epoch number (time since START / EPOCH_LENGTH)
+    /// @return isClosed True if in first half of epoch (priority sequencing), false if open
     function currentEpoch() public view returns (uint256, bool) {
         uint256 epoch = (block.timestamp - START) / EPOCH_LENGTH;
         // The rounding error here tells us how much of the epoch has passed.
@@ -60,12 +65,15 @@ contract SequencerRegistry is Spine, Ownable {
         return (epoch, elapsed < EPOCH_LENGTH / 2);
     }
 
-    // Checks if the sequencer has a set challenger address
+    /// @notice Checks if a sequencer has been challenged
+    /// @param who Sequencer address to check
+    /// @return True if sequencer has a non-zero challenger address
     function isChallenged(address who) public view returns (bool) {
         return (sequencers[who].challenger != address(0));
     }
 
-    // Take the money from the sequncer then
+    /// @notice Deposits stake to become or remain an active sequencer
+    /// @dev Stake is stored in units of STAKE_DIVISOR (10^14 wei). Reverts if already challenged.
     function fund() external payable {
         if (sequencers[msg.sender].challenger != address(0)) revert AlreadyChallenged();
         // TODO Need to trigger deposit into the yield system
@@ -73,6 +81,11 @@ contract SequencerRegistry is Spine, Ownable {
         sequencers[msg.sender].stakeAmount += uint64(msg.value / STAKE_DIVISOR);
     }
 
+    /// @notice Slashes a sequencer for submitting invalid blocks
+    /// @dev Deactivates sequencer, records challenger. Only updates challenger if this is the earliest fraud.
+    ///      Removes from priority list if applicable.
+    /// @param sequencer Address of sequencer to slash
+    /// @param blockNumber Block number where fraud occurred (used to track earliest fraud)
     function slash(address sequencer, uint256 blockNumber) internal {
         sequencers[sequencer].isActive = false;
         sequencers[sequencer].timestampChallenged = (uint64)(block.timestamp);
@@ -92,6 +105,9 @@ contract SequencerRegistry is Spine, Ownable {
         }
     }
 
+    /// @notice Claims reward after successfully challenging a sequencer
+    /// @dev Challenger receives half the slashed stake. Must wait CHALLENGE_WINDOW after slash.
+    /// @param who Address of the slashed sequencer
     function claimChallengeReward(address who) external {
         SequencerStatus memory status = sequencers[who];
         uint256 challengeTime = uint256(status.timestampChallenged);
@@ -102,6 +118,8 @@ contract SequencerRegistry is Spine, Ownable {
         // TODO burn the other half into yield using the yield system
     }
 
+    /// @notice Initiates exit process for a sequencer to withdraw their stake
+    /// @dev Sequencer must wait CHALLENGE_WINDOW after registering before calling exit()
     function registerExit() external {
         if (!sequencers[msg.sender].isActive) revert SequencerNotActive();
         sequencers[msg.sender].isActive = false;
@@ -111,6 +129,9 @@ contract SequencerRegistry is Spine, Ownable {
         exits[msg.sender] = block.timestamp;
     }
 
+    /// @notice Completes exit and refunds stake after waiting period
+    /// @dev Must be called after CHALLENGE_WINDOW has passed since registerExit(). Fails if challenged.
+    /// @param who Address of the exiting sequencer
     function exit(address who) external {
         if (exits[who] == 0 || block.timestamp - exits[who] < CHALLENGE_WINDOW) revert ExitWindowNotElapsed();
         SequencerStatus memory status = sequencers[who];
@@ -122,6 +143,9 @@ contract SequencerRegistry is Spine, Ownable {
         if (!success) revert PayoutFailed();
     }
 
+    /// @notice Adds an active sequencer to the priority (first-look) list
+    /// @dev Only owner can call. Sequencer must already be active.
+    /// @param who Address to add to priority list
     function addFirstLook(address who) external onlyOwner {
         if (!sequencers[who].isActive) revert SequencerNotActive();
         firstLookSequencers.push(who);
@@ -129,16 +153,24 @@ contract SequencerRegistry is Spine, Ownable {
         sequencers[who].priorityIndex = uint8(firstLookSequencers.length - 1);
     }
 
+    /// @notice Removes a sequencer from the priority list by index
+    /// @dev Only owner can call.
+    /// @param which Index in firstLookSequencers array [0, firstLookSequencers.length)
     function removeFirstLook(uint256 which) public onlyOwner {
         _remove(which);
     }
 
-    // NOTE - Invalid uses of this will lock the sequencing
+    /// @notice Updates the minimum stake required to be an active sequencer
+    /// @dev Only owner can call. Setting too high may lock sequencing if no one meets requirement.
+    /// @param amount New stake requirement in STAKE_DIVISOR units. Must be < MAX_STAKE.
     function updateStakeRequirement(uint256 amount) public onlyOwner {
         if (amount >= MAX_STAKE) revert StakeExceedsMaximum();
         requiredStake = amount;
     }
 
+    /// @notice Internal function to remove a sequencer from priority list
+    /// @dev Uses swap-and-pop pattern. Updates priorityIndex of moved element.
+    /// @param which Index to remove [0, firstLookSequencers.length)
     function _remove(uint256 which) internal {
         // Remove their status
         address who = firstLookSequencers[which];

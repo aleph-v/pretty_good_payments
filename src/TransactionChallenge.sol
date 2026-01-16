@@ -17,9 +17,22 @@ import {
     NoFraud
 } from "./library/Errors.sol";
 
-// The component of the challenge system which enforces deposits are done properly
+/// @title TransactionChallenge
+/// @notice Fraud proof contract for challenging invalid transactions in L2 blocks
 
 contract TransactionChallenge is Spine, SequencerRegistry {
+    /// @notice Challenges a transaction's ZK proof or authorization in a submitted block
+    /// @dev Validates transaction structure, ZK proof, and eth-key authorization.
+    ///      Fraud types: invalid anchor reference, invalid ZK proof, or missing tx registry approval.
+    /// @param data The block containing the allegedly fraudulent transaction
+    /// @param txNr Transaction index within the block [0, numTransactions)
+    /// @param region KZG-proven blob region containing the 14 tx fields (8 proof + 6 inputs).
+    /// @param extensionRegion For cross-blob transactions: continuation from next blob. Empty if tx fits in one blob.
+    /// @param anchor The merkle tree anchor the transaction claims to use
+    /// @param priorAnchorBlock Block containing the anchor (for anchor validation)
+    /// @param priorAnchorCommitment KZG commitment for anchor proof
+    /// @param priorAnchorProof KZG proof for anchor
+    /// @param rollbackTargetBlock Block data for the block before the fraudulent one (for chain rollback)
     function challengeTxZK(
         BlockData memory data,
         uint256 txNr,
@@ -153,9 +166,12 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         ret = ret | (bytes32)(uint256(uint160(ethAddress)));
     }
 
-    /// @notice Decodes block number tx number and address from bytes32
-    /// @param data The encoded 32 byte blob
-    /// @return (blockNr, txNr, ethAddress)
+    /// @notice Decodes block number, update number, deposit flag, and eth address from encoded bytes32
+    /// @param data The encoded 32 byte value (from encodeTxIntoBytes32)
+    /// @return blockNr The referenced block number
+    /// @return updateNr The tree update index within the block
+    /// @return isDeposit True if referencing a deposit update, false for transaction
+    /// @return ethAddress The ethereum address for authorization (0 for zk-only transactions)
     function decodeTxInfo(bytes32 data) public pure returns (uint256, uint256, bool, address) {
         bool isDeposit = data & bytes32(uint256(1) << 254) != bytes32(0);
         uint256 blockNr = uint256((data << 2) >> 224);

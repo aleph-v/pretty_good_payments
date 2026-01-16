@@ -5,8 +5,8 @@ import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 import {PoseidonT5} from "poseidon-solidity/PoseidonT5.sol";
 import {IUpdateVerifier} from "../interfaces/IUpdateVerifier.sol";
 
-// Implements verification functions for an append only merkle tree addition verification
-
+/// @notice Leaf structure representing a note in the privacy-preserving payment system
+/// @dev Hash is computed via Poseidon with width 4: hash(asset, amount, blinding, publicKey)
 struct Leaf {
     address asset;
     uint256 amount;
@@ -14,16 +14,23 @@ struct Leaf {
     bytes32 publicKey;
 }
 
+/// @notice Groth16 proof structure for ZK verification
+/// @dev Standard Groth16 proof format: points A, B, C on BN254 curve
 struct Proof {
     uint256[2] _pA;
     uint256[2][2] _pB;
     uint256[2] _pC;
 }
 
+/// @title Bytes32Poseidon
+/// @notice Helper library for Poseidon hashing of bytes32 arrays
 library Bytes32Poseidon {
     using PoseidonT5 for uint256[4];
     using PoseidonT3 for uint256[2];
 
+    /// @notice Computes Poseidon hash of 2 bytes32 values using PoseidonT3
+    /// @param data Array of 2 bytes32 values
+    /// @return Poseidon hash as bytes32
     function hash(bytes32[2] memory data) internal pure returns (bytes32) {
         uint256[2] memory converted;
         assembly {
@@ -32,6 +39,9 @@ library Bytes32Poseidon {
         return (bytes32)(converted.hash());
     }
 
+    /// @notice Computes Poseidon hash of 4 bytes32 values using PoseidonT5
+    /// @param data Array of 4 bytes32 values
+    /// @return Poseidon hash as bytes32
     function hash(bytes32[4] memory data) internal pure returns (bytes32) {
         uint256[4] memory converted;
         assembly {
@@ -41,6 +51,9 @@ library Bytes32Poseidon {
     }
 }
 
+/// @title PredictableMerkleLib
+/// @notice Library for verifying merkle tree updates and computing leaf hashes
+/// @dev Uses Groth16 ZK proofs for efficient on-chain verification of 3-element batch updates
 library PredictableMerkleLib {
     uint256 constant TREE_DEPTH = 40;
 

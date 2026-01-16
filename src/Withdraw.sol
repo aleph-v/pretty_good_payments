@@ -11,12 +11,23 @@ import {
     PublicKeyNotZero
 } from "./library/Errors.sol";
 
-// Handles user withdraws
+/// @title Withdraw
+/// @notice Handles withdrawals from L2 to L1 by proving output leaves with publicKey=0
+
 contract Withdraw is Spine {
     using PredictableMerkleLib for Leaf;
 
     mapping(uint256 => mapping(uint256 => bool)) public withdrawn;
 
+    /// @notice Withdraws funds from a confirmed L2 transaction output
+    /// @dev Output must have publicKey=0 (making it unspendable on L2). Recipient is encoded in leaf.blinding.
+    ///      KZG proof validates the leaf exists at the correct memory address in the block's blob.
+    /// @param leaf The output leaf to withdraw. Must have publicKey=0, blinding encodes recipient address.
+    /// @param data Block data containing the transaction (must be confirmed)
+    /// @param txNr Transaction index within the block [0, numTransactions)
+    /// @param which Output index within the transaction [0, 3)
+    /// @param commitment 48-byte KZG commitment for the blob
+    /// @param proof 48-byte KZG proof for the leaf hash at calculated memory address
     function withdraw(
         Leaf memory leaf,
         BlockData memory data,

@@ -7,6 +7,10 @@ import {IEntrypoint} from "./interfaces/IEntrypoint.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {NotBridge, TokenNotTransferred, TokenNotEnabled, AlreadyPaid, SequencerChallenged, EpochNotFinished} from "./library/Errors.sol";
 
+/// @title YieldRouter
+/// @notice Routes deposited assets to ERC4626 yield sources and distributes earned yield to sequencers
+/// @dev Tracks yield per period and allows sequencers to claim proportional rewards based on their blob usage
+
 contract YieldRouter is Ownable {
     // The bridge is the contract which accepts the user deposits
     address public immutable bridge;
@@ -30,6 +34,11 @@ contract YieldRouter is Ownable {
     uint256 immutable START = block.timestamp;
     uint256 immutable PERIOD_LENGTH;
 
+    /// @notice Initializes the yield router with timing parameters and tracked assets
+    /// @param periodLength Duration of each yield period in seconds
+    /// @param epochPerPeriod Number of epochs per yield period (yield is split evenly across epochs)
+    /// @param _bridge Address of the bridge contract (only caller allowed for deposits/withdrawals)
+    /// @param tracked Initial list of token addresses to track yield for
     constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked) {
         EPOCHS_PER_PERIOD = epochPerPeriod;
         PERIOD_LENGTH = periodLength;
@@ -94,8 +103,9 @@ contract YieldRouter is Ownable {
         sources[token] = newSource;
     }
 
-    /// @notice Tracks the increases in value of those assets in the "trackedYieldSources" array, if the increases is
-    ///         more than max increase then the value is held for the next period.
+    /// @notice Records yield for all tracked assets in the current period
+    /// @dev Iterates through trackedYieldSources and calls _record for each. No-op if period already reported.
+    ///      If yield exceeds maxInterest for an asset, excess is held for the next period.
     function poke() public {
         uint256 period = currentPeriod();
         if (!reportedPeriod[period]) {
@@ -163,7 +173,8 @@ contract YieldRouter is Ownable {
         sources[token].withdraw(amount, sequencer, address(this));
     }
 
-    /// @notice Computes the current period
+    /// @notice Computes the current period based on elapsed time since contract deployment
+    /// @return The current period number (0-indexed)
     function currentPeriod() public view returns (uint256) {
         return ((block.timestamp - START) / PERIOD_LENGTH);
     }

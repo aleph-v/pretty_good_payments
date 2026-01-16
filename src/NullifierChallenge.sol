@@ -10,9 +10,11 @@ import {
     InvalidNullifierOrder
 } from "./library/Errors.sol";
 
-// The component of the challenge system which enforces that nullifiers are not repeated
+/// @title NullifierChallenge
+/// @notice Fraud proof contract for challenging nullifier reuse (double-spend prevention)
 
 contract NullifierChallenge is Spine, SequencerRegistry {
+    /// @notice Data needed to prove a nullifier exists at a specific location in a block
     struct NullifierLoader {
         BlockData data;
         uint256 txNr;
@@ -21,9 +23,12 @@ contract NullifierChallenge is Spine, SequencerRegistry {
         bytes proof;
     }
 
-    // Enforces that we do not have nullifier reuse.
-    // Since we have commitments to the kzg data structure at each block we can just open and compare
-    // the entries in two former blobs, and if they are equal then we can slash the proposer
+    /// @notice Challenges a double-spend by proving the same nullifier appears in two transactions
+    /// @dev Both nullifier openings are validated via KZG proofs. The later occurrence is slashed.
+    /// @param reusedNullifier The nullifier value that appears twice
+    /// @param first First occurrence of the nullifier (must be in earlier or same block as second)
+    /// @param second Second occurrence to be challenged (will trigger slash and rollback)
+    /// @param rollbackTargetBlock Block data for rollback target (block before second.data.blockNr)
     function challengeNullifier(
         bytes32 reusedNullifier,
         NullifierLoader calldata first,
@@ -47,6 +52,10 @@ contract NullifierChallenge is Spine, SequencerRegistry {
         rollback(second.data.blockNr, rollbackTargetBlock);
     }
 
+    /// @notice Validates that a nullifier exists at the specified location via KZG proof
+    /// @dev Computes memory address from txNr and whichNullifier, then validates the KZG opening
+    /// @param loader Contains block data, tx index, nullifier index, and KZG proof data
+    /// @param nullifier The expected nullifier value at that location
     function validateNullifierOpening(NullifierLoader calldata loader, bytes32 nullifier) internal view {
         if (loader.txNr >= loader.data.numTransactions) revert TxIndexOutOfBounds();
         if (!isBlockIncluded(loader.data)) revert BlockNotIncluded();

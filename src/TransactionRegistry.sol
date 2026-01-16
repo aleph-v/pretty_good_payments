@@ -10,11 +10,11 @@ interface ITransactionRegistry {
     function query(address sender, bytes32[5] memory fields) external view returns (bool);
 }
 
-///@notice This contract allows ethereum addresses to give permission to the roll up to execute transactions with
-///         ethereum keyed accounts. These accounts loose privacy over the sender (and time of transaction) but
-///         conceal destination and amounts. The notes have a public key equal to an eth address and must approve
-///         the output nullifiers and output notes before the transaction is approved or the transaction will be
-///         challenged.
+/// @title TransactionRegistry
+/// @notice Allows ethereum addresses to authorize L2 transactions for ethereum-keyed accounts
+/// @dev Ethereum-keyed accounts sacrifice sender privacy but conceal destination and amounts.
+///      The note's publicKey equals an eth address and must approve nullifiers/outputs before
+///      the transaction is included, or it will be challenged via TransactionChallenge.
 
 contract TransactionRegistry is EIP712 {
     mapping(bytes32 => bool) public allowed;
@@ -47,9 +47,10 @@ contract TransactionRegistry is EIP712 {
         return (allowed[customHash(fields, sender)]);
     }
 
-    /// @notice Allows signature based approval of L2 transactions
-    /// @param fields A struct containing nullifiers and output notes
-    /// @param signature The signature of the EIP 712 complaint hash
+    /// @notice Allows signature-based approval of L2 transactions without on-chain transaction from signer
+    /// @dev Uses EIP-712 typed data signing. Anyone can submit the approval with a valid signature.
+    /// @param fields Struct containing nullifiers[2], notes[3], and signer address
+    /// @param signature ECDSA signature over the EIP-712 typed hash. Must be from fields.signer.
     function approveByQuery(NullifiersAndNotes memory fields, bytes calldata signature) external {
         bytes32 digest = _hashTypedDataV4(
             keccak256(

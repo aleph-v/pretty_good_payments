@@ -19,14 +19,28 @@ import {
     NoFraud
 } from "./library/Errors.sol";
 
-// The component of the challenge system which enforces deposits are done properly
+/// @title TreeUpdateChallenge
+/// @notice Fraud proof contract for challenging incorrect merkle tree updates in L2 blocks
 
 contract TreeUpdateChallenge is Spine, SequencerRegistry {
     using PredictableMerkleLib for IUpdateVerifier;
 
-    // Note- The update NR for deposits is the nth field
-    // TODO - This function is requiring us to use via-ir, we could just get better structs, see whats
-    //        natural after the other challenge protocols
+    /// @notice Challenges an incorrect tree update (deposit group or transaction) in a submitted block
+    /// @dev Verifies the challenger's claimed true anchor via ZK proof, then checks if sequencer's
+    ///      submitted root differs. Slashes sequencer and rolls back chain if fraud is proven.
+    /// @param data The block containing the allegedly fraudulent update
+    /// @param updateNr Update index. For deposits: group index [0, ceil(numDeposits/3)).
+    ///        For transactions: tx index [0, numTransactions).
+    /// @param isTx True if challenging a transaction update, false for deposit group
+    /// @param region KZG-proven blob region containing the 4 update fields (3 leaves + new root).
+    ///        Must have length in [1,4] and match blob at calculated memory address.
+    /// @param extensionRegion For cross-blob updates: continuation region from next blob. Empty if update fits in one blob.
+    /// @param priorAnchor The merkle root before this update (validated via KZG or prior block anchor)
+    /// @param priorAnchorCommitment KZG commitment for priorAnchor proof (if not first update in block)
+    /// @param priorAnchorProof KZG proof for priorAnchor (if not first update in block)
+    /// @param trueAnchor Challenger's claimed correct anchor after applying the update to priorAnchor
+    /// @param zk Groth16 proof that priorAnchor + 3 leaves = trueAnchor
+    /// @param rollbackTargetBlock Block data for the block before the fraudulent one (for chain rollback)
     function challengeTreeUpdate(
         BlockData memory data,
         uint256 updateNr,

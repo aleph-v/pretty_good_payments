@@ -62,7 +62,7 @@ contract Spine is BlobData {
         bytes24 partialHash;
     }
 
-    // We optimism the storage footprint of submission by storing the hash of the block info
+    // We optimize the storage footprint of submission by storing the hash of the block info
     // to use this block info later we have to provide the whole block
     bytes32[] roots;
     // We need to store the anchors so they can be looked up in the challenge protocol
@@ -71,10 +71,14 @@ contract Spine is BlobData {
     // roots matching at 192 bits (birthday attack is 96 bits to attack)
     mapping(bytes32 => IndexAndPartialHash) anchorToIndex;
 
-    // TODO - Should we add more event data? May make it easier to index in the sequencer
     event NewRoot(uint256 indexed blocknumber, bytes32 indexed anchor, bytes32 indexed l2BlockHash, BlockData data);
 
-    // Pushes a block into the chain of roots, records the data
+    /// @notice Adds a new L2 block to the chain, validating blob data and storing the block hash
+    /// @dev Sets timestamp, blockNr, and blobhashes on the data struct. Emits NewRoot event.
+    /// @param data Block data struct. anchor, numTransactions, numDeposits, sequencer must be set.
+    ///        blobhashes array must be pre-allocated with length equal to blobIndices.length.
+    /// @param blobIndices EVM blob indices to read hashes from. Must provide sufficient capacity
+    ///        for deposits (ceil(numDeposits/3)*4) plus transactions (numTransactions*15).
     function addBlock(BlockData memory data, uint256[] memory blobIndices) internal {
         // Enforce the claimed data is correct
         data.timestamp = block.timestamp;
@@ -119,7 +123,11 @@ contract Spine is BlobData {
 
     event Rollback(uint256 from, uint256 to);
 
-    // Uses assembly to rollback the state array
+    /// @notice Rolls back the chain to a previous state by truncating the roots array
+    /// @dev Uses assembly to efficiently resize the roots array. Updates lastTimestamp to match priorBlock.
+    /// @param indexToRemove Block number to rollback to (all blocks >= this index are removed)
+    /// @param priorBlock Block data for block at indexToRemove-1. Must match stored hash if indexToRemove > 0.
+    ///        Ignored if indexToRemove == 0.
     function rollback(uint256 indexToRemove, BlockData memory priorBlock) internal {
         // TODO - Should we enforce no rollback to timestamps which are too old?
         if (indexToRemove >= roots.length) revert RollbackIndexOutOfBounds();
@@ -139,12 +147,15 @@ contract Spine is BlobData {
         }
     }
 
-    // Returns the highest non-reorged index
+    /// @notice Returns the current chain height (number of blocks)
+    /// @return The total number of blocks in the chain
     function getCurrentBlocknumber() public view returns (uint256) {
         return (roots.length);
     }
 
-    // Helper function determining if a hash of a block is confirmed
+    /// @notice Checks if a block is included and has passed the challenge period
+    /// @param data The block data to check
+    /// @return True if block is included and timestamp + CHALLENGE_PERIOD < current time
     function isConfirmed(BlockData memory data) public view returns (bool) {
         if (!isBlockIncluded(data)) {
             return false;
@@ -152,13 +163,18 @@ contract Spine is BlobData {
         return (data.timestamp + CHALLENGE_PERIOD < block.timestamp);
     }
 
-    // Checks that a block is currently in the tree
+    /// @notice Checks if a block's hash matches the stored root at its block number
+    /// @param data The block data to verify
+    /// @return True if keccak256(abi.encode(data)) matches roots[data.blockNr]
     function isBlockIncluded(BlockData memory data) internal view returns (bool) {
         bytes32 l2BlockHash = keccak256(abi.encode(data));
         return roots[data.blockNr] == l2BlockHash;
     }
 
-    // We can use this function to check if anchor exists in the current tree (ie not reorged)
+    /// @notice Checks if an anchor exists in the current chain (not reorged)
+    /// @dev Uses partial hash comparison (24 bytes) for gas efficiency. Genesis anchor always returns true.
+    /// @param anchor The merkle tree anchor to check
+    /// @return True if anchor is genesis or exists at a valid index with matching partial hash
     function isAnchorIncluded(bytes32 anchor) public view returns (bool) {
         if (anchor == GENESIS_ANCHOR) {
             return (true);
@@ -174,7 +190,16 @@ contract Spine is BlobData {
         return (partialHash == bytes24(roots[uint256(index)]));
     }
 
-    // Checks that the provided anchor is either the anchor after blockNr - 1 or that it is the anchor after update given by updateNr in block blockNr
+    /// @notice Validates that the provided anchor matches the expected prior anchor for a tree update
+    /// @dev For first update in a block (updateNr==0 for deposits, or updateNr==0 with no deposits for tx),
+    ///      checks anchor matches the previous block's final anchor. Otherwise validates via KZG proof.
+    /// @param anchor The claimed prior anchor to validate
+    /// @param data Block data containing the update
+    /// @param updateNr The update index within the block. For deposits: group index [0, ceil(numDeposits/3)).
+    ///        For transactions: transaction index [0, numTransactions).
+    /// @param isDeposit True if validating a deposit update, false for transaction
+    /// @param commitment KZG commitment for blob proof (unused if updateNr==0 for first update)
+    /// @param proof KZG proof for the anchor at the prior root memory location
     function validatePriorAnchor(
         bytes32 anchor,
         BlockData memory data,

@@ -7,13 +7,21 @@ import {PredictableMerkleLib} from "./library/PredictableMerkleLib.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
 import {BlockNotIncluded, DepositIndexOutOfBounds, NoFraud} from "./library/Errors.sol";
 
-// The component of the challenge system which enforces deposits are done properly
+/// @title DepositChallenge
+/// @notice Fraud proof contract for challenging incorrect deposit leaves in L2 blocks
 
 contract DepositChallenge is Deposits, SequencerRegistry {
     using PredictableMerkleLib for IUpdateVerifier;
 
-    // We load the block data and we get the expected deposit at a deposits index provided. The challenger
-    // provides a predictable merkle tree update data and also a blob opening proof.
+    /// @notice Challenges a deposit leaf that doesn't match the expected value from L1 deposits
+    /// @dev Fraud exists if: (1) numDeposits != perBlockDeposits length, or (2) leaf at depositNr
+    ///      doesn't match the expected deposit hash. Challenger must provide KZG proof of the blob value.
+    /// @param data The block containing the allegedly fraudulent deposit
+    /// @param depositNr Index of the deposit to challenge [0, numDeposits)
+    /// @param sequencerSubmittedLeaf The value the sequencer put in the blob (proven via KZG)
+    /// @param commitment 48-byte KZG commitment for the blob
+    /// @param proof 48-byte KZG proof for the leaf at depositNr's memory address
+    /// @param priorBlock Block data for rollback target (block before the fraudulent one)
     function challengeDepositWrongLeaf(
         BlockData memory data,
         uint256 depositNr,
