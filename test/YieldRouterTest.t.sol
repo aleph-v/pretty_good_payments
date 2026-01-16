@@ -9,7 +9,14 @@ import {IEntrypoint} from "../src/interfaces/IEntrypoint.sol";
 import {FakeERC20} from "./mocks/FakeErc20.sol";
 import {MockERC4626} from "./mocks/MockERC4626.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
-import {TokenNotTransferred, TokenNotEnabled, NotBridge, AlreadyPaid, SequencerChallenged, EpochNotFinished} from "../src/library/Errors.sol";
+import {
+    TokenNotTransferred,
+    TokenNotEnabled,
+    NotBridge,
+    AlreadyPaid,
+    SequencerChallenged,
+    EpochNotFinished
+} from "../src/library/Errors.sol";
 
 // Mock entrypoint that implements IEntrypoint for testing
 contract MockEntrypoint is IEntrypoint {

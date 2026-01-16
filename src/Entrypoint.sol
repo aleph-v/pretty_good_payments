@@ -18,7 +18,6 @@ import {NotAllowed, EpochNotFinished} from "./library/Errors.sol";
 ///      Tracks sequencer blob usage per epoch to compute proportional yield distribution.
 
 contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, NullifierChallenge, TreeUpdateChallenge {
-    
     /// @notice Initializes the entrypoint with verifiers and external contracts
     /// @param genesis The genesis anchor (initial merkle root)
     /// @param _yieldRouter Contract handling yield distribution

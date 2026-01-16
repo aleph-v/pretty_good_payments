@@ -111,7 +111,9 @@ contract SequencerRegistry is Spine, Ownable {
     function claimChallengeReward(address who) external {
         SequencerStatus memory status = sequencers[who];
         uint256 challengeTime = uint256(status.timestampChallenged);
-        if (challengeTime == 0 || block.timestamp - challengeTime < CHALLENGE_WINDOW) revert ChallengeWindowNotElapsed();
+        if (challengeTime == 0 || block.timestamp - challengeTime < CHALLENGE_WINDOW) {
+            revert ChallengeWindowNotElapsed();
+        }
         delete sequencers[who];
         (bool success,) = status.challenger.call{value: status.stakeAmount * STAKE_DIVISOR / 2}("");
         if (!success) revert PayoutFailed();

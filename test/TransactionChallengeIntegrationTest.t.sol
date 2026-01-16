@@ -818,8 +818,7 @@ contract TransactionChallengeIntegrationTest is Test {
         );
 
         // Verify sequencer was slashed
-        (bool isActiveAfter,,,,,, address payable challengerAfter) =
-            harness.getSequencerStatus(sequencer);
+        (bool isActiveAfter,,,,,, address payable challengerAfter) = harness.getSequencerStatus(sequencer);
         assertFalse(isActiveAfter, "Sequencer should be slashed");
         assertEq(challengerAfter, challenger, "Challenger should be recorded");
     }

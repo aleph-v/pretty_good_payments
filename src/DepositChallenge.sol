@@ -5,7 +5,13 @@ import {Deposits} from "./Deposits.sol";
 import {SequencerRegistry} from "./SequencerRegistry.sol";
 import {PredictableMerkleLib} from "./library/PredictableMerkleLib.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
-import {BlockNotIncluded, DepositIndexOutOfBounds, NoFraud, NotPartialDepositGroup, DepositPaddingIndexOutOfBounds} from "./library/Errors.sol";
+import {
+    BlockNotIncluded,
+    DepositIndexOutOfBounds,
+    NoFraud,
+    NotPartialDepositGroup,
+    DepositPaddingIndexOutOfBounds
+} from "./library/Errors.sol";
 
 /// @title DepositChallenge
 /// @notice Fraud proof contract for challenging incorrect deposit leaves in L2 blocks
@@ -15,7 +21,7 @@ contract DepositChallenge is Deposits, SequencerRegistry {
 
     /// @notice Challenges a deposit leaf that doesn't match the expected value from L1 deposits
     /// @dev Fraud exists if: (1) numDeposits != perBlockDeposits length, or (2) leaf at depositNr
-    ///      doesn't match the expected deposit hash (if depositNr >= numDeposits we enforce zero leaves). 
+    ///      doesn't match the expected deposit hash (if depositNr >= numDeposits we enforce zero leaves).
     ///      Challenger must provide KZG proof of the blob value.
     /// @param data The block containing the allegedly fraudulent deposit
     /// @param depositNr Index of the deposit to challenge [0, numDeposits)
@@ -58,7 +64,7 @@ contract DepositChallenge is Deposits, SequencerRegistry {
 
             // We have established that the field at leafAddress is equal to seqeuncerSubmittedLeaf now we check that
             // this is the wrong value
-            bytes32 realLeaf = depositNr >= data.numDeposits? bytes32(0): perBlockDeposits[blockNr][depositNr];
+            bytes32 realLeaf = depositNr >= data.numDeposits ? bytes32(0) : perBlockDeposits[blockNr][depositNr];
             if (realLeaf == sequencerSubmittedLeaf) revert NoFraud();
         }
 

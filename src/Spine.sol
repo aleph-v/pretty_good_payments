@@ -101,7 +101,7 @@ contract Spine is BlobData {
             // Case for the very first block ever
             nextBlock = 0;
         }
-        TimestampAndIndex memory timestamp = TimestampAndIndex({ day: uint128(actualDay), index: uint128(nextBlock) });
+        TimestampAndIndex memory timestamp = TimestampAndIndex({day: uint128(actualDay), index: uint128(nextBlock)});
         lastTimestamp = timestamp;
         data.blockIndex = timestamp;
 
@@ -139,7 +139,7 @@ contract Spine is BlobData {
             if (l2BlockHash != roots[indexToRemove - 1]) revert PriorRootMismatch();
             lastTimestamp = priorBlock.blockIndex;
         } else {
-            lastTimestamp = TimestampAndIndex({ day: 0, index: 0 });
+            lastTimestamp = TimestampAndIndex({day: 0, index: 0});
         }
 
         assembly ("memory-safe") {

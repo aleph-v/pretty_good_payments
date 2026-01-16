@@ -3,12 +3,7 @@ pragma solidity ^0.8.13;
 
 import {Spine} from "./Spine.sol";
 import {SequencerRegistry} from "./SequencerRegistry.sol";
-import {
-    BlockNotIncluded,
-    TxIndexOutOfBounds,
-    SameNullifierLocation,
-    InvalidNullifierOrder
-} from "./library/Errors.sol";
+import {BlockNotIncluded, TxIndexOutOfBounds, SameNullifierLocation, InvalidNullifierOrder} from "./library/Errors.sol";
 
 /// @title NullifierChallenge
 /// @notice Fraud proof contract for challenging nullifier reuse (double-spend prevention)

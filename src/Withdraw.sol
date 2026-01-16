@@ -47,7 +47,7 @@ contract Withdraw is Spine {
         // Get the leaf hash and the blob hash
         bytes32 leafHash = leaf.hash();
         uint256 memoryAddress = leafMemoryAddress(txNr, data.numDeposits, false, which);
-        bytes32 l2blobhash = data.blobhashes[memoryAddress/4096];
+        bytes32 l2blobhash = data.blobhashes[memoryAddress / 4096];
         // We cannot withdraw from deposit leafs
         uint256 blobIndex = memoryAddress % 4096;
         // Validate will revert on any problems but will otherwise prove that the is an output leaf

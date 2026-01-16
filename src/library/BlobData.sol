@@ -144,7 +144,9 @@ contract BlobData {
     /// @dev Region.length must equal region.data.length and region.proofs.length
     /// @param region Contains blob hash, commitment, starting memoryAddress, and arrays of data/proofs
     function validateRegionOpening(Region calldata region) internal view {
-        if (region.length != region.data.length || region.length != region.proofs.length) revert RegionDataLengthMismatch();
+        if (region.length != region.data.length || region.length != region.proofs.length) {
+            revert RegionDataLengthMismatch();
+        }
         uint256 memoryAddress = region.memoryAddress;
         for (uint256 i = 0; i < region.data.length; i++) {
             validateSingle(region.hash, region.commitment, memoryAddress, region.data[i], region.proofs[i]);
