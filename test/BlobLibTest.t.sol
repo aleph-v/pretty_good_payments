@@ -543,6 +543,7 @@ contract CounterTest is Test {
 
     /// @notice Generate KZG proof for a single index via FFI
     /// @dev FFI script writes binary to temp file and returns path
+    /// @dev FFI script always outputs array format, so we decode as MultiProofData and extract first element
     function _ffiGenerateKzgProof(uint256 index) internal returns (SingleProofData memory) {
         string[] memory cmd = new string[](3);
         cmd[0] = "python3";
@@ -553,9 +554,18 @@ contract CounterTest is Test {
         bytes memory pathBytes = vm.ffi(cmd);
         string memory path = string(pathBytes);
 
-        // Read binary data from file
+        // Read binary data from file - FFI always outputs array format
         bytes memory result = vm.readFileBinary(path);
-        return abi.decode(result, (SingleProofData));
+        MultiProofData memory multiData = abi.decode(result, (MultiProofData));
+
+        // Convert to SingleProofData by extracting first element of arrays
+        return SingleProofData({
+            commitment: multiData.commitment,
+            index: multiData.indices[0],
+            claim: multiData.claims[0],
+            hash: multiData.hash,
+            proof: multiData.proofs[0]
+        });
     }
 
     /// @notice Generate KZG proofs for multiple indices via FFI

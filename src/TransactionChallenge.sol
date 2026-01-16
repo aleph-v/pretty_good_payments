@@ -63,14 +63,16 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         uint256[2] memory _pC = [uint256(raw[6]), uint256(raw[7])];
         // We decode the encoded root and ethereum key information
         (uint256 anchorBlockNr, uint256 anchorUpdateNr, bool isDeposit, address ethKey) = decodeTxInfo(bytes32(raw[8]));
+        // Public signals order for transfer circuit: [nullifiers[2], leavesOut[3], anchor, ethKey]
+        // This matches snarkjs convention: outputs first, then public inputs
         uint256[7] memory publicInputs = [
-            0,
-            uint256(uint160(ethKey)),
-            uint256(raw[9]),
-            uint256(raw[10]),
-            uint256(raw[11]),
-            uint256(raw[12]),
-            uint256(raw[13])
+            uint256(raw[9]),  // nullifier0
+            uint256(raw[10]), // nullifier1
+            uint256(raw[11]), // leaf0
+            uint256(raw[12]), // leaf1
+            uint256(raw[13]), // leaf2
+            0,                // anchor (set below after validation)
+            uint256(uint160(ethKey))
         ];
 
         bool noFraud = anchorBlockNr <= data.blockNr;
@@ -101,7 +103,7 @@ contract TransactionChallenge is Spine, SequencerRegistry {
                 anchor, priorAnchorBlock, anchorUpdateNr, isDeposit, priorAnchorCommitment, priorAnchorProof
             );
             // Finally we validate the zk proof
-            publicInputs[0] = uint256(anchor);
+            publicInputs[5] = uint256(anchor);
             noFraud = transactionZkVerifier.verifyProof(_pA, _pB, _pC, publicInputs);
         }
 
@@ -110,10 +112,12 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         if (noFraud) {
             // If the eth key is address zero and the proof validates there is no fraud and we revert
             require(ethKey != address(0));
-            // quick assembly conversion to get the fields
+            // Extract fields [null0, null1, leaf0, leaf1, leaf2] from publicInputs
+            // Public inputs order: [null0, null1, leaf0, leaf1, leaf2, anchor, ethKey]
+            // So the first 5 elements are exactly what the registry needs
             bytes32[5] memory fields;
             assembly ("memory-safe") {
-                fields := add(publicInputs, 32)
+                fields := publicInputs
             }
             // Since all other fraud opportunities have been excused we require the fraud is here by requiring the query to return false.
             require(!transferRegistry.query(ethKey, fields), "No Fraud");

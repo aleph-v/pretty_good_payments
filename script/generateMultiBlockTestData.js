@@ -16,6 +16,7 @@ const { buildPoseidon } = require("circomlibjs");
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+const crypto = require("crypto");
 
 let poseidon = null;
 let F = null;
@@ -23,6 +24,17 @@ let F = null;
 const BLOCK_DEPTH = 12;
 const ROOT_DEPTH = 28;
 const BLOCKS_PER_DAY = 8192; // 2^13
+
+// Cross-blob configuration constants for TreeUpdateChallenge
+// For transactions: memoryAddress = depositsLength + txNr * 15 + 11
+// With depositsLength = 4 and txNr = 272: memoryAddress = 4 + 272*15 + 11 = 4095
+// Elements span positions 4095-4098, giving region.length=1, extensionRegion.length=3
+const CROSSBLOB_CONFIG = {
+    depositsPerBlock: 3,        // 1 group * 4 elements = 4 elements
+    txPerBlock: 273,            // Need 273 transactions so tx 272 is at position 4095
+    targetUpdateIndex: 273,     // The transaction update (after 1 deposit group, so index = 1 + 272 = 273? Actually targeting tx 272)
+    numDepositGroups: 1         // ceil(3/3) = 1
+};
 
 async function initPoseidon() {
     if (!poseidon) {
@@ -410,8 +422,9 @@ async function generateZkProof(priorAnchor, treeIndex, updates, inBlockIndex, bl
  * @returns KZG proof data including commitment, proofs, claims, and hash
  */
 function generateKzgProofs(blobData, indices) {
-    // Write blob data to temp JSON file
-    const blobJsonPath = "/tmp/blob_data_for_kzg.json";
+    // Write blob data to temp JSON file with unique ID to avoid parallel test conflicts
+    const uniqueId = crypto.randomBytes(4).toString('hex');
+    const blobJsonPath = `/tmp/blob_data_for_kzg_${uniqueId}.json`;
 
     // Convert blobData to hex strings with 0x prefix, pad with zeros
     const hexBlobData = [];
@@ -464,12 +477,16 @@ async function main() {
     const args = process.argv.slice(2);
     const fraudMode = args.includes('--fraud');
     const targetTx = args.includes('--tx');  // Target a transaction instead of deposit
+    const crossblobMode = args.includes('--crossblob');
 
     if (fraudMode) {
         console.error("FRAUD MODE: Generating blob with incorrect anchor");
     }
     if (targetTx) {
         console.error("TX MODE: Targeting transaction instead of deposit");
+    }
+    if (crossblobMode) {
+        console.error("CROSSBLOB MODE: Generating tree update spanning blob boundary");
     }
 
     const blockZeroHashes = computeZeroHashes(BLOCK_DEPTH);
@@ -484,22 +501,39 @@ async function main() {
     // Genesis anchor is the root of the root tree where all positions have empty block roots
     const genesisAnchor = computeAnchorFromRootTree(rootTree);
 
-    // Configuration
+    // Configuration - use cross-blob config if flag is set
     const DAYS = 3;
     const BLOCKS_PER_TEST_DAY = 5;
-    const DEPOSITS_PER_BLOCK = 12; // 4 deposit groups
-    const TX_PER_BLOCK = 1;
+    const DEPOSITS_PER_BLOCK = crossblobMode ? CROSSBLOB_CONFIG.depositsPerBlock : 12;
+    const TX_PER_BLOCK = crossblobMode ? CROSSBLOB_CONFIG.txPerBlock : 1;
     const TARGET_DAY = 2; // 0-indexed, so this is day 3
     const TARGET_BLOCK = 2; // 0-indexed, so this is block 3
 
     // Calculate number of deposit groups
-    const NUM_DEPOSIT_GROUPS = Math.ceil(DEPOSITS_PER_BLOCK / 3); // = 4
+    const NUM_DEPOSIT_GROUPS = Math.ceil(DEPOSITS_PER_BLOCK / 3);
 
     // Target update index in blockUpdates array
+    // For cross-blob: always target a transaction (tx 272) at the blob boundary
     // For deposits: use group 1 (not 0) so isLast = false when numTx > 0
     // For transactions: use transaction 0 (first tx after all deposits)
-    const TARGET_UPDATE_INDEX = targetTx ? NUM_DEPOSIT_GROUPS : 1;  // tx=4, deposit=1
-    const TARGET_IS_TX = targetTx;
+    let TARGET_UPDATE_INDEX;
+    let TARGET_IS_TX;
+    if (crossblobMode) {
+        // In cross-blob mode, we target transaction 272 (0-indexed), which is at update index (numDepositGroups + 272)
+        TARGET_UPDATE_INDEX = NUM_DEPOSIT_GROUPS + 272;
+        TARGET_IS_TX = true;
+        const depositsLength = NUM_DEPOSIT_GROUPS * 4;
+        const txNr = TARGET_UPDATE_INDEX - NUM_DEPOSIT_GROUPS;
+        const memoryAddress = depositsLength + txNr * 15 + 11;
+        console.error(`  Deposits: ${DEPOSITS_PER_BLOCK} (${NUM_DEPOSIT_GROUPS} groups = ${depositsLength} elements)`);
+        console.error(`  Transactions: ${TX_PER_BLOCK}`);
+        console.error(`  Target TX: ${txNr} (update index ${TARGET_UPDATE_INDEX})`);
+        console.error(`  Memory Address: ${memoryAddress} (4 elements span ${memoryAddress}-${memoryAddress + 3})`);
+        console.error(`  Elements in blob 1: ${4096 - memoryAddress}, Elements in blob 2: ${memoryAddress + 4 - 4096}`);
+    } else {
+        TARGET_UPDATE_INDEX = targetTx ? NUM_DEPOSIT_GROUPS : 1;
+        TARGET_IS_TX = targetTx;
+    }
 
     // Track all blocks and root tree states
     const allBlocks = [];
@@ -687,16 +721,78 @@ async function main() {
         priorAnchorPosition = TARGET_UPDATE_INDEX > 0 ? (TARGET_UPDATE_INDEX - 1) * 4 + 3 : null;
     }
 
-    let kzgIndices = [regionStart, regionStart + 1, regionStart + 2, regionStart + 3];
+    // Calculate region split for cross-blob
+    let regionLength = 4; // Tree update needs 4 elements
+    let extensionRegionLength = 0;
+    let extensionRegionMemoryAddress = 0;
+    let blob1Data = blobData;
+    let blob2Data = [];
 
-    // For updates > 0, we also need proof for the prior anchor position
-    if (priorAnchorPosition !== null && TARGET_UPDATE_INDEX > 0) {
-        // Insert at the beginning so it's at index 0 in the proofs array
-        kzgIndices = [priorAnchorPosition, ...kzgIndices];
+    if (crossblobMode && regionStart + 4 > 4096) {
+        // Update spans blob boundary
+        regionLength = 4096 - regionStart;
+        extensionRegionLength = 4 - regionLength;
+        extensionRegionMemoryAddress = 0; // Extension region starts at beginning of blob 2
+
+        // Split blob data at position 4096
+        blob1Data = blobData.slice(0, 4096);
+        blob2Data = blobData.slice(4096);
+
+        // Pad blob1Data to exactly 4096 elements if needed
+        while (blob1Data.length < 4096) {
+            blob1Data.push('0');
+        }
+
+        console.error(`Cross-blob split: region.length=${regionLength}, extensionRegion.length=${extensionRegionLength}`);
+        console.error(`Blob 1 size: ${blob1Data.length}, Blob 2 size: ${blob2Data.length}`);
     }
 
-    console.error(`Generating KZG proofs for indices: ${kzgIndices.join(', ')}`);
-    const kzgData = generateKzgProofs(blobData, kzgIndices);
+    // Prepare KZG indices
+    let kzgIndices;
+    let extensionKzgIndices = null;
+    let kzgData, extensionKzgData = null;
+
+    if (crossblobMode && extensionRegionLength > 0) {
+        // Generate KZG proofs for blob 1 (region indices + prior anchor)
+        kzgIndices = [];
+        for (let i = 0; i < regionLength; i++) {
+            kzgIndices.push(regionStart + i);
+        }
+
+        // For updates > 0, we also need proof for the prior anchor position
+        if (priorAnchorPosition !== null && TARGET_UPDATE_INDEX > 0) {
+            kzgIndices = [priorAnchorPosition, ...kzgIndices];
+        }
+
+        console.error(`Generating KZG proofs for blob 1 indices: ${kzgIndices.join(', ')}`);
+        kzgData = generateKzgProofs(blob1Data, kzgIndices);
+
+        // Generate KZG proofs for blob 2 (extension region indices)
+        extensionKzgIndices = [];
+        for (let i = 0; i < extensionRegionLength; i++) {
+            extensionKzgIndices.push(i);
+        }
+
+        // Pad blob 2 data to 4096 elements
+        while (blob2Data.length < 4096) {
+            blob2Data.push('0');
+        }
+
+        console.error(`Generating KZG proofs for blob 2 indices: ${extensionKzgIndices.join(', ')}`);
+        extensionKzgData = generateKzgProofs(blob2Data, extensionKzgIndices);
+    } else {
+        // Single blob case
+        kzgIndices = [regionStart, regionStart + 1, regionStart + 2, regionStart + 3];
+
+        // For updates > 0, we also need proof for the prior anchor position
+        if (priorAnchorPosition !== null && TARGET_UPDATE_INDEX > 0) {
+            // Insert at the beginning so it's at index 0 in the proofs array
+            kzgIndices = [priorAnchorPosition, ...kzgIndices];
+        }
+
+        console.error(`Generating KZG proofs for indices: ${kzgIndices.join(', ')}`);
+        kzgData = generateKzgProofs(blobData, kzgIndices);
+    }
 
     // Output comprehensive test data
     const output = {
@@ -704,6 +800,7 @@ async function main() {
         genesisAnchor: genesisAnchor.toString(),
         fraudMode: fraudMode,
         fraudAnchor: fraudAnchor,
+        crossblobMode: crossblobMode,
         targetIsTx: TARGET_IS_TX,
         config: {
             days: DAYS,
@@ -717,6 +814,11 @@ async function main() {
             regionStart: regionStart,
             priorAnchorPosition: priorAnchorPosition
         },
+
+        // Region split info (for cross-blob)
+        regionLength: regionLength,
+        extensionRegionLength: extensionRegionLength,
+        extensionRegionMemoryAddress: extensionRegionMemoryAddress,
 
         // All blocks summary
         blocks: allBlocks.map(b => ({
@@ -739,7 +841,10 @@ async function main() {
             txUpdates: targetBlockData.txUpdates,
             blockUpdates: targetBlockData.blockUpdates,
             finalAnchor: targetBlockData.finalAnchor,
-            blobData: blobData
+            blobData: blobData,
+            // For cross-blob, include split blob data
+            blob1Data: crossblobMode ? blob1Data : null,
+            blob2Data: crossblobMode ? blob2Data : null
         },
 
         // Prior block (for context)
@@ -768,15 +873,19 @@ async function main() {
         // This is the correct "genesis" anchor for this specific block
         anchorBeforeTargetBlock: targetBlockData.blockPriorAnchor,
 
-        // KZG proof data (binary file path for Solidity to decode)
+        // KZG proof data for blob 1 (binary file path for Solidity to decode)
         kzgProofBinaryPath: kzgData.binaryPath,
-        kzgIndices: kzgData.indices
+        kzgIndices: kzgData.indices,
+
+        // KZG proof data for blob 2 (extension region) - only in cross-blob mode
+        extensionKzgBinaryPath: extensionKzgData ? extensionKzgData.binaryPath : null,
+        extensionKzgIndices: extensionKzgIndices
     };
 
     // Generate unique output path based on flags and UUID to avoid race conditions when tests run in parallel
-    const crypto = require('crypto');
     let outputSuffix = '';
-    if (targetTx) outputSuffix += '_tx';
+    if (crossblobMode) outputSuffix += '_crossblob';
+    if (targetTx && !crossblobMode) outputSuffix += '_tx';
     if (fraudMode) outputSuffix += '_fraud';
     const uniqueId = crypto.randomBytes(4).toString('hex');
     const outputPath = `/tmp/multi_block_test_data${outputSuffix}_${uniqueId}.json`;

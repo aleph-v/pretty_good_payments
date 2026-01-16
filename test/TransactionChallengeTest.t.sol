@@ -349,18 +349,18 @@ contract TransactionChallengeTest is Test {
         uint256 blobIndex = memAddr / 4096;
         uint256 localAddr = memAddr % 4096;
 
-        // raw[9-13] are the public inputs (nullifiers and leaves)
-        publicInputs[0] = uint256(anchor);
-        publicInputs[1] = uint256(uint160(ethKey));
-
+        // Public inputs order for transfer circuit: [null0, null1, leaf0, leaf1, leaf2, anchor, ethKey]
+        // raw[9-13] are nullifiers and leaves
         for (uint256 i = 0; i < 5; i++) {
             uint256 addr = localAddr + 9 + i;
             if (addr < 4096) {
-                publicInputs[2 + i] = uint256(harness.access(blobHashes[blobIndex], addr));
+                publicInputs[i] = uint256(harness.access(blobHashes[blobIndex], addr));
             } else {
-                publicInputs[2 + i] = uint256(harness.access(blobHashes[blobIndex + 1], addr % 4096));
+                publicInputs[i] = uint256(harness.access(blobHashes[blobIndex + 1], addr % 4096));
             }
         }
+        publicInputs[5] = uint256(anchor);
+        publicInputs[6] = uint256(uint160(ethKey));
     }
 
     // ============================================================================

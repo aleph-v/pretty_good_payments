@@ -10,9 +10,8 @@ Usage:
 Blob file format: One hex-encoded 32-byte field element per line (4096 lines total)
 JSON file format: { "blobData": ["0x...", "0x...", ...] } with 4096 hex strings
 
-Outputs ABI-encoded data to stdout for FFI consumption.
-For single index: (bytes commitment, uint256 index, bytes32 claim, bytes32 hash, bytes proof)
-For multiple indices: (bytes commitment, uint256[] indices, bytes32[] claims, bytes32 hash, bytes[] proofs)
+Outputs ABI-encoded data to a temp file for FFI consumption via vm.readFileBinary.
+Format: (bytes commitment, uint256[] indices, bytes32[] claims, bytes32 hash, bytes[] proofs)
 """
 
 import sys
@@ -109,9 +108,11 @@ def main():
     # Get roots of unity
     roots_of_unity = object_as_kzg_settings(ts).roots_of_unity
 
-    if len(indices) == 1:
-        # Single index case
-        index = indices[0]
+    # Generate proofs for each index
+    claims = []
+    proofs = []
+
+    for index in indices:
         (proof, y) = ckzg.compute_kzg_proof(blob, bytes_from_fr(roots_of_unity[index]), ts)
 
         # Verify the proof
@@ -120,33 +121,15 @@ def main():
             print(f"ERROR: Invalid proof at index {index}", file=sys.stderr)
             sys.exit(1)
 
-        # Encode for single index: (commitment, index, claim, hash, proof)
-        encoded = encode(
-            ['(bytes,uint256,bytes32,bytes32,bytes)'],
-            [(commitment, index, y, blob_versioned_hash, proof)]
-        )
-    else:
-        # Multiple indices case
-        claims = []
-        proofs = []
+        claims.append(y)
+        proofs.append(proof)
 
-        for index in indices:
-            (proof, y) = ckzg.compute_kzg_proof(blob, bytes_from_fr(roots_of_unity[index]), ts)
-
-            # Verify the proof
-            valid = ckzg.verify_kzg_proof(commitment, bytes_from_fr(roots_of_unity[index]), y, proof, ts)
-            if not valid:
-                print(f"ERROR: Invalid proof at index {index}", file=sys.stderr)
-                sys.exit(1)
-
-            claims.append(y)
-            proofs.append(proof)
-
-        # Encode for multiple indices: (commitment, indices, claims, hash, proofs)
-        encoded = encode(
-            ['(bytes,uint256[],bytes32[],bytes32,bytes[])'],
-            [(commitment, indices, claims, blob_versioned_hash, proofs)]
-        )
+    # Always use array format for consistency with Solidity KzgProofData struct
+    # Format: (bytes commitment, uint256[] indices, bytes32[] claims, bytes32 hash, bytes[] proofs)
+    encoded = encode(
+        ['(bytes,uint256[],bytes32[],bytes32,bytes[])'],
+        [(commitment, indices, claims, blob_versioned_hash, proofs)]
+    )
 
     # Write to temp file and output the path (for FFI to read with vm.readFileBinary)
     import tempfile

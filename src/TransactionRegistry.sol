@@ -15,8 +15,6 @@ interface ITransactionRegistry {
 ///         the output nullifiers and output notes before the transaction is approved or the transaction will be
 ///         challenged.
 
-/// TODO - There is an edge case griefing here where a sequencer withholds an approval tx then tries to front run a
-///        challenge transaction -- will not fix, recommend private relayer
 contract TransactionRegistry is EIP712 {
     mapping(bytes32 => bool) public allowed;
 

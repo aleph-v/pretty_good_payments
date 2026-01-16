@@ -747,20 +747,33 @@ contract SpineTest is Test {
         numDeposits = bound(numDeposits, 0, 1000); // Less than MAX_DEPOSITS
         numTx = bound(numTx, 0, 200); // Ensure we stay under capacity
 
+        // Block must have at least one transaction or deposit
+        if (numTx == 0 && numDeposits == 0) {
+            numDeposits = 1;
+        }
+
         // Calculate required blobs
         uint256 requiredSlots = numDeposits * 4 + numTx * 15;
         uint256 numBlobs = (requiredSlots / 4096) + 1;
 
         if (numBlobs > 10) return; // Skip unreasonable blob counts
 
-        setupBlobHashes(numBlobs);
+        bytes32[] memory blobHashes = setupBlobHashes(numBlobs);
         uint256[] memory blobIndices = new uint256[](numBlobs);
         for (uint256 i = 0; i < numBlobs; i++) {
             blobIndices[i] = i;
         }
 
-        Spine.BlockData memory data =
-            createBlockDataForAdd(keccak256(abi.encode(numTx, numDeposits)), numTx, numDeposits, numBlobs);
+        Spine.BlockData memory data = Spine.BlockData({
+            anchor: keccak256(abi.encode(numTx, numDeposits)),
+            timestamp: 0,
+            numTransactions: numTx,
+            numDeposits: numDeposits,
+            blockNr: 0,
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: address(this),
+            blobhashes: blobHashes
+        });
 
         spine.addBlockTest(data, blobIndices);
         assertEq(spine.getCurrentBlocknumber(), 1);
