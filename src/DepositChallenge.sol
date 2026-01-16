@@ -5,7 +5,7 @@ import {Deposits} from "./Deposits.sol";
 import {SequencerRegistry} from "./SequencerRegistry.sol";
 import {PredictableMerkleLib} from "./library/PredictableMerkleLib.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
-import {BlockNotIncluded, DepositIndexOutOfBounds, NoFraud} from "./library/Errors.sol";
+import {BlockNotIncluded, DepositIndexOutOfBounds, NoFraud, NotPartialDepositGroup, DepositPaddingIndexOutOfBounds} from "./library/Errors.sol";
 
 /// @title DepositChallenge
 /// @notice Fraud proof contract for challenging incorrect deposit leaves in L2 blocks
@@ -15,7 +15,8 @@ contract DepositChallenge is Deposits, SequencerRegistry {
 
     /// @notice Challenges a deposit leaf that doesn't match the expected value from L1 deposits
     /// @dev Fraud exists if: (1) numDeposits != perBlockDeposits length, or (2) leaf at depositNr
-    ///      doesn't match the expected deposit hash. Challenger must provide KZG proof of the blob value.
+    ///      doesn't match the expected deposit hash (if depositNr >= numDeposits we enforce zero leaves). 
+    ///      Challenger must provide KZG proof of the blob value.
     /// @param data The block containing the allegedly fraudulent deposit
     /// @param depositNr Index of the deposit to challenge [0, numDeposits)
     /// @param sequencerSubmittedLeaf The value the sequencer put in the blob (proven via KZG)
@@ -37,8 +38,19 @@ contract DepositChallenge is Deposits, SequencerRegistry {
         // If the block has a number of deposits mismatching the perBlockDeposits length then it is always fraud
         // so we can skip the other checks and go straight to rollback (plus avoid array indexing reverts)
         if (data.numDeposits == perBlockDeposits[blockNr].length) {
-            if (depositNr >= data.numDeposits) revert DepositIndexOutOfBounds();
-            uint256 leafAddress = leafMemoryAddress(depositNr, data.numDeposits, true, 0);
+            uint256 leafAddress;
+            if (depositNr >= data.numDeposits) {
+                // Here we are preventing a complex bug case, namely that a sequencer set values to non zero amounts
+                // in a last leaf without three deposits. If we cannot challenge this then you could insert leafs
+                // and add them to the tree with a deposit proof passing for the final group.
+                if (data.numDeposits % 3 == 0) revert NotPartialDepositGroup();
+                uint256 maxDiff = 3 - (data.numDeposits % 3);
+                if (depositNr - data.numDeposits >= maxDiff) revert DepositPaddingIndexOutOfBounds();
+                // This computes the leaf that would have been there with more deposits.
+                leafAddress = leafMemoryAddress(depositNr, depositNr + 1, true, 0);
+            } else {
+                leafAddress = leafMemoryAddress(depositNr, data.numDeposits, true, 0);
+            }
             // Deposits are Always in the first blob as the max deposits is small enough to fit all deposits in one blob
             // and deposits are always first.
             bytes32 l2blobhash = data.blobhashes[0];
@@ -46,7 +58,8 @@ contract DepositChallenge is Deposits, SequencerRegistry {
 
             // We have established that the field at leafAddress is equal to seqeuncerSubmittedLeaf now we check that
             // this is the wrong value
-            if (perBlockDeposits[blockNr][depositNr] == sequencerSubmittedLeaf) revert NoFraud();
+            bytes32 realLeaf = depositNr >= data.numDeposits? bytes32(0): perBlockDeposits[blockNr][depositNr];
+            if (realLeaf == sequencerSubmittedLeaf) revert NoFraud();
         }
 
         // Since the sequencer submitted the wrong deposit leaf at this index we slash and roll back.

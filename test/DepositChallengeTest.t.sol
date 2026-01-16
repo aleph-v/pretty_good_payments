@@ -5,7 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {DepositChallenge} from "../src/DepositChallenge.sol";
 import {Spine} from "../src/Spine.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
-import {NoFraud, DepositIndexOutOfBounds} from "../src/library/Errors.sol";
+import {NoFraud, DepositIndexOutOfBounds, NotPartialDepositGroup, DepositPaddingIndexOutOfBounds} from "../src/library/Errors.sol";
+import {LibBit} from "solady/utils/LibBit.sol";
 
 contract DepositChallengeHarness is DepositChallenge, FakeBlobs {
     constructor() {
@@ -61,6 +62,13 @@ contract DepositChallengeHarness is DepositChallenge, FakeBlobs {
 
     function getPerBlockDepositsLength(uint256 blockNr) public view returns (uint256) {
         return perBlockDeposits[blockNr].length;
+    }
+
+    function setBlobDataAtIndex(bytes32 blobHash, uint256 index, bytes32 value) public {
+        // storeAt stores directly, but access reads with bit reversal
+        // So we need to bit reverse the index before storing
+        uint256 reversed = LibBit.reverseBits(index) >> 244;
+        storedBlobData[blobHash][reversed] = value;
     }
 
     receive() external payable {}
@@ -153,24 +161,28 @@ contract DepositChallengeTest is Test {
 
     // ==================== BOUNDS & VALIDATION ====================
 
-    function test_DepositNr_OutOfBounds_Reverts() public {
+    function test_DepositNr_OutOfBounds_FullGroup_Reverts() public {
+        // With full group (numDeposits=3), depositNr=3 reverts with NotPartialDepositGroup
+        // because the new partial group logic intercepts the case
         (Spine.BlockData memory blockData,) = _createBlock(3, 1, 789);
         blockData = _addBlock(blockData);
         _setDeposits(blockData.blockNr, 3);
 
         Spine.BlockData memory emptyPrior;
         vm.prank(challenger);
-        vm.expectRevert(DepositIndexOutOfBounds.selector);
+        vm.expectRevert(NotPartialDepositGroup.selector);
         harness.challengeDepositWrongLeaf(blockData, 3, bytes32(0), "", "", emptyPrior);
     }
 
     function test_ZeroDeposits_Reverts() public {
+        // With zero deposits (numDeposits=0), depositNr=0 reverts with NotPartialDepositGroup
+        // because 0 % 3 == 0 is a "full group" (no partial)
         (Spine.BlockData memory blockData,) = _createBlock(0, 1, 222);
         blockData = _addBlock(blockData);
 
         Spine.BlockData memory emptyPrior;
         vm.prank(challenger);
-        vm.expectRevert(DepositIndexOutOfBounds.selector);
+        vm.expectRevert(NotPartialDepositGroup.selector);
         harness.challengeDepositWrongLeaf(blockData, 0, bytes32(0), "", "", emptyPrior);
     }
 
@@ -280,5 +292,216 @@ contract DepositChallengeTest is Test {
 
         (bool isActive,) = harness.getSequencerStatus(sequencer);
         assertFalse(isActive, "Sequencer should be slashed");
+    }
+
+    // ==================== PARTIAL GROUP PADDING TESTS ====================
+
+    function test_PartialGroup_OneDeposit_NonZeroPaddingAtIndex1_Success() public {
+        // numDeposits=1, so positions 1 and 2 must be zero (partial group of 3)
+        (Spine.BlockData memory blockData, bytes32[] memory blobhashes) = _createBlock(1, 1, 5001);
+        blockData = _addBlock(blockData);
+
+        // Set the one expected deposit
+        harness.setPerBlockDeposit(blockData.blockNr, keccak256("deposit0"));
+
+        // Set non-zero value at padding position 1 (this is fraud)
+        // leafMemoryAddress(depositNr=1, numDeposits=2, isDeposit=true, which=0) gives us the address
+        uint256 paddingAddr = harness.getLeafMemoryAddress(1, 2);
+        bytes32 nonZeroValue = keccak256("malicious_padding");
+        harness.setBlobDataAtIndex(blobhashes[0], paddingAddr, nonZeroValue);
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        harness.challengeDepositWrongLeaf(blockData, 1, nonZeroValue, "", "", emptyPrior);
+
+        (bool isActive,) = harness.getSequencerStatus(sequencer);
+        assertFalse(isActive, "Sequencer should be slashed for non-zero padding");
+        assertEq(harness.getBlockCount(), 0, "Block should be rolled back");
+    }
+
+    function test_PartialGroup_OneDeposit_NonZeroPaddingAtIndex2_Success() public {
+        // numDeposits=1, challenge position 2 (second padding position)
+        (Spine.BlockData memory blockData, bytes32[] memory blobhashes) = _createBlock(1, 1, 5002);
+        blockData = _addBlock(blockData);
+
+        harness.setPerBlockDeposit(blockData.blockNr, keccak256("deposit0"));
+
+        // Set non-zero value at padding position 2
+        uint256 paddingAddr = harness.getLeafMemoryAddress(2, 3);
+        bytes32 nonZeroValue = keccak256("malicious_padding_2");
+        harness.setBlobDataAtIndex(blobhashes[0], paddingAddr, nonZeroValue);
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        harness.challengeDepositWrongLeaf(blockData, 2, nonZeroValue, "", "", emptyPrior);
+
+        (bool isActive,) = harness.getSequencerStatus(sequencer);
+        assertFalse(isActive, "Sequencer should be slashed for non-zero padding");
+    }
+
+    function test_PartialGroup_TwoDeposits_NonZeroPaddingAtIndex2_Success() public {
+        // numDeposits=2, so position 2 must be zero
+        (Spine.BlockData memory blockData, bytes32[] memory blobhashes) = _createBlock(2, 1, 5003);
+        blockData = _addBlock(blockData);
+
+        harness.setPerBlockDeposit(blockData.blockNr, keccak256("deposit0"));
+        harness.setPerBlockDeposit(blockData.blockNr, keccak256("deposit1"));
+
+        // Set non-zero value at padding position 2
+        uint256 paddingAddr = harness.getLeafMemoryAddress(2, 3);
+        bytes32 nonZeroValue = keccak256("malicious_padding");
+        harness.setBlobDataAtIndex(blobhashes[0], paddingAddr, nonZeroValue);
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        harness.challengeDepositWrongLeaf(blockData, 2, nonZeroValue, "", "", emptyPrior);
+
+        (bool isActive,) = harness.getSequencerStatus(sequencer);
+        assertFalse(isActive, "Sequencer should be slashed for non-zero padding");
+    }
+
+    function test_PartialGroup_FourDeposits_NonZeroPaddingAtIndex4_Success() public {
+        // numDeposits=4, so positions 4 and 5 must be zero (second group has 1 real deposit)
+        (Spine.BlockData memory blockData, bytes32[] memory blobhashes) = _createBlock(4, 1, 5004);
+        blockData = _addBlock(blockData);
+
+        for (uint256 i = 0; i < 4; i++) {
+            harness.setPerBlockDeposit(blockData.blockNr, keccak256(abi.encodePacked("deposit", i)));
+        }
+
+        // Set non-zero value at padding position 4
+        uint256 paddingAddr = harness.getLeafMemoryAddress(4, 5);
+        bytes32 nonZeroValue = keccak256("malicious_padding");
+        harness.setBlobDataAtIndex(blobhashes[0], paddingAddr, nonZeroValue);
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        harness.challengeDepositWrongLeaf(blockData, 4, nonZeroValue, "", "", emptyPrior);
+
+        (bool isActive,) = harness.getSequencerStatus(sequencer);
+        assertFalse(isActive, "Sequencer should be slashed for non-zero padding");
+    }
+
+    function test_PartialGroup_FiveDeposits_NonZeroPaddingAtIndex5_Success() public {
+        // numDeposits=5, so position 5 must be zero (second group has 2 real deposits)
+        (Spine.BlockData memory blockData, bytes32[] memory blobhashes) = _createBlock(5, 1, 5005);
+        blockData = _addBlock(blockData);
+
+        for (uint256 i = 0; i < 5; i++) {
+            harness.setPerBlockDeposit(blockData.blockNr, keccak256(abi.encodePacked("deposit", i)));
+        }
+
+        // Set non-zero value at padding position 5
+        uint256 paddingAddr = harness.getLeafMemoryAddress(5, 6);
+        bytes32 nonZeroValue = keccak256("malicious_padding");
+        harness.setBlobDataAtIndex(blobhashes[0], paddingAddr, nonZeroValue);
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        harness.challengeDepositWrongLeaf(blockData, 5, nonZeroValue, "", "", emptyPrior);
+
+        (bool isActive,) = harness.getSequencerStatus(sequencer);
+        assertFalse(isActive, "Sequencer should be slashed for non-zero padding");
+    }
+
+    function test_PartialGroup_ZeroPaddingLeaf_NoFraud_Reverts() public {
+        // numDeposits=1, padding position 1 is correctly zero - no fraud
+        (Spine.BlockData memory blockData, bytes32[] memory blobhashes) = _createBlock(1, 1, 5006);
+        blockData = _addBlock(blockData);
+
+        harness.setPerBlockDeposit(blockData.blockNr, keccak256("deposit0"));
+
+        // Padding position should already be zero (default), but let's explicitly set it
+        uint256 paddingAddr = harness.getLeafMemoryAddress(1, 2);
+        harness.setBlobDataAtIndex(blobhashes[0], paddingAddr, bytes32(0));
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        vm.expectRevert(NoFraud.selector);
+        harness.challengeDepositWrongLeaf(blockData, 1, bytes32(0), "", "", emptyPrior);
+    }
+
+    function test_FullGroup_CannotChallengePadding_Reverts() public {
+        // numDeposits=3 (full group), cannot challenge position 3 as padding
+        (Spine.BlockData memory blockData,) = _createBlock(3, 1, 5007);
+        blockData = _addBlock(blockData);
+
+        for (uint256 i = 0; i < 3; i++) {
+            harness.setPerBlockDeposit(blockData.blockNr, keccak256(abi.encodePacked("deposit", i)));
+        }
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        vm.expectRevert(NotPartialDepositGroup.selector);
+        harness.challengeDepositWrongLeaf(blockData, 3, bytes32(0), "", "", emptyPrior);
+    }
+
+    function test_FullGroup_SixDeposits_CannotChallengePadding_Reverts() public {
+        // numDeposits=6 (two full groups), cannot challenge position 6 as padding
+        (Spine.BlockData memory blockData,) = _createBlock(6, 1, 5008);
+        blockData = _addBlock(blockData);
+
+        for (uint256 i = 0; i < 6; i++) {
+            harness.setPerBlockDeposit(blockData.blockNr, keccak256(abi.encodePacked("deposit", i)));
+        }
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        vm.expectRevert(NotPartialDepositGroup.selector);
+        harness.challengeDepositWrongLeaf(blockData, 6, bytes32(0), "", "", emptyPrior);
+    }
+
+    function test_PartialGroup_TooFarOut_Reverts() public {
+        // numDeposits=1, try to challenge position 3 (outside the partial group)
+        (Spine.BlockData memory blockData,) = _createBlock(1, 1, 5009);
+        blockData = _addBlock(blockData);
+
+        harness.setPerBlockDeposit(blockData.blockNr, keccak256("deposit0"));
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        vm.expectRevert(DepositPaddingIndexOutOfBounds.selector);
+        harness.challengeDepositWrongLeaf(blockData, 3, bytes32(0), "", "", emptyPrior);
+    }
+
+    function test_PartialGroup_FourDeposits_TooFarOut_Reverts() public {
+        // numDeposits=4, try to challenge position 6 (outside the partial group of 4,5)
+        (Spine.BlockData memory blockData,) = _createBlock(4, 1, 5010);
+        blockData = _addBlock(blockData);
+
+        for (uint256 i = 0; i < 4; i++) {
+            harness.setPerBlockDeposit(blockData.blockNr, keccak256(abi.encodePacked("deposit", i)));
+        }
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        vm.expectRevert(DepositPaddingIndexOutOfBounds.selector);
+        harness.challengeDepositWrongLeaf(blockData, 6, bytes32(0), "", "", emptyPrior);
+    }
+
+    function testFuzz_PartialGroup_NonZeroPadding(uint256 seed, uint8 numDeposits) public {
+        // Ensure partial group (not divisible by 3) and at least 1 deposit
+        numDeposits = uint8(bound(numDeposits, 1, 100));
+        vm.assume(numDeposits % 3 != 0);
+
+        (Spine.BlockData memory blockData, bytes32[] memory blobhashes) = _createBlock(numDeposits, 1, seed);
+        blockData = _addBlock(blockData);
+
+        for (uint256 i = 0; i < numDeposits; i++) {
+            harness.setPerBlockDeposit(blockData.blockNr, keccak256(abi.encodePacked("deposit", i, seed)));
+        }
+
+        // Challenge the first padding position (numDeposits)
+        uint256 paddingIndex = numDeposits;
+        uint256 paddingAddr = harness.getLeafMemoryAddress(paddingIndex, paddingIndex + 1);
+        bytes32 nonZeroValue = keccak256(abi.encodePacked("malicious", seed));
+        harness.setBlobDataAtIndex(blobhashes[0], paddingAddr, nonZeroValue);
+
+        Spine.BlockData memory emptyPrior;
+        vm.prank(challenger);
+        harness.challengeDepositWrongLeaf(blockData, paddingIndex, nonZeroValue, "", "", emptyPrior);
+
+        (bool isActive,) = harness.getSequencerStatus(sequencer);
+        assertFalse(isActive, "Sequencer should be slashed for non-zero padding");
     }
 }

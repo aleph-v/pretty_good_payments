@@ -200,3 +200,13 @@ error ZeroEthKey();
 
 /// @notice Invalid anchor block information provided
 error InvalidAnchorBlockInfo();
+
+// ============================================================================
+// Deposit Challenge Errors
+// ============================================================================
+
+/// @notice Cannot challenge padding on full deposit group (numDeposits % 3 == 0)
+error NotPartialDepositGroup();
+
+/// @notice Deposit padding index is beyond the partial group boundary
+error DepositPaddingIndexOutOfBounds();
