@@ -143,9 +143,9 @@ template IsEthKeyed() {
    signal input key;
    signal output isEthKeyed;
 
-   var binary[252] = Num2Bits(252)(key);
+   var binary[254] = Num2Bits(254)(key);
    var bitsum = 0;
-   for(var i = 0; i < 96; i++) {
+   for(var i = 0; i < 94; i++) {
       bitsum += binary[160 + i];
    }
    isEthKeyed <== IsZero()(bitsum);
