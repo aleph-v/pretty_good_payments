@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
-import "../src/DepositChallenge.sol";
-import "../src/Spine.sol";
+import {Test} from "forge-std/Test.sol";
+import {DepositChallenge} from "../src/DepositChallenge.sol";
+import {Spine} from "../src/Spine.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 
 contract DepositChallengeHarness is DepositChallenge, FakeBlobs {

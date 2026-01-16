@@ -6,9 +6,6 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol
 import {IEntrypoint} from "./interfaces/IEntrypoint.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
-// TODO we can optimize this state usage a lot I think. Possibly we can do this with a globalized payout system?
-//      At very least I think we can do a period power system instead of an epoch system?
-
 contract YieldRouter is Ownable {
     // The bridge is the contract which accepts the user deposits
     address public immutable bridge;
@@ -40,8 +37,12 @@ contract YieldRouter is Ownable {
     }
 
     modifier onlyBridge() {
-        assert(msg.sender == bridge);
+        _onlyBridge();
         _;
+    }
+
+    function _onlyBridge() internal view {
+        assert(msg.sender == bridge);
     }
 
     /// @notice This function triggers a deposit

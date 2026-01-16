@@ -1,14 +1,19 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
-import "../src/TreeUpdateChallenge.sol";
-import "../src/Spine.sol";
-import "../src/library/PredictableMerkleLib.sol";
-import "./mocks/FakeBlobs.sol";
-import "./mocks/FakeZK.sol";
-import "./mocks/MockYieldRouter.sol";
-import "./mocks/MockTransactionRegistry.sol";
+import {Test} from "forge-std/Test.sol";
+import {TreeUpdateChallenge} from "../src/TreeUpdateChallenge.sol";
+import {Spine} from "../src/Spine.sol";
+import {Proof} from "../src/library/PredictableMerkleLib.sol";
+import {BlobData} from "../src/library/BlobData.sol";
+import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
+import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
+import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
+import {ITransactionRegistry} from "../src/TransactionRegistry.sol";
+import {FakeBlobs} from "./mocks/FakeBlobs.sol";
+import {FakeZK} from "./mocks/FakeZK.sol";
+import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
+import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
 
 contract TreeUpdateChallengeHarness is TreeUpdateChallenge, FakeBlobs {
     constructor(

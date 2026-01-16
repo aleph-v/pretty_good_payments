@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
-import "../src/library/PredictableMerkleLib.sol";
-import "../src/interfaces/IUpdateVerifier.sol";
-import "../circuits/verifiers/predictableUpdateVerifier.sol";
+import {Test} from "forge-std/Test.sol";
+import {PredictableMerkleLib, Leaf, Bytes32Poseidon, Proof} from "../src/library/PredictableMerkleLib.sol";
+import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
+import {Groth16Verifier} from "../circuits/verifiers/predictableUpdateVerifier.sol";
 
 /// @notice Test contract for PredictableMerkleLib
 /// @dev Tests the hash function using FFI with circomlibjs Poseidon

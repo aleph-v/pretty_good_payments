@@ -7,4 +7,15 @@ ffi = true
 no_match_coverage = "test/*"
 via_ir = true
 
+[lint]
+exclude_lints = [
+    "mixed-case-variable",
+    "unsafe-cheatcode",
+    "mixed-case-function",
+    "divide-before-multiply",
+    "screaming-snake-case-immutable",
+    "unsafe-typecast",
+    "asm-keccak256"
+]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

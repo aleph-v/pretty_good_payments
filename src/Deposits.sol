@@ -4,6 +4,7 @@ pragma solidity ^0.8.13;
 import {Spine} from "./Spine.sol";
 import {PredictableMerkleLib, Leaf} from "./library/PredictableMerkleLib.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 
 // Deposits are structured such that even if the L2 reorgs because of bad block submission the deposits remain valid
 // each leaf is appended to either the highest ever seen position for deposits or to the current block number + 2.
@@ -16,6 +17,7 @@ import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol
 
 contract Deposits is Spine {
     using PredictableMerkleLib for Leaf;
+    using SafeERC20 for IERC20;
 
     // A preset constant blinding factor set less than the BLS modulus
     bytes32 constant BLINDING = bytes32(
@@ -33,7 +35,7 @@ contract Deposits is Spine {
     function deposit(Leaf memory leaf) external {
         require(leaf.amount != 0, "Invalid amount");
         // First we transfer from the user to the yield system and trigger deposit
-        IERC20(leaf.asset).transferFrom(msg.sender, address(yieldRouter), leaf.amount);
+        IERC20(leaf.asset).safeTransferFrom(msg.sender, address(yieldRouter), leaf.amount);
         yieldRouter.triggerDeposit(leaf.asset, leaf.amount);
 
         // The blinding factors have internal hash structure so to special case them for recursive zk we have a constant in deposits

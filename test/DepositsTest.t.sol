@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
-import "../src/Deposits.sol";
-import "../src/library/PredictableMerkleLib.sol";
+import {Test} from "forge-std/Test.sol";
+import {Deposits} from "../src/Deposits.sol";
+import {PredictableMerkleLib, Leaf} from "../src/library/PredictableMerkleLib.sol";
 import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
 import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";

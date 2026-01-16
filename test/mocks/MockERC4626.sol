@@ -2,12 +2,16 @@
 pragma solidity ^0.8.13;
 
 import {IERC4626} from "lib/openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {FakeERC20} from "./FakeErc20.sol";
 
 /// @notice Mock ERC4626 vault for testing YieldRouter
 /// @dev Tracks deposits as shares 1:1, allows simulating yield by minting/burning underlying tokens
 /// @dev Implements minimal ERC20 + ERC4626 without inheriting conflicting bases
 contract MockERC4626 is IERC4626 {
+    using SafeERC20 for IERC20;
+
     FakeERC20 public immutable underlying;
 
     // ERC20 state
@@ -152,7 +156,7 @@ contract MockERC4626 is IERC4626 {
 
     function deposit(uint256 assets, address receiver) external override returns (uint256 shares) {
         shares = previewDeposit(assets);
-        underlying.transferFrom(msg.sender, address(this), assets);
+        IERC20(address(underlying)).safeTransferFrom(msg.sender, address(this), assets);
         totalDeposited += assets;
         _mint(receiver, shares);
         emit Deposit(msg.sender, receiver, assets, shares);
@@ -160,7 +164,7 @@ contract MockERC4626 is IERC4626 {
 
     function mint(uint256 shares, address receiver) external override returns (uint256 assets) {
         assets = previewMint(shares);
-        underlying.transferFrom(msg.sender, address(this), assets);
+        IERC20(address(underlying)).safeTransferFrom(msg.sender, address(this), assets);
         totalDeposited += assets;
         _mint(receiver, shares);
         emit Deposit(msg.sender, receiver, assets, shares);
@@ -176,7 +180,7 @@ contract MockERC4626 is IERC4626 {
             }
         }
         _burn(owner, shares);
-        underlying.transfer(receiver, assets);
+        IERC20(address(underlying)).safeTransfer(receiver, assets);
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 
@@ -190,7 +194,7 @@ contract MockERC4626 is IERC4626 {
             }
         }
         _burn(owner, shares);
-        underlying.transfer(receiver, assets);
+        IERC20(address(underlying)).safeTransfer(receiver, assets);
         emit Withdraw(msg.sender, receiver, owner, assets, shares);
     }
 

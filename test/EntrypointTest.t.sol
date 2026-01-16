@@ -1,9 +1,13 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
-import "../src/Entrypoint.sol";
+import {Test} from "forge-std/Test.sol";
+import {Entrypoint} from "../src/Entrypoint.sol";
 import {Spine} from "../src/Spine.sol";
+import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
+import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
+import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
+import {ITransactionRegistry} from "../src/TransactionRegistry.sol";
 import {FakeZK} from "./mocks/FakeZk.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";

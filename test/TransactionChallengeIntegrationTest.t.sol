@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
-import "../src/TransactionChallenge.sol";
-import "../src/Spine.sol";
-import "../src/library/BlobData.sol";
-import "../circuits/verifiers/transferVerifier.sol";
-import "./mocks/MockYieldRouter.sol";
-import "./mocks/FakeZK.sol";
-import "./mocks/FakeBlobs.sol";
-import "./mocks/ConfigurableTxRegistry.sol";
+import {Test, console} from "forge-std/Test.sol";
+import {TransactionChallenge} from "../src/TransactionChallenge.sol";
+import {Spine} from "../src/Spine.sol";
+import {BlobData} from "../src/library/BlobData.sol";
+import {Groth16Verifier} from "../circuits/verifiers/transferVerifier.sol";
+import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
+import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
+import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
+import {ITransactionRegistry} from "../src/TransactionRegistry.sol";
+import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
+import {FakeZK} from "./mocks/FakeZK.sol";
+import {ConfigurableTxRegistry} from "./mocks/ConfigurableTxRegistry.sol";
 
 /// @title TransactionChallenge Integration Test
 /// @notice Comprehensive integration tests with real ZK proofs and multi-day/block scenarios

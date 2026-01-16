@@ -85,7 +85,7 @@ contract Spine is BlobData {
             // Case for the very first block ever
             nextBlock = 0;
         }
-        TimestampAndIndex memory timestamp = TimestampAndIndex(uint128(actualDay), uint128(nextBlock));
+        TimestampAndIndex memory timestamp = TimestampAndIndex({ day: uint128(actualDay), index: uint128(nextBlock) });
         lastTimestamp = timestamp;
         data.blockIndex = timestamp;
 
@@ -119,7 +119,7 @@ contract Spine is BlobData {
             require(l2BlockHash == roots[index - 1], "Prior Root Mismatch");
             lastTimestamp = priorBlock.blockIndex;
         } else {
-            lastTimestamp = TimestampAndIndex(0, 0);
+            lastTimestamp = TimestampAndIndex({ day: 0, index: 0 });
         }
 
         assembly ("memory-safe") {

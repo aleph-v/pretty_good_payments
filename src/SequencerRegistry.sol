@@ -6,8 +6,6 @@ import {Spine} from "./Spine.sol";
 
 // The module which handles the registration of the sequencers
 
-// TODO - Yield System integration, need weth support
-
 contract SequencerRegistry is Spine, Ownable {
     uint256 constant EPOCH_LENGTH = 10;
     uint256 constant CHALLENGE_WINDOW = 10;

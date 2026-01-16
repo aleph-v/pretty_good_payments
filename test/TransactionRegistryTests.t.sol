@@ -8,7 +8,7 @@ import {TransactionRegistry} from "../src/TransactionRegistry.sol";
 
 /// @notice Harness to expose internal hash computations for debugging
 contract TransactionRegistryHarness is TransactionRegistry {
-    function exposed_TYPE_HASH() external view returns (bytes32) {
+    function exposed_TYPE_HASH() external pure returns (bytes32) {
         return TYPE_HASH;
     }
 

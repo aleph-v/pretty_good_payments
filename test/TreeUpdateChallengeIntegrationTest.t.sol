@@ -1,16 +1,20 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "forge-std/Test.sol";
-import "../src/TreeUpdateChallenge.sol";
-import "../src/Spine.sol";
-import "../src/library/PredictableMerkleLib.sol";
-import "../src/library/BlobData.sol";
-import "../circuits/verifiers/predictableUpdateVerifier.sol";
-import "./mocks/MockYieldRouter.sol";
-import "./mocks/MockTransactionRegistry.sol";
-import "./mocks/FakeZK.sol";
-import "./mocks/FakeBlobs.sol";
+import {Test} from "forge-std/Test.sol";
+import {TreeUpdateChallenge} from "../src/TreeUpdateChallenge.sol";
+import {Spine} from "../src/Spine.sol";
+import {PredictableMerkleLib, Proof} from "../src/library/PredictableMerkleLib.sol";
+import {BlobData} from "../src/library/BlobData.sol";
+import {Groth16Verifier} from "../circuits/verifiers/predictableUpdateVerifier.sol";
+import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
+import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
+import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
+import {ITransactionRegistry} from "../src/TransactionRegistry.sol";
+import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
+import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
+import {FakeZK} from "./mocks/FakeZK.sol";
+import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 
 /// @title TreeUpdateChallenge Integration Test
 /// @notice Comprehensive integration tests with real ZK proofs and multi-day/block scenarios

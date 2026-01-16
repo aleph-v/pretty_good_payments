@@ -21,7 +21,7 @@ contract TransactionRegistry is EIP712 {
     event Allowed(address indexed from, bytes32[5] data);
 
     // Note we mostly just use this struct for the 712 support
-    bytes32 TYPE_HASH = keccak256("NullifiersAndNotes(bytes32[2] nullifiers,bytes32[3] notes,address signer)");
+    bytes32 constant TYPE_HASH = keccak256("NullifiersAndNotes(bytes32[2] nullifiers,bytes32[3] notes,address signer)");
 
     struct NullifiersAndNotes {
         bytes32[2] nullifiers;
