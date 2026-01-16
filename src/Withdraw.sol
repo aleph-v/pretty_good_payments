@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "./Spine.sol";
-import "./library/PredictableMerkleLib.sol";
+import {Spine} from "./Spine.sol";
+import {PredictableMerkleLib, Leaf} from "./library/PredictableMerkleLib.sol";
 
 // Handles user withdraws
 

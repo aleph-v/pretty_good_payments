@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "./Spine.sol";
-import "./library/BlobData.sol";
-import "./library/PredictableMerkleLib.sol";
-import "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
+import {Spine} from "./Spine.sol";
+import {PredictableMerkleLib, Leaf} from "./library/PredictableMerkleLib.sol";
+import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 
 // Deposits are structured such that even if the L2 reorgs because of bad block submission the deposits remain valid
 // each leaf is appended to either the highest ever seen position for deposits or to the current block number + 2.

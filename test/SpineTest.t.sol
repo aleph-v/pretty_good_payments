@@ -331,7 +331,7 @@ contract SpineTest is Test {
 
     // ============ Edge Cases ============
 
-    function test_EdgeCase_ZeroAnchor() public {
+    function test_EdgeCase_ZeroAnchor() public view {
         bytes32 zeroAnchor = bytes32(0);
         assertFalse(spine.isAnchorIncluded(zeroAnchor));
     }
@@ -386,7 +386,7 @@ contract SpineTest is Test {
     }
 
     function test_AddBlock_Success() public {
-        bytes32[] memory blobHashes = setupBlobHashes(1);
+        setupBlobHashes(1);
         uint256[] memory blobIndices = new uint256[](1);
         blobIndices[0] = 0;
 
@@ -1208,7 +1208,6 @@ contract SpineTest is Test {
         // Add block on day 0
         Spine.BlockData memory data1 = createBlockDataForAdd(keccak256("anchor1"), 10, 5, 1);
         spine.addBlockTest(data1, blobIndices);
-        bytes32 root1 = spine.getRootAt(0);
 
         // Move to day 1 and add block
         vm.warp(start + day);

@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "./Spine.sol";
-import "./SequencerRegistry.sol";
-import "./library/BlobData.sol";
-import "./library/PredictableMerkleLib.sol";
+import {Spine} from "./Spine.sol";
+import {SequencerRegistry} from "./SequencerRegistry.sol";
 
 // The component of the challenge system which enforces deposits are done properly
 

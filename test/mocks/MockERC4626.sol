@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 import {IERC4626} from "lib/openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
-import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {FakeERC20} from "./FakeErc20.sol";
 
 /// @notice Mock ERC4626 vault for testing YieldRouter

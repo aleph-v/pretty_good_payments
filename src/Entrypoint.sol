@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.13;
 
-import "./DepositChallenge.sol";
-import "./TransactionChallenge.sol";
-import "./NullifierChallenge.sol";
-import "./TreeUpdateChallenge.sol";
-import "./Withdraw.sol";
+import {DepositChallenge} from "./DepositChallenge.sol";
+import {TransactionChallenge} from "./TransactionChallenge.sol";
+import {NullifierChallenge} from "./NullifierChallenge.sol";
+import {TreeUpdateChallenge} from "./TreeUpdateChallenge.sol";
+import {Withdraw} from "./Withdraw.sol";
+import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
+import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
+import {ITransferVerifier} from "./interfaces/ITransferVerifier.sol";
+import {ITransactionRegistry} from "./TransactionRegistry.sol";
 
 // This is the main entrypoint for sequencing and handles the percentage payouts.
 // Through the inheritance system this pulls in all of the logic needed.

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.13;
 
 import {LibBit} from "solady/utils/LibBit.sol";
-import {BlobData} from "../../src/library/BlobData.sol";
 
 // The system uses a large amount of blob data tricks in order to track data in commitments but perfectly replicating this
 // through a large number of tests is both slow and requires calling out to script libs instead we have built a mock model

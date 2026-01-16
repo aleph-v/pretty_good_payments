@@ -814,7 +814,7 @@ contract TransactionChallengeIntegrationTest is Test {
         );
 
         // Verify sequencer was slashed
-        (bool isActiveAfter,,,,, uint64 stakeAfter, address payable challengerAfter) =
+        (bool isActiveAfter,,,,,, address payable challengerAfter) =
             harness.getSequencerStatus(sequencer);
         assertFalse(isActiveAfter, "Sequencer should be slashed");
         assertEq(challengerAfter, challenger, "Challenger should be recorded");
@@ -1164,7 +1164,7 @@ contract TransactionChallengeIntegrationTest is Test {
         // Create harness and build block chain
         TransactionChallengeRealHarness harness = _createRealHarness(sameBlockTestData);
         uint256 startTime = block.timestamp;
-        (, Spine.BlockData[] memory storedBlocks) = _buildBlockChain(harness, sameBlockTestData, startTime);
+        _buildBlockChain(harness, sameBlockTestData, startTime);
 
         // Add target block with real KZG blob hash
         // For same-block mode, the prior anchor KZG proof comes from THIS blob

@@ -12,11 +12,11 @@ contract FakeERC20 is ERC20 {
         _burn(from, amount);
     }
 
-    function name() public view override returns (string memory) {
+    function name() public pure override returns (string memory) {
         return ("");
     }
 
-    function symbol() public view override returns (string memory) {
+    function symbol() public pure override returns (string memory) {
         return ("");
     }
 }

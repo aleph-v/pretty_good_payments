@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import "forge-std/Test.sol";
 import "../src/Entrypoint.sol";
+import {Spine} from "../src/Spine.sol";
 import {FakeZK} from "./mocks/FakeZk.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";

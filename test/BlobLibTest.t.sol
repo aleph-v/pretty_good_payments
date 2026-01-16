@@ -27,7 +27,7 @@ contract BlobDataTest is BlobData {
         uint256 index,
         bytes32 data,
         bytes calldata proof
-    ) external {
+    ) external view {
         validateSingle(rootHash, commitment, index, data, proof);
     }
 
