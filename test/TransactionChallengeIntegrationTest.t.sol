@@ -479,8 +479,8 @@ contract TransactionChallengeIntegrationTest is Test {
             Spine.BlockData memory blockData = Spine.BlockData({
                 anchor: data.blockAnchors[i],
                 timestamp: 0,
-                numTransactions: data.targetNumTx,    // Use dynamic value from config
-                numDeposits: data.targetNumDeposits,  // Use dynamic value from config
+                numTransactions: data.targetNumTx, // Use dynamic value from config
+                numDeposits: data.targetNumDeposits, // Use dynamic value from config
                 blockNr: 0,
                 blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
                 sequencer: sequencer,
@@ -1171,8 +1171,7 @@ contract TransactionChallengeIntegrationTest is Test {
         Spine.BlockData memory targetBlockData = _addTargetBlock(harness, sameBlockTestData, startTime);
 
         // Build challenge region with real KZG proofs
-        (BlobData.Region memory region, BlobData.Region memory emptyRegion) =
-            _buildTxChallengeRegion(sameBlockTestData);
+        (BlobData.Region memory region, BlobData.Region memory emptyRegion) = _buildTxChallengeRegion(sameBlockTestData);
 
         // For same-block mode, the priorAnchorBlock IS the targetBlock
         // But we pass the stored target block data

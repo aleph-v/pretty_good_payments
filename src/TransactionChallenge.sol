@@ -66,12 +66,12 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         // Public signals order for transfer circuit: [nullifiers[2], leavesOut[3], anchor, ethKey]
         // This matches snarkjs convention: outputs first, then public inputs
         uint256[7] memory publicInputs = [
-            uint256(raw[9]),  // nullifier0
+            uint256(raw[9]), // nullifier0
             uint256(raw[10]), // nullifier1
             uint256(raw[11]), // leaf0
             uint256(raw[12]), // leaf1
             uint256(raw[13]), // leaf2
-            0,                // anchor (set below after validation)
+            0, // anchor (set below after validation)
             uint256(uint160(ethKey))
         ];
 

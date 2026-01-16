@@ -1082,11 +1082,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     function _buildCrossblobChallengeRegions(MultiBlockTestData storage data)
         internal
         view
-        returns (
-            BlobData.Region memory region,
-            BlobData.Region memory extensionRegion,
-            bytes memory priorAnchorProof
-        )
+        returns (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes memory priorAnchorProof)
     {
         // For cross-blob, there's always a prior anchor proof at index 0 for updates > 0
         bool hasPriorAnchorProof = data.targetUpdateIndex > 0;
@@ -1192,7 +1188,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             Spine.BlockData memory blockData = Spine.BlockData({
                 anchor: crossblobTestData.blockAnchors[i],
                 timestamp: 0,
-                numTransactions: crossblobTestData.targetNumTx,  // Same as target for consistency
+                numTransactions: crossblobTestData.targetNumTx, // Same as target for consistency
                 numDeposits: crossblobTestData.targetNumDeposits, // Same as target for consistency
                 blockNr: 0,
                 blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
@@ -1223,8 +1219,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             numDeposits: crossblobTestData.targetNumDeposits,
             blockNr: 0,
             blockIndex: Spine.TimestampAndIndex(
-                uint16(crossblobTestData.targetDay),
-                uint16(crossblobTestData.targetBlockIdx)
+                uint16(crossblobTestData.targetDay), uint16(crossblobTestData.targetBlockIdx)
             ),
             sequencer: sequencer,
             blobhashes: realBlobHashes
@@ -1361,7 +1356,9 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         }
 
         // Add target block with TWO blob hashes for cross-blob scenario
-        vm.warp(startTime + crossblobFraudTestData.targetDay * SECONDS_PER_DAY + crossblobFraudTestData.targetBlockIdx * 100);
+        vm.warp(
+            startTime + crossblobFraudTestData.targetDay * SECONDS_PER_DAY + crossblobFraudTestData.targetBlockIdx * 100
+        );
 
         bytes32[] memory realBlobHashes = new bytes32[](2);
         realBlobHashes[0] = crossblobFraudTestData.kzgBlobHash;
@@ -1375,8 +1372,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             numDeposits: crossblobFraudTestData.targetNumDeposits,
             blockNr: 0,
             blockIndex: Spine.TimestampAndIndex(
-                uint16(crossblobFraudTestData.targetDay),
-                uint16(crossblobFraudTestData.targetBlockIdx)
+                uint16(crossblobFraudTestData.targetDay), uint16(crossblobFraudTestData.targetBlockIdx)
             ),
             sequencer: sequencer,
             blobhashes: realBlobHashes
