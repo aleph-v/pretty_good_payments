@@ -5,6 +5,7 @@ import {IERC4626} from "lib/openzeppelin-contracts/contracts/interfaces/IERC4626
 import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {IEntrypoint} from "./interfaces/IEntrypoint.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
+import {NotBridge, TokenNotTransferred, TokenNotEnabled, AlreadyPaid, SequencerChallenged, EpochNotFinished} from "./library/Errors.sol";
 
 contract YieldRouter is Ownable {
     // The bridge is the contract which accepts the user deposits
@@ -42,15 +43,15 @@ contract YieldRouter is Ownable {
     }
 
     function _onlyBridge() internal view {
-        assert(msg.sender == bridge);
+        if (msg.sender != bridge) revert NotBridge();
     }
 
     /// @notice This function triggers a deposit
     /// @param asset The asset we are depositing
     /// @param amount The amount of asset we are depositing
     function triggerDeposit(address asset, uint256 amount) external onlyBridge {
-        require(IERC20(asset).balanceOf(address(this)) >= amount, "Not Transferred");
-        require(address(sources[asset]) != address(0), "ERC20 not enabled");
+        if (IERC20(asset).balanceOf(address(this)) < amount) revert TokenNotTransferred();
+        if (address(sources[asset]) == address(0)) revert TokenNotEnabled();
         priorBalances[asset] += amount;
         sources[asset].deposit(amount, address(this));
     }
@@ -149,9 +150,10 @@ contract YieldRouter is Ownable {
     /// @param sequencer The credited sequencer
     /// @param epoch The epoch number
     function sequencerWithdrawAsset(address token, address sequencer, uint256 epoch) public {
-        require(!paidOut[sequencer][epoch][token], "Already Paid");
+        if (paidOut[sequencer][epoch][token]) revert AlreadyPaid();
         IEntrypoint cached = IEntrypoint(bridge);
-        require(!cached.isChallenged(sequencer));
+        if (cached.isChallenged(sequencer)) revert SequencerChallenged();
+        if (!cached.isFinalized(epoch)) revert EpochNotFinished();
         uint256 percent = cached.getPercentInEpoch(sequencer, epoch);
 
         uint256 period = epoch / EPOCHS_PER_PERIOD;

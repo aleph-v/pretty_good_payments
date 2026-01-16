@@ -5,6 +5,19 @@ import {PredictableMerkleLib, Proof} from "./library/PredictableMerkleLib.sol";
 import {Spine} from "./Spine.sol";
 import {SequencerRegistry} from "./SequencerRegistry.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
+import {
+    BlockNotIncluded,
+    TxIndexOutOfBounds,
+    UpdateIndexOutOfBounds,
+    EmptyRegion,
+    RegionBlobHashMismatch,
+    RegionMemoryAddressMismatch,
+    RegionLengthMismatch,
+    RegionNotAtBlobBoundary,
+    ExtensionMemoryNotZero,
+    InvalidZKProof,
+    NoFraud
+} from "./library/Errors.sol";
 
 // The component of the challenge system which enforces deposits are done properly
 
@@ -28,35 +41,35 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
         BlockData memory rollbackTargetBlock
     ) external {
         // Check the block is in the tree
-        require(isBlockIncluded(data));
+        if (!isBlockIncluded(data)) revert BlockNotIncluded();
 
         uint256 memoryAddress;
         if (isTx) {
-            require(updateNr < data.numTransactions);
+            if (updateNr >= data.numTransactions) revert TxIndexOutOfBounds();
             memoryAddress = txMemoryAddress(updateNr, data.numDeposits) + 11;
         } else {
-            require(updateNr < (data.numDeposits + 2) / 3);
+            if (updateNr >= (data.numDeposits + 2) / 3) revert UpdateIndexOutOfBounds();
             // Points to the start of each group of three updates
             memoryAddress = updateNr * 4;
         }
 
         // Validate the first region
-        assert(region.length != 0);
+        if (region.length == 0) revert EmptyRegion();
         uint256 firstBlobNumber = memoryAddress / 4096;
-        require(region.hash == data.blobhashes[firstBlobNumber]);
-        require(region.memoryAddress == (memoryAddress % 4096));
+        if (region.hash != data.blobhashes[firstBlobNumber]) revert RegionBlobHashMismatch();
+        if (region.memoryAddress != (memoryAddress % 4096)) revert RegionMemoryAddressMismatch();
         validateRegionOpening(region);
         // This check is critical even with an empty extension region as it forces an empty region
         // to have empty data.
         validateRegionOpening(extensionRegion);
-        require(region.length + extensionRegion.length == 4, "Not enough data");
+        if (region.length + extensionRegion.length != 4) revert RegionLengthMismatch();
 
         // Because tx are 4 elements we can have them aligned at memory region boundaries.
         if (extensionRegion.length != 0) {
             // We enforce that this actually at the end of the blob.
-            assert(region.memoryAddress + region.length == 4096);
-            require(extensionRegion.hash == data.blobhashes[firstBlobNumber + 1]);
-            require(extensionRegion.memoryAddress == 0);
+            if (region.memoryAddress + region.length != 4096) revert RegionNotAtBlobBoundary();
+            if (extensionRegion.hash != data.blobhashes[firstBlobNumber + 1]) revert RegionBlobHashMismatch();
+            if (extensionRegion.memoryAddress != 0) revert ExtensionMemoryNotZero();
             validateRegionOpening(extensionRegion);
         }
 
@@ -79,7 +92,7 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
 
         // This call validates a zk update proof that the update of the prior anchor with the three new leaves equals
         // the "true anchor" provided by the caller.
-        require(predictableUpdateVerifier.verifyPredictableUpdate(zkProofInputs, zk), "Invalid ZK update proof");
+        if (!predictableUpdateVerifier.verifyPredictableUpdate(zkProofInputs, zk)) revert InvalidZKProof();
 
         // We have two options (1) that the sequencer has not added the correct root to the blob
         // (2) that if this is the last tx in the block that the sequencer has set their "anchor" field correctly
@@ -89,7 +102,7 @@ contract TreeUpdateChallenge is Spine, SequencerRegistry {
             bool isLast = data.numTransactions == 0
                 ? updateNr == (data.numDeposits - 1) / 3
                 : updateNr == data.numTransactions - 1;
-            require(isLast && trueAnchor != data.anchor, "No Fraud");
+            if (!(isLast && trueAnchor != data.anchor)) revert NoFraud();
         } // the else here is just that you should be slashed
 
         // Since the sequencer submitted the wrong deposit leaf at this index we slash and roll back.

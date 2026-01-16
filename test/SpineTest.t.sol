@@ -5,6 +5,16 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {Spine} from "../src/Spine.sol";
+import {
+    ZeroBlobHash,
+    TooManyDeposits,
+    TooManyTransactions,
+    InsufficientBlobCapacity,
+    RollbackIndexOutOfBounds,
+    PriorRootMismatch,
+    AnchorNotIncluded,
+    AnchorIndexMismatch
+} from "../src/library/Errors.sol";
 
 // Test contract that inherits from Spine to expose internal functions
 contract SpineHarness is Spine {
@@ -467,7 +477,7 @@ contract SpineTest is Test {
 
         Spine.BlockData memory data = createBlockDataForAdd(keccak256("anchor"), 10, 5, 1);
 
-        vm.expectRevert();
+        vm.expectRevert(ZeroBlobHash.selector);
         spine.addBlockTest(data, blobIndices);
     }
 
@@ -479,7 +489,7 @@ contract SpineTest is Test {
         // MAX_DEPOSITS is 1024, try 1025
         Spine.BlockData memory data = createBlockDataForAdd(keccak256("anchor"), 10, 3073, 2);
 
-        vm.expectRevert();
+        vm.expectRevert(TooManyDeposits.selector);
         spine.addBlockTest(data, blobIndices);
     }
 
@@ -491,7 +501,7 @@ contract SpineTest is Test {
         // MAX_TX is 4096, try 4097
         Spine.BlockData memory data = createBlockDataForAdd(keccak256("anchor"), 4097, 0, 1);
 
-        vm.expectRevert();
+        vm.expectRevert(TooManyTransactions.selector);
         spine.addBlockTest(data, blobIndices);
     }
 
@@ -504,7 +514,7 @@ contract SpineTest is Test {
         // 3072 deposits / 3 * 4 = 4096 slots, exactly at limit but needs to be strictly less
         Spine.BlockData memory data = createBlockDataForAdd(keccak256("anchor"), 1, 3068, 1);
 
-        vm.expectRevert();
+        vm.expectRevert(InsufficientBlobCapacity.selector);
         spine.addBlockTest(data, blobIndices);
     }
 
@@ -530,7 +540,7 @@ contract SpineTest is Test {
         Spine.BlockData memory priorBlock = createBlockData(keccak256("anchor"), 10, 5);
 
         // Index 5 is out of bounds (only 1 root)
-        vm.expectRevert();
+        vm.expectRevert(RollbackIndexOutOfBounds.selector);
         spine.rollbackTest(5, priorBlock);
     }
 
@@ -545,7 +555,7 @@ contract SpineTest is Test {
         Spine.BlockData memory wrongPriorBlock = createBlockData(keccak256("wrong"), 10, 5);
 
         // Rollback to index 1 requires priorBlock to hash to roots[0]
-        vm.expectRevert();
+        vm.expectRevert(PriorRootMismatch.selector);
         spine.rollbackTest(1, wrongPriorBlock);
     }
 
@@ -841,7 +851,7 @@ contract SpineTest is Test {
 
         Spine.BlockData memory data = createBlockDataForValidation(keccak256("currentAnchor"), 10, 5, 1);
 
-        vm.expectRevert();
+        vm.expectRevert(AnchorNotIncluded.selector);
         spine.validatePriorAnchorTest(nonExistentAnchor, data, 0, true, "", "");
     }
 
@@ -862,7 +872,7 @@ contract SpineTest is Test {
         // This expects anchor at index 0 (blockNr - 1 = 0)
         Spine.BlockData memory data = createBlockDataForValidation(keccak256("currentAnchor"), 10, 5, 1);
 
-        vm.expectRevert();
+        vm.expectRevert(AnchorIndexMismatch.selector);
         spine.validatePriorAnchorTest(priorAnchor, data, 0, true, "", "");
     }
 

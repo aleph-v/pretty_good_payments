@@ -16,6 +16,13 @@ import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
 import {FakeZK} from "./mocks/FakeZk.sol";
 import {FakeERC20} from "./mocks/FakeErc20.sol";
+import {
+    BlockNotConfirmed,
+    PublicKeyNotZero,
+    AlreadyWithdrawn,
+    InvalidLeafWhich,
+    TxIndexOutOfBounds
+} from "../src/library/Errors.sol";
 
 contract WithdrawHarness is Withdraw, FakeBlobs {
     constructor(
@@ -167,7 +174,7 @@ contract WithdrawTest is Test {
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
         uint256 yieldRouterBalanceBefore = token.balanceOf(address(yieldRouter));
 
-        harness.withdraw(leaf, blockData, 0, 0, 0, "", "");
+        harness.withdraw(leaf, blockData, 0, 0, "", "");
 
         assertTrue(harness.isWithdrawn(blockData.blockNr, 0, 0), "Correct key should be marked");
         assertEq(token.balanceOf(recipient), recipientBalanceBefore + amount, "Recipient should receive tokens");
@@ -202,8 +209,8 @@ contract WithdrawTest is Test {
         blockData = harness.addBlockTest(blockData, indices);
 
         // Don't warp - block is not confirmed yet
-        vm.expectRevert();
-        harness.withdraw(leaf, blockData, 0, 0, 0, "", "");
+        vm.expectRevert(BlockNotConfirmed.selector);
+        harness.withdraw(leaf, blockData, 0, 0, "", "");
     }
 
     function test_WithdrawRevertsIfPublicKeyNotZero() public {
@@ -217,8 +224,8 @@ contract WithdrawTest is Test {
 
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 222);
 
-        vm.expectRevert();
-        harness.withdraw(leaf, blockData, 0, 0, 0, "", "");
+        vm.expectRevert(PublicKeyNotZero.selector);
+        harness.withdraw(leaf, blockData, 0, 0, "", "");
     }
 
     // ==================== KEY CALCULATION TESTS ====================
@@ -240,15 +247,15 @@ contract WithdrawTest is Test {
             uint256 recipientBalanceBefore = token.balanceOf(recipient);
 
             // First withdrawal should succeed
-            harness.withdraw(leaf, blockData, 0, 1, which, "", "");
+            harness.withdraw(leaf, blockData, 1, which, "", "");
 
             // Verify the correct key is marked and tokens transferred
             assertTrue(harness.isWithdrawn(blockData.blockNr, 1, which), "Withdrawal should be marked");
             assertEq(token.balanceOf(recipient), recipientBalanceBefore + amount, "Recipient should receive tokens");
 
             // Second withdrawal should fail
-            vm.expectRevert();
-            harness.withdraw(leaf, blockData, 0, 1, which, "", "");
+            vm.expectRevert(AlreadyWithdrawn.selector);
+            harness.withdraw(leaf, blockData, 1, which, "", "");
         }
     }
 
@@ -263,8 +270,8 @@ contract WithdrawTest is Test {
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 666);
 
         // which = 3 should fail (require which < 3)
-        vm.expectRevert();
-        harness.withdraw(leaf, blockData, 0, 0, 3, "", "");
+        vm.expectRevert(InvalidLeafWhich.selector);
+        harness.withdraw(leaf, blockData, 0, 3, "", "");
     }
 
     function test_WithdrawTxNrBoundary() public {
@@ -276,23 +283,8 @@ contract WithdrawTest is Test {
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 777);
 
         // txNr >= numTransactions should fail
-        vm.expectRevert();
-        harness.withdraw(leaf, blockData, 0, 1, 0, "", "");
-    }
-
-    // ==================== BLOB HASH INDEX TESTS ====================
-
-    function test_InvalidBlobHashIndex() public {
-        address recipient = address(0xBEEF);
-        Leaf memory leaf = Leaf({
-            asset: address(token), amount: 100 ether, blinding: bytes32(bytes20(recipient)), publicKey: bytes32(0)
-        });
-
-        (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 999);
-
-        // Try with blobHashIndex out of bounds
-        vm.expectRevert();
-        harness.withdraw(leaf, blockData, 99, 0, 0, "", "");
+        vm.expectRevert(TxIndexOutOfBounds.selector);
+        harness.withdraw(leaf, blockData, 1, 0, "", "");
     }
 
     // ==================== DEPOSIT OFFSET TESTS ====================
@@ -315,7 +307,7 @@ contract WithdrawTest is Test {
             );
 
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
-        harness.withdraw(leaf, blockData, 0, 0, 0, "", "");
+        harness.withdraw(leaf, blockData, 0, 0, "", "");
         assertEq(token.balanceOf(recipient), recipientBalanceBefore + amount, "Recipient should receive tokens");
     }
 
@@ -338,7 +330,8 @@ contract WithdrawTest is Test {
         assertTrue(blobIndex > 0, "Transaction should be in second blob");
 
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
-        harness.withdraw(leaf, blockData, blobIndex, txNr, 0, "", "");
+        // blobIndex is now derived internally from txNr
+        harness.withdraw(leaf, blockData, txNr, 0, "", "");
         assertEq(token.balanceOf(recipient), recipientBalanceBefore + amount, "Recipient should receive tokens");
     }
 
@@ -359,7 +352,7 @@ contract WithdrawTest is Test {
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, whichVal, numTx, 0, seed);
 
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
-        harness.withdraw(leaf, blockData, 0, 0, whichVal, "", "");
+        harness.withdraw(leaf, blockData, 0, whichVal, "", "");
         assertTrue(harness.isWithdrawn(blockData.blockNr, 0, whichVal), "Should be marked withdrawn");
         assertEq(token.balanceOf(recipient), recipientBalanceBefore + amount, "Recipient should receive tokens");
     }
@@ -382,12 +375,12 @@ contract WithdrawTest is Test {
         uint256 recipientBalanceBefore = token.balanceOf(recipient);
 
         // First withdrawal succeeds
-        harness.withdraw(leaf, blockData, 0, txNr, whichVal, "", "");
+        harness.withdraw(leaf, blockData, txNr, whichVal, "", "");
         assertEq(token.balanceOf(recipient), recipientBalanceBefore + amount, "Recipient should receive tokens");
 
         // Second withdrawal should always fail (no additional tokens transferred)
-        vm.expectRevert();
-        harness.withdraw(leaf, blockData, 0, txNr, whichVal, "", "");
+        vm.expectRevert(AlreadyWithdrawn.selector);
+        harness.withdraw(leaf, blockData, txNr, whichVal, "", "");
         assertEq(
             token.balanceOf(recipient),
             recipientBalanceBefore + amount,
@@ -455,9 +448,9 @@ contract WithdrawTest is Test {
         uint256 yieldRouterBalanceBefore = token.balanceOf(address(yieldRouter));
 
         // Withdraw all three - should all succeed since they use different keys
-        harness.withdraw(leaf1, blockData, 0, 0, 0, "", "");
-        harness.withdraw(leaf2, blockData, 0, 0, 1, "", "");
-        harness.withdraw(leaf3, blockData, 0, 1, 0, "", "");
+        harness.withdraw(leaf1, blockData, 0, 0, "", "");
+        harness.withdraw(leaf2, blockData, 0, 1, "", "");
+        harness.withdraw(leaf3, blockData, 1, 0, "", "");
 
         // Verify all are marked as withdrawn
         assertTrue(harness.isWithdrawn(blockData.blockNr, 0, 0), "leaf1 should be withdrawn");
@@ -496,6 +489,6 @@ contract WithdrawTest is Test {
         });
 
         vm.expectRevert("Blob data mismatch");
-        harness.withdraw(wrongLeaf, blockData, 0, 0, 0, "", "");
+        harness.withdraw(wrongLeaf, blockData, 0, 0, "", "");
     }
 }

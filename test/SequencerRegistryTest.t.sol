@@ -12,6 +12,15 @@ import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
 import {FakeZK} from "./mocks/FakeZk.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {
+    ChallengeWindowNotElapsed,
+    PayoutFailed,
+    ExitWindowNotElapsed,
+    AlreadyChallenged,
+    SequencerNotActive,
+    StakeExceedsMaximum
+} from "../src/library/Errors.sol";
 
 // Harness to expose internal functions and state
 contract SequencerRegistryHarness is SequencerRegistry {
@@ -124,7 +133,7 @@ contract SequencerRegistryTest is Test {
         harness.slashSequencer(sequencer1, 0);
 
         vm.prank(sequencer1);
-        vm.expectRevert();
+        vm.expectRevert(AlreadyChallenged.selector);
         harness.fund{value: 20 ether}();
     }
 
@@ -193,7 +202,7 @@ contract SequencerRegistryTest is Test {
 
     function test_AddFirstLookRequiresActiveAndOwner() public {
         // Not active
-        vm.expectRevert();
+        vm.expectRevert(SequencerNotActive.selector);
         harness.addFirstLook(sequencer1);
 
         // Not owner
@@ -201,7 +210,7 @@ contract SequencerRegistryTest is Test {
         harness.fund{value: 20 ether}();
 
         vm.prank(sequencer1);
-        vm.expectRevert();
+        vm.expectRevert(Ownable.Unauthorized.selector);
         harness.addFirstLook(sequencer1);
     }
 
@@ -211,7 +220,7 @@ contract SequencerRegistryTest is Test {
         harness.addFirstLook(sequencer1);
 
         vm.prank(sequencer1);
-        vm.expectRevert();
+        vm.expectRevert(Ownable.Unauthorized.selector);
         harness.removeFirstLook(0);
     }
 
@@ -370,7 +379,7 @@ contract SequencerRegistryTest is Test {
         harness.slashSequencer(sequencer1, 0);
 
         // Before window - should fail
-        vm.expectRevert("Not ready");
+        vm.expectRevert(ChallengeWindowNotElapsed.selector);
         harness.claimChallengeReward(sequencer1);
 
         // After window - should succeed
@@ -397,7 +406,7 @@ contract SequencerRegistryTest is Test {
 
         vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
 
-        vm.expectRevert("Payout failed");
+        vm.expectRevert(PayoutFailed.selector);
         harness.claimChallengeReward(sequencer1);
     }
 
@@ -427,7 +436,7 @@ contract SequencerRegistryTest is Test {
         harness.registerExit();
 
         // Before window - should fail
-        vm.expectRevert("Exit pending");
+        vm.expectRevert(ExitWindowNotElapsed.selector);
         harness.exit(sequencer1);
 
         // After window - should succeed
@@ -449,7 +458,7 @@ contract SequencerRegistryTest is Test {
 
         vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
 
-        vm.expectRevert();
+        vm.expectRevert(AlreadyChallenged.selector);
         harness.exit(sequencer1);
     }
 
@@ -460,12 +469,12 @@ contract SequencerRegistryTest is Test {
         assertEq(harness.requiredStake(), 100000);
 
         // At or above MAX_STAKE should fail
-        vm.expectRevert();
+        vm.expectRevert(StakeExceedsMaximum.selector);
         harness.updateStakeRequirement(2000000); // MAX_STAKE
 
         // Only owner
         vm.prank(sequencer1);
-        vm.expectRevert();
+        vm.expectRevert(Ownable.Unauthorized.selector);
         harness.updateStakeRequirement(100000);
     }
 }

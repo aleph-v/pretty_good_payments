@@ -5,6 +5,7 @@ pragma solidity ^0.8.13;
 
 import {Test} from "forge-std/Test.sol";
 import {BlobData} from "../src/library/BlobData.sol";
+import {InvalidProof} from "../src/library/Errors.sol";
 
 contract BlobDataTest is BlobData {
     function validateDataOpeningsTest(
@@ -112,13 +113,13 @@ contract CounterTest is Test {
         bytes32[] memory blobhashes = new bytes32[](1);
         blobhashes[0] = data.hash;
         vm.blobhashes(blobhashes);
-        vm.expectRevert();
+        vm.expectRevert(InvalidProof.selector);
         blob.validateSingleTest(
             data.hash & (bytes32)(uint256(2 ** 240 - 1)), data.commitment, data.index, data.claim, data.proof
         );
-        vm.expectRevert();
+        vm.expectRevert(InvalidProof.selector);
         blob.validateSingleTest(data.hash, data.commitment, data.index + 1, data.claim, data.proof);
-        vm.expectRevert();
+        vm.expectRevert(InvalidProof.selector);
         blob.validateSingleTest(
             data.hash, data.commitment, data.index, (bytes32)((uint256)(data.claim) + 1), data.proof
         );
@@ -367,21 +368,27 @@ contract CounterTest is Test {
 
     function test_PriorRootMemoryLocation_Deposits() public view {
         // Formula: number * 4 - 1
+        // Validation requires: number <= (numDeposits - 1) / 3
+        // For number=1: numDeposits >= 4
+        // For number=2: numDeposits >= 7
+        // For number=3: numDeposits >= 10
+        // For number=4: numDeposits >= 13
+
         // Group 1: 1 * 4 - 1 = 3
-        assertEq(blob.priorRootMemoryLocationTest(1, true, 3), 3);
+        assertEq(blob.priorRootMemoryLocationTest(1, true, 4), 3);
         assertEq(blob.priorRootMemoryLocationTest(1, true, 6), 3);
         assertEq(blob.priorRootMemoryLocationTest(1, true, 9), 3);
         // Group 2: 2 * 4 - 1 = 7
-        assertEq(blob.priorRootMemoryLocationTest(2, true, 6), 7);
+        assertEq(blob.priorRootMemoryLocationTest(2, true, 7), 7);
         assertEq(blob.priorRootMemoryLocationTest(2, true, 9), 7);
         // Group 3: 3 * 4 - 1 = 11
-        assertEq(blob.priorRootMemoryLocationTest(3, true, 9), 11);
+        assertEq(blob.priorRootMemoryLocationTest(3, true, 10), 11);
         // Group 4: 4 * 4 - 1 = 15
-        assertEq(blob.priorRootMemoryLocationTest(4, true, 12), 15);
+        assertEq(blob.priorRootMemoryLocationTest(4, true, 13), 15);
 
         // Verify consecutive groups are spaced 4 apart
-        uint256 root1 = blob.priorRootMemoryLocationTest(1, true, 9);
-        uint256 root2 = blob.priorRootMemoryLocationTest(2, true, 9);
+        uint256 root1 = blob.priorRootMemoryLocationTest(1, true, 10);
+        uint256 root2 = blob.priorRootMemoryLocationTest(2, true, 10);
         assertEq(root2 - root1, 4);
     }
 
@@ -411,9 +418,12 @@ contract CounterTest is Test {
     }
 
     function testFuzz_PriorRootMemoryLocation_Deposits(uint256 number, uint256 numDeposits) public view {
-        // Bound inputs - number must be >= 1 and <= numDeposits / 3
-        numDeposits = bound(numDeposits, 3, 30_000);
-        number = bound(number, 1, numDeposits / 3);
+        // Bound inputs - contract validation requires: number <= (numDeposits - 1) / 3
+        // For number >= 1 to be valid, numDeposits must be >= 4
+        numDeposits = bound(numDeposits, 4, 30_000);
+        uint256 maxNumber = (numDeposits - 1) / 3;
+        vm.assume(maxNumber >= 1); // Skip if no valid number exists
+        number = bound(number, 1, maxNumber);
 
         uint256 result = blob.priorRootMemoryLocationTest(number, true, numDeposits);
 
@@ -672,7 +682,7 @@ contract CounterTest is Test {
 
         // Modify claim - should fail
         bytes32 wrongClaim = bytes32(uint256(data.claim) + 1);
-        vm.expectRevert();
+        vm.expectRevert(InvalidProof.selector);
         blob.validateSingleTest(data.hash, data.commitment, data.index, wrongClaim, data.proof);
     }
 
@@ -685,7 +695,7 @@ contract CounterTest is Test {
         vm.blobhashes(blobhashes);
 
         // Use wrong index - should fail
-        vm.expectRevert();
+        vm.expectRevert(InvalidProof.selector);
         blob.validateSingleTest(data.hash, data.commitment, data.index + 1, data.claim, data.proof);
     }
 }

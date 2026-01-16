@@ -3,6 +3,14 @@ pragma solidity ^0.8.13;
 
 import {Ownable} from "solady/auth/Ownable.sol";
 import {Spine} from "./Spine.sol";
+import {
+    AlreadyChallenged,
+    ChallengeWindowNotElapsed,
+    PayoutFailed,
+    SequencerNotActive,
+    ExitWindowNotElapsed,
+    StakeExceedsMaximum
+} from "./library/Errors.sol";
 
 // The module which handles the registration of the sequencers
 
@@ -59,7 +67,7 @@ contract SequencerRegistry is Spine, Ownable {
 
     // Take the money from the sequncer then
     function fund() external payable {
-        require(sequencers[msg.sender].challenger == address(0));
+        if (sequencers[msg.sender].challenger != address(0)) revert AlreadyChallenged();
         // TODO Need to trigger deposit into the yield system
         sequencers[msg.sender].isActive = true;
         sequencers[msg.sender].stakeAmount += uint64(msg.value / STAKE_DIVISOR);
@@ -87,15 +95,15 @@ contract SequencerRegistry is Spine, Ownable {
     function claimChallengeReward(address who) external {
         SequencerStatus memory status = sequencers[who];
         uint256 challengeTime = uint256(status.timestampChallenged);
-        require(challengeTime != 0 && block.timestamp - challengeTime >= CHALLENGE_WINDOW, "Not ready");
+        if (challengeTime == 0 || block.timestamp - challengeTime < CHALLENGE_WINDOW) revert ChallengeWindowNotElapsed();
         delete sequencers[who];
         (bool success,) = status.challenger.call{value: status.stakeAmount * STAKE_DIVISOR / 2}("");
-        require(success, "Payout failed");
+        if (!success) revert PayoutFailed();
         // TODO burn the other half into yield using the yield system
     }
 
     function registerExit() external {
-        require(sequencers[msg.sender].isActive);
+        if (!sequencers[msg.sender].isActive) revert SequencerNotActive();
         sequencers[msg.sender].isActive = false;
         if (sequencers[msg.sender].isPriority) {
             _remove(sequencers[msg.sender].priorityIndex);
@@ -104,19 +112,18 @@ contract SequencerRegistry is Spine, Ownable {
     }
 
     function exit(address who) external {
-        require(exits[who] != 0 && block.timestamp - exits[who] >= CHALLENGE_WINDOW, "Exit pending");
+        if (exits[who] == 0 || block.timestamp - exits[who] < CHALLENGE_WINDOW) revert ExitWindowNotElapsed();
         SequencerStatus memory status = sequencers[who];
-        require(status.challenger == address(0));
+        if (status.challenger != address(0)) revert AlreadyChallenged();
         // Now we can remove and refund them
         delete sequencers[who];
         delete exits[who];
         (bool success,) = payable(who).call{value: status.stakeAmount * STAKE_DIVISOR}("");
-        // TODO burn the other half into yield using the yield system
-        require(success, "Payout failed");
+        if (!success) revert PayoutFailed();
     }
 
     function addFirstLook(address who) external onlyOwner {
-        require(sequencers[who].isActive);
+        if (!sequencers[who].isActive) revert SequencerNotActive();
         firstLookSequencers.push(who);
         sequencers[who].isPriority = true;
         sequencers[who].priorityIndex = uint8(firstLookSequencers.length - 1);
@@ -128,7 +135,7 @@ contract SequencerRegistry is Spine, Ownable {
 
     // NOTE - Invalid uses of this will lock the sequencing
     function updateStakeRequirement(uint256 amount) public onlyOwner {
-        require(amount < MAX_STAKE);
+        if (amount >= MAX_STAKE) revert StakeExceedsMaximum();
         requiredStake = amount;
     }
 

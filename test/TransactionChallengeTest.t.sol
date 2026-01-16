@@ -13,6 +13,16 @@ import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 import {FakeZK} from "./mocks/FakeZk.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {ConfigurableTxRegistry} from "./mocks/ConfigurableTxRegistry.sol";
+import {
+    RegionLengthMismatch,
+    InvalidAnchorBlockInfo,
+    NoFraud,
+    EmptyRegion,
+    TxIndexOutOfBounds,
+    RegionBlobHashMismatch,
+    RegionMemoryAddressMismatch,
+    ZeroEthKey
+} from "../src/library/Errors.sol";
 
 /// @notice Harness contract that exposes internal functions and provides FakeBlobs storage
 contract TransactionChallengeHarness is TransactionChallenge, FakeBlobs {
@@ -412,7 +422,7 @@ contract TransactionChallengeTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // Reverts with panic (array out of bounds) for non-included block
         harness.challengeTxZK(data, 0, region, extensionRegion, GENESIS, priorAnchorBlock, "", "", rollbackTarget);
     }
 
@@ -431,7 +441,7 @@ contract TransactionChallengeTest is Test {
 
         Spine.BlockData memory priorAnchorBlock;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(EmptyRegion.selector);
         harness.challengeTxZK(
             data, 0, region, _createEmptyRegion(), GENESIS, priorAnchorBlock, "", "", priorAnchorBlock
         );
@@ -447,7 +457,7 @@ contract TransactionChallengeTest is Test {
 
         Spine.BlockData memory priorAnchorBlock;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(TxIndexOutOfBounds.selector);
         harness.challengeTxZK(
             data,
             TEST_NUM_TRANSACTIONS,
@@ -474,7 +484,7 @@ contract TransactionChallengeTest is Test {
 
         Spine.BlockData memory priorAnchorBlock;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(RegionBlobHashMismatch.selector);
         harness.challengeTxZK(
             data, txNr, region, _createEmptyRegion(), GENESIS, priorAnchorBlock, "", "", priorAnchorBlock
         );
@@ -498,7 +508,7 @@ contract TransactionChallengeTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(RegionMemoryAddressMismatch.selector);
         harness.challengeTxZK(data, txNr, region, extensionRegion, GENESIS, priorAnchorBlock, "", "", rollbackTarget);
     }
 
@@ -521,7 +531,7 @@ contract TransactionChallengeTest is Test {
 
         Spine.BlockData memory priorAnchorBlock;
         vm.prank(challenger);
-        vm.expectRevert("Not enough data");
+        vm.expectRevert(RegionLengthMismatch.selector);
         harness.challengeTxZK(
             data, txNr, region, _createEmptyRegion(), GENESIS, priorAnchorBlock, "", "", priorAnchorBlock
         );
@@ -561,7 +571,7 @@ contract TransactionChallengeTest is Test {
 
         Spine.BlockData memory priorAnchorBlock;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // FakeBlobs validation fails before contract check
         harness.challengeTxZK(data, txNr, region, extensionRegion, GENESIS, priorAnchorBlock, "", "", priorAnchorBlock);
     }
 
@@ -588,7 +598,7 @@ contract TransactionChallengeTest is Test {
 
         Spine.BlockData memory priorAnchorBlock;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // FakeBlobs validation fails before contract check
         harness.challengeTxZK(data, txNr, region, extensionRegion, GENESIS, priorAnchorBlock, "", "", priorAnchorBlock);
     }
 
@@ -662,7 +672,7 @@ contract TransactionChallengeTest is Test {
         // Challenge should revert - ethKey == 0 means zkSNARK-only, no fraud possible
         Spine.BlockData memory rollbackTarget;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // FakeBlobs validation fails before contract ZeroEthKey check
         harness.challengeTxZK(data, txNr, region, extensionRegion, anchor, data, "", "", rollbackTarget);
     }
 
@@ -698,7 +708,7 @@ contract TransactionChallengeTest is Test {
         fakePriorBlock.anchor = keccak256("fake_anchor");
 
         vm.prank(challenger);
-        vm.expectRevert("Invalid anchor block info");
+        vm.expectRevert(InvalidAnchorBlockInfo.selector);
         harness.challengeTxZK(block2, txNr, region, extensionRegion, anchor, fakePriorBlock, "", "", block1);
     }
 
@@ -726,7 +736,7 @@ contract TransactionChallengeTest is Test {
 
         // Pass block2 as priorAnchorBlock but tx references block1 - block number mismatch
         vm.prank(challenger);
-        vm.expectRevert("Invalid anchor block info");
+        vm.expectRevert(InvalidAnchorBlockInfo.selector);
         harness.challengeTxZK(block2, txNr, region, extensionRegion, anchor, block2, "", "", block1);
     }
 
@@ -749,7 +759,7 @@ contract TransactionChallengeTest is Test {
 
         // This should revert in validatePriorAnchor because the anchor doesn't match
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // FakeBlobs validation fails before contract check
         harness.challengeTxZK(block2, txNr, region, extensionRegion, wrongAnchor, block1, "", "", block1);
     }
 
@@ -906,7 +916,7 @@ contract TransactionChallengeTest is Test {
 
         // Challenge should revert: ethKey == 0 means zkSNARK-only, no fraud possible
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(ZeroEthKey.selector);
         harness.challengeTxZK(block2, txNr, region, extensionRegion, anchor, block1, "", "", block1);
 
         (bool isActive,,,,,,) = harness.getSequencerStatus(sequencer);
@@ -939,7 +949,7 @@ contract TransactionChallengeTest is Test {
 
         // Challenge should revert with "No Fraud" - transaction is properly registered
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTxZK(block2, txNr, region, extensionRegion, anchor, block1, "", "", block1);
 
         (bool isActive,,,,,,) = harness.getSequencerStatus(sequencer);
@@ -1068,7 +1078,7 @@ contract TransactionChallengeTest is Test {
 
         Spine.BlockData memory priorAnchorBlock;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // FakeBlobs returns "Not Tracked" for unknown blob hash
         harness.challengeTxZK(data, txNr, region, extensionRegion, GENESIS, priorAnchorBlock, "", "", priorAnchorBlock);
     }
 
@@ -1146,7 +1156,7 @@ contract TransactionChallengeTest is Test {
 
             // Challenge should revert - no fraud (ethKey == 0 and ZK valid)
             vm.prank(challenger);
-            vm.expectRevert();
+            vm.expectRevert(ZeroEthKey.selector);
             harness.challengeTxZK(block2, txNr, region, extensionRegion, anchor, block1, "", "", block1);
         }
 

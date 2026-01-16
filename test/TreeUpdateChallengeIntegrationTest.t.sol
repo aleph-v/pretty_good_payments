@@ -15,6 +15,7 @@ import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
 import {FakeZK} from "./mocks/FakeZK.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
+import {NoFraud} from "../src/library/Errors.sol";
 
 /// @title TreeUpdateChallenge Integration Test
 /// @notice Comprehensive integration tests with real ZK proofs and multi-day/block scenarios
@@ -645,7 +646,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         // because trueAnchor matches what's in the blob
         vm.prank(challenger);
         Spine.BlockData memory rollbackTarget;
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(
             targetBlockData,
             testData.targetUpdateIndex,
@@ -930,7 +931,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         // Challenge with real proofs - should revert with "No Fraud"
         vm.prank(challenger);
         Spine.BlockData memory rollbackTarget;
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(
             targetBlockData,
             updateNr,
@@ -1252,7 +1253,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         // because the ZK proof and blob data match
         vm.prank(challenger);
         Spine.BlockData memory rollbackTarget;
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(
             targetBlockData,
             updateNr,

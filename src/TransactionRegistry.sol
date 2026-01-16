@@ -3,6 +3,7 @@ pragma solidity ^0.8.13;
 
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {InvalidSignature} from "./library/Errors.sol";
 
 interface ITransactionRegistry {
     function allow(bytes32[5] memory fields) external;
@@ -61,7 +62,7 @@ contract TransactionRegistry is EIP712 {
             )
         );
         address signer = ECDSA.recoverCalldata(digest, signature);
-        require(signer == fields.signer, "Not signed");
+        if (signer != fields.signer) revert InvalidSignature();
 
         bytes32[5] memory converted;
         converted[0] = fields.nullifiers[0];

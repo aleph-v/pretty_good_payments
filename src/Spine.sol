@@ -6,6 +6,18 @@ import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "./interfaces/ITransferVerifier.sol";
 import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
 import {ITransactionRegistry} from "./TransactionRegistry.sol";
+import {
+    ZeroBlobHash,
+    TooManyDeposits,
+    TooManyTransactions,
+    InsufficientBlobCapacity,
+    EmptyBlock,
+    RollbackIndexOutOfBounds,
+    PriorRootMismatch,
+    AnchorNotIncluded,
+    InvalidGenesisAnchor,
+    AnchorIndexMismatch
+} from "./library/Errors.sol";
 
 // The core library managing new blocks
 
@@ -69,14 +81,14 @@ contract Spine is BlobData {
         data.blockNr = roots.length;
         for (uint256 i = 0; i < blobIndices.length; i++) {
             bytes32 hash = blobhash(blobIndices[i]);
-            require(hash != 0);
+            if (hash == 0) revert ZeroBlobHash();
             data.blobhashes[i] = hash;
         }
-        require(data.numDeposits <= MAX_DEPOSITS);
-        require(data.numTransactions <= MAX_TX);
+        if (data.numDeposits > MAX_DEPOSITS) revert TooManyDeposits();
+        if (data.numTransactions > MAX_TX) revert TooManyTransactions();
         uint256 depositBlobUse = data.numDeposits % 3 == 0 ? (data.numDeposits / 3) * 4 : (data.numDeposits / 3 + 1) * 4;
-        require(depositBlobUse + data.numTransactions * 15 < 4096 * blobIndices.length);
-        require(data.numTransactions != 0 || data.numDeposits != 0);
+        if (depositBlobUse + data.numTransactions * 15 >= 4096 * blobIndices.length) revert InsufficientBlobCapacity();
+        if (data.numTransactions == 0 && data.numDeposits == 0) revert EmptyBlock();
 
         // The tree is split such that each day we start in a new subbranch to track this using the prior block
         uint256 actualDay = (block.timestamp - START) / DAY;
@@ -92,7 +104,7 @@ contract Spine is BlobData {
         // TODO - Meter the gas use possible opt target
         bytes32 l2BlockHash = keccak256(abi.encode(data));
 
-        // Do the stores nessecary
+        // Do the stores necessary
         // Casting here we use the force cast because we want this to truncate so it fits
         // forge-lint: disable-next-line(unsafe-typecast)
         bytes24 partialHash = (bytes24)(l2BlockHash);
@@ -108,26 +120,26 @@ contract Spine is BlobData {
     event Rollback(uint256 from, uint256 to);
 
     // Uses assembly to rollback the state array
-    function rollback(uint256 index, BlockData memory priorBlock) internal {
+    function rollback(uint256 indexToRemove, BlockData memory priorBlock) internal {
         // TODO - Should we enforce no rollback to timestamps which are too old?
-        require(index < roots.length);
-        emit Rollback(roots.length, index);
+        if (indexToRemove >= roots.length) revert RollbackIndexOutOfBounds();
+        emit Rollback(roots.length, indexToRemove);
 
         // TODO - Meter the gas use possible opt target
-        if (index != 0) {
+        if (indexToRemove != 0) {
             bytes32 l2BlockHash = keccak256(abi.encode(priorBlock));
-            require(l2BlockHash == roots[index - 1], "Prior Root Mismatch");
+            if (l2BlockHash != roots[indexToRemove - 1]) revert PriorRootMismatch();
             lastTimestamp = priorBlock.blockIndex;
         } else {
             lastTimestamp = TimestampAndIndex({ day: 0, index: 0 });
         }
 
         assembly ("memory-safe") {
-            sstore(roots.slot, index)
+            sstore(roots.slot, indexToRemove)
         }
     }
 
-    // Returns the highest nonreorged index
+    // Returns the highest non-reorged index
     function getCurrentBlocknumber() public view returns (uint256) {
         return (roots.length);
     }
@@ -159,8 +171,7 @@ contract Spine is BlobData {
         }
         // Note if the last 24 bytes match we assume this hash has not been rolled back.
         // Casting here we use the force cast because we want this to truncate so it fits
-        // forge-lint: disable-next-line(unsafe-typecast)
-        return (partialHash == (bytes24)(roots[uint256(index)]));
+        return (partialHash == bytes24(roots[uint256(index)]));
     }
 
     // Checks that the provided anchor is either the anchor after blockNr - 1 or that it is the anchor after update given by updateNr in block blockNr
@@ -175,11 +186,11 @@ contract Spine is BlobData {
         // Either this is the first deposit or the first transaction in a block with no deposits
         // then we check that the index of anchor is equal to blockNr - 1
         if ((isDeposit && updateNr == 0) || (data.numDeposits == 0 && updateNr == 0)) {
-            require(isAnchorIncluded(anchor));
+            if (!isAnchorIncluded(anchor)) revert AnchorNotIncluded();
             if (data.blockNr == 0) {
-                require(anchor == GENESIS_ANCHOR);
+                if (anchor != GENESIS_ANCHOR) revert InvalidGenesisAnchor();
             } else {
-                require(anchorToIndex[anchor].index == data.blockNr - 1);
+                if (anchorToIndex[anchor].index != data.blockNr - 1) revert AnchorIndexMismatch();
             }
             return;
         }

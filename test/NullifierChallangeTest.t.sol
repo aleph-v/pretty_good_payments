@@ -7,6 +7,12 @@ import {Test} from "forge-std/Test.sol";
 import {NullifierChallenge} from "../src/NullifierChallenge.sol";
 import {Spine} from "../src/Spine.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
+import {
+    InvalidNullifierOrder,
+    TxIndexOutOfBounds,
+    SameNullifierLocation,
+    InvalidNullifierWhich
+} from "../src/library/Errors.sol";
 
 contract NullifierChallengeHarness is NullifierChallenge, FakeBlobs {
     function setupBlocks(BlockData memory data, uint256 seed) public returns (BlockData memory, bytes32[] memory ret) {
@@ -197,7 +203,7 @@ contract NullifierChallengeTest is Test {
         Spine.BlockData memory emptyBlock;
 
         // Should revert - first.blockNr (1) > second.blockNr (0)
-        vm.expectRevert();
+        vm.expectRevert(InvalidNullifierOrder.selector);
         harness.challengeNullifier(nullifier, loader1, loader2, emptyBlock);
     }
 
@@ -249,7 +255,7 @@ contract NullifierChallengeTest is Test {
         bytes32 outOfBoundsData = harness.access(blobhashes[0], 24); // 15 + 9
 
         // Should revert due to bounds checking
-        vm.expectRevert();
+        vm.expectRevert(TxIndexOutOfBounds.selector);
         harness.challengeNullifier(outOfBoundsData, loader1, loader2, block1);
     }
 
@@ -353,7 +359,7 @@ contract NullifierChallengeTest is Test {
         Spine.BlockData memory emptyBlock;
 
         // Should revert - cannot prove reuse against same exact location
-        vm.expectRevert();
+        vm.expectRevert(SameNullifierLocation.selector);
         harness.challengeNullifier(nullifier, loader1, loader2, emptyBlock);
     }
 
@@ -448,7 +454,7 @@ contract NullifierChallengeTest is Test {
         bytes32 arbitraryNullifier = keccak256("arbitrary");
 
         // Should revert due to assert in nullifierMemoryAddress
-        vm.expectRevert();
+        vm.expectRevert(InvalidNullifierWhich.selector);
         harness.challengeNullifier(arbitraryNullifier, loader1, loader2, block1);
     }
 
@@ -499,7 +505,7 @@ contract NullifierChallengeTest is Test {
 
         bytes32 nullifier = harness.access(blobhashes[0], 9);
 
-        // Should revert due to isBlockIncluded check
+        // Should revert due to isBlockIncluded check - causes array out of bounds panic
         vm.expectRevert();
         harness.challengeNullifier(nullifier, loader1, loader2, block1);
     }

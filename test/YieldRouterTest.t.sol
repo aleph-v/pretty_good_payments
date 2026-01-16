@@ -8,11 +8,15 @@ import {YieldRouter, IERC4626} from "../src/YieldRouter.sol";
 import {IEntrypoint} from "../src/interfaces/IEntrypoint.sol";
 import {FakeERC20} from "./mocks/FakeErc20.sol";
 import {MockERC4626} from "./mocks/MockERC4626.sol";
+import {Ownable} from "solady/auth/Ownable.sol";
+import {TokenNotTransferred, TokenNotEnabled, NotBridge, AlreadyPaid, SequencerChallenged, EpochNotFinished} from "../src/library/Errors.sol";
 
 // Mock entrypoint that implements IEntrypoint for testing
 contract MockEntrypoint is IEntrypoint {
     mapping(address => mapping(uint256 => uint256)) public percents;
     mapping(address => bool) public challenged;
+    mapping(uint256 => bool) public epochFinalized;
+    bool public defaultFinalized = true;
 
     function setPercent(address sequencer, uint256 epoch, uint256 percent) external {
         percents[sequencer][epoch] = percent;
@@ -22,12 +26,21 @@ contract MockEntrypoint is IEntrypoint {
         challenged[sequencer] = status;
     }
 
+    function setEpochFinalized(uint256 epoch, bool status) external {
+        epochFinalized[epoch] = status;
+    }
+
+    function setDefaultFinalized(bool status) external {
+        defaultFinalized = status;
+    }
+
     function getPercentInEpoch(address sequencer, uint256 epoch) external view returns (uint256) {
         return percents[sequencer][epoch];
     }
 
-    function isFinalized(uint256) external pure returns (bool) {
-        return true;
+    function isFinalized(uint256 epoch) external view returns (bool) {
+        if (epochFinalized[epoch]) return true;
+        return defaultFinalized;
     }
 
     function isChallenged(address who) external view returns (bool) {
@@ -124,21 +137,21 @@ contract YieldRouterTest is Test {
         token.mint(address(router), 100 ether);
 
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(NotBridge.selector);
         router.triggerDeposit(address(token), 100 ether);
     }
 
     function test_TriggerDeposit_Validations() public {
         // No tokens transferred
         vm.prank(address(mockBridge));
-        vm.expectRevert("Not Transferred");
+        vm.expectRevert(TokenNotTransferred.selector);
         router.triggerDeposit(address(token), 100 ether);
 
         // Source not enabled
         FakeERC20 otherToken = new FakeERC20();
         otherToken.mint(address(router), 100 ether);
         vm.prank(address(mockBridge));
-        vm.expectRevert("ERC20 not enabled");
+        vm.expectRevert(TokenNotEnabled.selector);
         router.triggerDeposit(address(otherToken), 100 ether);
     }
 
@@ -261,7 +274,7 @@ contract YieldRouterTest is Test {
         router.sequencerWithdrawAsset(address(token), sequencer1, epoch);
 
         // Second withdrawal of SAME token fails
-        vm.expectRevert();
+        vm.expectRevert(AlreadyPaid.selector);
         router.sequencerWithdrawAsset(address(token), sequencer1, epoch);
     }
 
@@ -380,7 +393,7 @@ contract YieldRouterTest is Test {
 
     function test_SetMaxInterest_OnlyOwner() public {
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(Ownable.Unauthorized.selector);
         router.setMaxInterest(address(token), 50 ether);
     }
 
@@ -458,7 +471,7 @@ contract YieldRouterTest is Test {
         newTracked[0] = address(token);
 
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(Ownable.Unauthorized.selector);
         router.changeTrackedYieldSources(newTracked);
     }
 
@@ -483,7 +496,7 @@ contract YieldRouterTest is Test {
         MockERC4626 newVault = new MockERC4626(token);
 
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(Ownable.Unauthorized.selector);
         router.changeYieldSource(address(token), newVault);
     }
 
@@ -594,7 +607,36 @@ contract YieldRouterTest is Test {
         mockBridge.setChallenged(sequencer1, true);
 
         // Withdraw should fail
-        vm.expectRevert();
+        vm.expectRevert(SequencerChallenged.selector);
         router.sequencerWithdrawAsset(address(token), sequencer1, epoch);
+    }
+
+    function test_SequencerWithdraw_FailsWhenEpochNotFinalized() public {
+        token.mint(address(router), 100 ether);
+        vm.prank(address(mockBridge));
+        router.triggerDeposit(address(token), 100 ether);
+        vault.addYield(10 ether);
+
+        uint256 epoch = 0;
+        uint256 period = epoch / EPOCHS_PER_PERIOD;
+        router.setPeriodPayout(address(token), period, 10 ether);
+        mockBridge.setPercent(sequencer1, epoch, 1e18);
+
+        // Set epoch as not finalized
+        mockBridge.setDefaultFinalized(false);
+
+        // Withdraw should fail because epoch is not finalized
+        vm.expectRevert(EpochNotFinished.selector);
+        router.sequencerWithdrawAsset(address(token), sequencer1, epoch);
+
+        // Now finalize the epoch
+        mockBridge.setEpochFinalized(epoch, true);
+
+        // Withdraw should succeed
+        uint256 balanceBefore = token.balanceOf(sequencer1);
+        router.sequencerWithdrawAsset(address(token), sequencer1, epoch);
+        uint256 received = token.balanceOf(sequencer1) - balanceBefore;
+
+        assertEq(received, 1 ether, "Sequencer should receive their share after epoch finalization");
     }
 }

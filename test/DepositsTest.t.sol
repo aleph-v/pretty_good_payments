@@ -12,6 +12,7 @@ import {FakeERC20} from "./mocks/FakeErc20.sol";
 import {FakeZK} from "./mocks/FakeZk.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
+import {InvalidDepositAmount, MaxDepositsExceeded} from "../src/library/Errors.sol";
 
 // Harness to expose internal state and functions
 contract DepositsHarness is Deposits {
@@ -252,8 +253,8 @@ contract DepositsTest is Test {
             Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
 
         // This should fail because block 3 is also full
-        // The contract only increments once, then asserts
-        vm.expectRevert(); // Expect the assert to fail
+        // The contract only increments once, then reverts
+        vm.expectRevert(MaxDepositsExceeded.selector);
         deposits.deposit(leaf);
         vm.stopPrank();
     }
@@ -361,7 +362,7 @@ contract DepositsTest is Test {
             Leaf({asset: address(token), amount: 0, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
 
         // Zero amount deposit should revert
-        vm.expectRevert("Invalid amount");
+        vm.expectRevert(InvalidDepositAmount.selector);
         deposits.deposit(leaf);
         vm.stopPrank();
     }

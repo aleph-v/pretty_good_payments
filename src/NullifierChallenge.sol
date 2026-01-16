@@ -3,6 +3,12 @@ pragma solidity ^0.8.13;
 
 import {Spine} from "./Spine.sol";
 import {SequencerRegistry} from "./SequencerRegistry.sol";
+import {
+    BlockNotIncluded,
+    TxIndexOutOfBounds,
+    SameNullifierLocation,
+    InvalidNullifierOrder
+} from "./library/Errors.sol";
 
 // The component of the challenge system which enforces that nullifiers are not repeated
 
@@ -27,11 +33,11 @@ contract NullifierChallenge is Spine, SequencerRegistry {
         // We cannot open the same nullifier to prove reuse
         if (first.data.blockNr == second.data.blockNr) {
             if (first.txNr == second.txNr) {
-                require(first.whichNullifier != second.whichNullifier);
+                if (first.whichNullifier == second.whichNullifier) revert SameNullifierLocation();
             }
         }
         // First must be the first time we see the nullifier
-        require(first.data.blockNr <= second.data.blockNr);
+        if (first.data.blockNr > second.data.blockNr) revert InvalidNullifierOrder();
 
         validateNullifierOpening(first, reusedNullifier);
         validateNullifierOpening(second, reusedNullifier);
@@ -42,8 +48,8 @@ contract NullifierChallenge is Spine, SequencerRegistry {
     }
 
     function validateNullifierOpening(NullifierLoader calldata loader, bytes32 nullifier) internal view {
-        require(loader.txNr < loader.data.numTransactions);
-        require(isBlockIncluded(loader.data));
+        if (loader.txNr >= loader.data.numTransactions) revert TxIndexOutOfBounds();
+        if (!isBlockIncluded(loader.data)) revert BlockNotIncluded();
 
         // We compute the absolute memory location
         // uint256 txNumber, uint256 numDeposits, uint256 which

@@ -5,6 +5,7 @@ import {Spine} from "./Spine.sol";
 import {PredictableMerkleLib, Leaf} from "./library/PredictableMerkleLib.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
+import {InvalidDepositAmount, MaxDepositsExceeded} from "./library/Errors.sol";
 
 // Deposits are structured such that even if the L2 reorgs because of bad block submission the deposits remain valid
 // each leaf is appended to either the highest ever seen position for deposits or to the current block number + 2.
@@ -33,7 +34,7 @@ contract Deposits is Spine {
     // If the chain is reorged due to fraud this deposits tree does not rollback, new blocks created at new indices must
     // also include the same deposits.
     function deposit(Leaf memory leaf) external {
-        require(leaf.amount != 0, "Invalid amount");
+        if (leaf.amount == 0) revert InvalidDepositAmount();
         // First we transfer from the user to the yield system and trigger deposit
         IERC20(leaf.asset).safeTransferFrom(msg.sender, address(yieldRouter), leaf.amount);
         yieldRouter.triggerDeposit(leaf.asset, leaf.amount);
@@ -50,7 +51,7 @@ contract Deposits is Spine {
             blockToDepositIn++;
         }
         // We should never hit this, but we include it to prevent breakage in the fault system
-        assert(perBlockDeposits[blockToDepositIn].length < MAX_DEPOSITS);
+        if (perBlockDeposits[blockToDepositIn].length >= MAX_DEPOSITS) revert MaxDepositsExceeded();
 
         perBlockDeposits[blockToDepositIn].push(leafHash);
         if (blockToDepositIn > highestDepositCache) {

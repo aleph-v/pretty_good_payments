@@ -13,6 +13,7 @@ import {ITransactionRegistry} from "../src/TransactionRegistry.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {FakeZK} from "./mocks/FakeZK.sol";
 import {ConfigurableTxRegistry} from "./mocks/ConfigurableTxRegistry.sol";
+import {NoFraud, ZeroEthKey} from "../src/library/Errors.sol";
 
 /// @title TransactionChallenge Integration Test
 /// @notice Comprehensive integration tests with real ZK proofs and multi-day/block scenarios
@@ -673,7 +674,7 @@ contract TransactionChallengeIntegrationTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert(); // Reverts because ethKey == 0 means no fraud possible with valid ZK
+        vm.expectRevert(ZeroEthKey.selector); // Reverts because ethKey == 0 means no fraud possible with valid ZK
         harness.challengeTxZK(
             targetBlockData,
             testData.targetTxNr,
@@ -856,7 +857,7 @@ contract TransactionChallengeIntegrationTest is Test {
 
         // Challenge should revert with "No Fraud" because tx is properly registered
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTxZK(
             targetBlockData,
             unregisteredTestData.targetTxNr,
@@ -927,7 +928,7 @@ contract TransactionChallengeIntegrationTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert(); // Reverts because ethKey == 0 means no fraud possible with valid ZK
+        vm.expectRevert(ZeroEthKey.selector); // Reverts because ethKey == 0 means no fraud possible with valid ZK
         harness.challengeTxZK(
             targetBlockData,
             crossblobTestData.targetTxNr,
@@ -1069,7 +1070,7 @@ contract TransactionChallengeIntegrationTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert(); // Reverts because ethKey == 0 means no fraud possible with valid ZK
+        vm.expectRevert(ZeroEthKey.selector); // Reverts because ethKey == 0 means no fraud possible with valid ZK
         harness.challengeTxZK(
             targetBlockData,
             multiTxTestData.targetTxNr,
@@ -1122,7 +1123,7 @@ contract TransactionChallengeIntegrationTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert(); // Reverts because valid ZK proof with ethKey == 0
+        vm.expectRevert(ZeroEthKey.selector); // Reverts because valid ZK proof with ethKey == 0
         harness.challengeTxZK(
             targetBlockData,
             depositAnchorTestData.targetTxNr,
@@ -1184,7 +1185,7 @@ contract TransactionChallengeIntegrationTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert(); // Reverts because valid ZK proof with ethKey == 0
+        vm.expectRevert(ZeroEthKey.selector); // Reverts because valid ZK proof with ethKey == 0
         harness.challengeTxZK(
             targetBlockData,
             sameBlockTestData.targetTxNr,

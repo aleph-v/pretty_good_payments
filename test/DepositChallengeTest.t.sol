@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {DepositChallenge} from "../src/DepositChallenge.sol";
 import {Spine} from "../src/Spine.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
+import {NoFraud, DepositIndexOutOfBounds} from "../src/library/Errors.sol";
 
 contract DepositChallengeHarness is DepositChallenge, FakeBlobs {
     constructor() {
@@ -146,7 +147,7 @@ contract DepositChallengeTest is Test {
 
         Spine.BlockData memory emptyPrior;
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeDepositWrongLeaf(blockData, 0, actualLeaf, "", "", emptyPrior);
     }
 
@@ -159,7 +160,7 @@ contract DepositChallengeTest is Test {
 
         Spine.BlockData memory emptyPrior;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(DepositIndexOutOfBounds.selector);
         harness.challengeDepositWrongLeaf(blockData, 3, bytes32(0), "", "", emptyPrior);
     }
 
@@ -169,7 +170,7 @@ contract DepositChallengeTest is Test {
 
         Spine.BlockData memory emptyPrior;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(DepositIndexOutOfBounds.selector);
         harness.challengeDepositWrongLeaf(blockData, 0, bytes32(0), "", "", emptyPrior);
     }
 
@@ -189,7 +190,7 @@ contract DepositChallengeTest is Test {
 
         Spine.BlockData memory emptyPrior;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // Reverts with panic (array out of bounds) for non-existent block
         harness.challengeDepositWrongLeaf(fakeBlock, 0, bytes32(0), "", "", emptyPrior);
 
         // Test 2: Real block with modified data
@@ -198,7 +199,7 @@ contract DepositChallengeTest is Test {
         blockData.numDeposits = 5; // Modify after adding
 
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // Reverts with panic (array out of bounds) for modified block
         harness.challengeDepositWrongLeaf(blockData, 0, bytes32(0), "", "", emptyPrior);
     }
 
@@ -249,7 +250,7 @@ contract DepositChallengeTest is Test {
 
         // Block rolled back, second challenge should fail
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // Reverts with panic (array out of bounds) after rollback
         harness.challengeDepositWrongLeaf(blockData, 1, wrongLeaf, "", "", emptyPrior);
     }
 

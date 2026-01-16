@@ -3,6 +3,19 @@ pragma solidity ^0.8.13;
 
 import {Spine} from "./Spine.sol";
 import {SequencerRegistry} from "./SequencerRegistry.sol";
+import {
+    BlockNotIncluded,
+    TxIndexOutOfBounds,
+    EmptyRegion,
+    RegionBlobHashMismatch,
+    RegionMemoryAddressMismatch,
+    RegionLengthMismatch,
+    RegionNotAtBlobBoundary,
+    ExtensionMemoryNotZero,
+    InvalidAnchorBlockInfo,
+    ZeroEthKey,
+    NoFraud
+} from "./library/Errors.sol";
 
 // The component of the challenge system which enforces deposits are done properly
 
@@ -19,30 +32,30 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         BlockData memory rollbackTargetBlock
     ) external {
         // Check the block is in the tree
-        require(isBlockIncluded(data));
-        require(txNr < data.numTransactions);
+        if (!isBlockIncluded(data)) revert BlockNotIncluded();
+        if (txNr >= data.numTransactions) revert TxIndexOutOfBounds();
 
         // Get the absolute memory address implied by the number of TX
         uint256 memoryAddress = txMemoryAddress(txNr, data.numDeposits);
 
         // Validate the first region
-        require(region.length != 0);
+        if (region.length == 0) revert EmptyRegion();
         uint256 firstBlobNumber = memoryAddress / 4096;
-        require(region.hash == data.blobhashes[firstBlobNumber]);
-        require(region.memoryAddress == (memoryAddress % 4096));
+        if (region.hash != data.blobhashes[firstBlobNumber]) revert RegionBlobHashMismatch();
+        if (region.memoryAddress != (memoryAddress % 4096)) revert RegionMemoryAddressMismatch();
         validateRegionOpening(region);
         // This check is critical even with an empty extension region as it forces an empty region
         // to have empty data.
         validateRegionOpening(extensionRegion);
-        require(region.length + extensionRegion.length == 14, "Not enough data");
+        if (region.length + extensionRegion.length != 14) revert RegionLengthMismatch();
 
         // If we are actually using elements from the extension region we require that we are at the end of the blob
         // and that the blobhash matches, and that the memory region is equal to zero
         if (extensionRegion.length != 0) {
             // We enforce that this actually at the end of the blob.
-            assert((region.memoryAddress + region.length) % 4096 == 0);
-            require(extensionRegion.hash == data.blobhashes[firstBlobNumber + 1]);
-            require(extensionRegion.memoryAddress == 0);
+            if ((region.memoryAddress + region.length) % 4096 != 0) revert RegionNotAtBlobBoundary();
+            if (extensionRegion.hash != data.blobhashes[firstBlobNumber + 1]) revert RegionBlobHashMismatch();
+            if (extensionRegion.memoryAddress != 0) revert ExtensionMemoryNotZero();
         }
 
         bytes32[14] memory raw;
@@ -82,8 +95,8 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         // If the transaction has not been set with invalid update or block numbers then we check that the challenger
         // has given the correct block and if so that the transaction has valid anchor ref values (ie not more than tx num)
         if (noFraud) {
-            require(isBlockIncluded(priorAnchorBlock), "Invalid anchor block info");
-            require(priorAnchorBlock.blockNr == anchorBlockNr, "Invalid anchor block info");
+            if (!isBlockIncluded(priorAnchorBlock)) revert InvalidAnchorBlockInfo();
+            if (priorAnchorBlock.blockNr != anchorBlockNr) revert InvalidAnchorBlockInfo();
 
             // Checks if the user has submitted an invalid update number
             // For deposits, anchorUpdateNr is a GROUP index, so we use ceiling division to get the number of groups
@@ -109,7 +122,7 @@ contract TransactionChallenge is Spine, SequencerRegistry {
         // transaction and check that the proof is missing its approval in the transaction registry
         if (noFraud) {
             // If the eth key is address zero and the proof validates there is no fraud and we revert
-            require(ethKey != address(0));
+            if (ethKey == address(0)) revert ZeroEthKey();
             // Extract fields [null0, null1, leaf0, leaf1, leaf2] from publicInputs
             // Public inputs order: [null0, null1, leaf0, leaf1, leaf2, anchor, ethKey]
             // So the first 5 elements are exactly what the registry needs
@@ -118,7 +131,7 @@ contract TransactionChallenge is Spine, SequencerRegistry {
                 fields := publicInputs
             }
             // Since all other fraud opportunities have been excused we require the fraud is here by requiring the query to return false.
-            require(!transferRegistry.query(ethKey, fields), "No Fraud");
+            if (transferRegistry.query(ethKey, fields)) revert NoFraud();
         }
 
         slash(data.sequencer, data.blockNr);

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.13;
 
 import {LibBit} from "solady/utils/LibBit.sol";
+import {InvalidLeafWhich, InvalidNullifierWhich, InvalidDepositNumber, RegionDataLengthMismatch} from "./Errors.sol";
 
 // We implement a protocol which does kzg opening against blob commitments.
 // In the simplest version it just proves that the commitment evaluated at the bit reversed root of unity
@@ -54,7 +55,7 @@ contract BlobData {
         pure
         returns (uint256)
     {
-        assert(which < 3);
+        if (which >= 3) revert InvalidLeafWhich();
         if (isDeposit) {
             // Each deposit number is one field, but each three fields we include a root.
             return (number + number / 3);
@@ -73,7 +74,7 @@ contract BlobData {
     {
         uint256 deposits = numDepositsToMemoryLength(numDeposits);
         uint256 prior = txNumber * 15;
-        assert(which < 2);
+        if (which >= 2) revert InvalidNullifierWhich();
         // 4 entries per deposit, 15 per prior tx, 11 (8 zk, 1 root, 2 nullifiers)
         return (deposits + prior + 9 + which);
     }
@@ -87,7 +88,8 @@ contract BlobData {
         returns (uint256)
     {
         if (isDeposit) {
-            assert(number <= numDeposits / 3);
+            // Since we are using update groups we need to subtract one to get the update group memory location
+            if (number > (numDeposits - 1) / 3) revert InvalidDepositNumber();
             return (number * 4 - 1);
         } else {
             uint256 deposits = numDepositsToMemoryLength(numDeposits);
@@ -112,7 +114,7 @@ contract BlobData {
 
     // Validate a contigious region of memory in a blob starting at a memory address
     function validateRegionOpening(Region calldata region) internal view {
-        assert(region.length == region.data.length);
+        if (region.length != region.data.length || region.length != region.proofs.length) revert RegionDataLengthMismatch();
         uint256 memoryAddress = region.memoryAddress;
         for (uint256 i = 0; i < region.data.length; i++) {
             validateSingle(region.hash, region.commitment, memoryAddress, region.data[i], region.proofs[i]);

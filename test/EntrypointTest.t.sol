@@ -12,6 +12,7 @@ import {FakeZK} from "./mocks/FakeZk.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
+import {EpochNotFinished, NotAllowed} from "../src/library/Errors.sol";
 
 contract EntrypointHarness is Entrypoint, FakeBlobs {
     constructor(
@@ -209,7 +210,7 @@ contract EntrypointTest is Test {
         address nonPrioritySeq = (epoch % 2 == 0) ? sequencer2 : sequencer1;
         (Spine.BlockData memory data1, uint256[] memory indices1) = _createBlockData(1, 1, 100);
         vm.prank(nonPrioritySeq);
-        vm.expectRevert();
+        vm.expectRevert(NotAllowed.selector);
         entrypoint.post(data1, indices1);
 
         // In open period, any active sequencer allowed
@@ -267,7 +268,7 @@ contract EntrypointTest is Test {
         entrypoint.post(data, indices);
 
         (uint256 epoch,) = entrypoint.currentEpoch();
-        vm.expectRevert("Not finished");
+        vm.expectRevert(EpochNotFinished.selector);
         entrypoint.getPercentInEpoch(sequencer1, epoch);
     }
 }

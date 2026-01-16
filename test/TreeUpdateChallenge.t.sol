@@ -14,6 +14,13 @@ import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 import {FakeZK} from "./mocks/FakeZK.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
+import {
+    NoFraud,
+    InvalidZKProof,
+    EmptyRegion,
+    TxIndexOutOfBounds,
+    UpdateIndexOutOfBounds
+} from "../src/library/Errors.sol";
 
 contract TreeUpdateChallengeHarness is TreeUpdateChallenge, FakeBlobs {
     constructor(
@@ -362,7 +369,7 @@ contract TreeUpdateChallengeTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // Reverts with panic (array out of bounds) for non-included block
         harness.challengeTreeUpdate(
             data, 0, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, rollbackTarget
         );
@@ -376,7 +383,7 @@ contract TreeUpdateChallengeTest is Test {
 
         Proof memory zkProof;
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(EmptyRegion.selector);
         harness.challengeTreeUpdate(
             data, 0, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
         );
@@ -392,7 +399,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // updateNr = 5 is out of bounds (valid range is 0-4 for 5 transactions)
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(TxIndexOutOfBounds.selector);
         harness.challengeTreeUpdate(
             data, 5, true, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
         );
@@ -409,7 +416,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // updateNr = 2 is out of bounds
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(UpdateIndexOutOfBounds.selector);
         harness.challengeTreeUpdate(
             data, 2, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
         );
@@ -425,7 +432,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // updateNr = 1 is out of bounds (valid is only 0)
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(UpdateIndexOutOfBounds.selector);
         harness.challengeTreeUpdate(
             data, 1, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
         );
@@ -441,7 +448,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // updateNr = 2 is out of bounds
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(UpdateIndexOutOfBounds.selector);
         harness.challengeTreeUpdate(
             data, 2, false, region, _createEmptyRegion(), GENESIS, "", "", bytes32(uint256(1)), zkProof, data
         );
@@ -475,7 +482,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // Should not revert with out of bounds - will revert with "No Fraud" instead
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(
             data, updateNr, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, data
         );
@@ -494,7 +501,7 @@ contract TreeUpdateChallengeTest is Test {
         });
 
         vm.prank(challenger);
-        vm.expectRevert("Invalid ZK update proof");
+        vm.expectRevert(InvalidZKProof.selector);
         harness.challengeTreeUpdate(
             data, 0, false, region, extensionRegion, GENESIS, "", "", bytes32(uint256(999)), zkProof, data
         );
@@ -565,7 +572,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // Challenge should revert with "No Fraud" since this is a valid block
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, data);
     }
 
@@ -598,7 +605,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // isLast = (0 == 6/3) = false, trueAnchor == sequencerSubmittedRoot -> "No Fraud"
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, data);
     }
 
@@ -627,7 +634,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // updateNr=0 with numTransactions=1: isLast = true, trueAnchor == data.anchor -> "No Fraud"
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(data, 0, true, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, data);
     }
 
@@ -657,7 +664,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // updateNr=1 with numTransactions=2: isLast = true, trueAnchor == data.anchor -> "No Fraud"
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(
             data, 1, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, data
         );
@@ -689,7 +696,7 @@ contract TreeUpdateChallengeTest is Test {
         Proof memory zkProof;
         // updateNr=0 with numTransactions=1: isLast = true, trueAnchor == data.anchor -> "No Fraud"
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(
             data, 0, true, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, data
         );
@@ -1176,7 +1183,7 @@ contract TreeUpdateChallengeTest is Test {
             bytes32 trueAnchor = regionData[3]; // The correct root
 
             vm.prank(challenger);
-            vm.expectRevert("No Fraud");
+            vm.expectRevert(NoFraud.selector);
             harness.challengeTreeUpdate(
                 data,
                 updateNr,
@@ -1253,7 +1260,7 @@ contract TreeUpdateChallengeTest is Test {
             }
 
             vm.prank(challenger);
-            vm.expectRevert("No Fraud");
+            vm.expectRevert(NoFraud.selector);
             harness.challengeTreeUpdate(
                 data,
                 updateNr,
@@ -1509,7 +1516,7 @@ contract TreeUpdateChallengeTest is Test {
         // Should revert with "No Fraud" since the root matches
         // Note: isLast = (updateNr == (6+2)/3) = (1 == 2) = false
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(
             data, updateNr, false, region, extensionRegion, priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
@@ -1543,7 +1550,7 @@ contract TreeUpdateChallengeTest is Test {
 
         // Should work correctly and revert with "No Fraud"
         vm.prank(challenger);
-        vm.expectRevert("No Fraud");
+        vm.expectRevert(NoFraud.selector);
         harness.challengeTreeUpdate(
             data, 0, false, region, extensionRegion, GENESIS, "", "", trueAnchor, zkProof, rollbackTarget
         );
@@ -1632,7 +1639,7 @@ contract TreeUpdateChallengeTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // FakeBlobs mock returns "Not Tracked" for unknown blob hash
         harness.challengeTreeUpdate(
             data, 272, true, region, badHashExtension, setup.priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );
@@ -1672,7 +1679,7 @@ contract TreeUpdateChallengeTest is Test {
         Spine.BlockData memory rollbackTarget;
 
         vm.prank(challenger);
-        vm.expectRevert();
+        vm.expectRevert(); // FakeBlobs mock doesn't return proper error data
         harness.challengeTreeUpdate(
             data, 272, true, region, badAddrExtension, setup.priorAnchor, "", "", trueAnchor, zkProof, rollbackTarget
         );

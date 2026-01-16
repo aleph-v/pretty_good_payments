@@ -3,17 +3,15 @@ pragma solidity ^0.8.13;
 
 import {Spine} from "./Spine.sol";
 import {PredictableMerkleLib, Leaf} from "./library/PredictableMerkleLib.sol";
+import {
+    BlockNotConfirmed,
+    AlreadyWithdrawn,
+    InvalidLeafWhich,
+    TxIndexOutOfBounds,
+    PublicKeyNotZero
+} from "./library/Errors.sol";
 
 // Handles user withdraws
-
-// We require the user to make a transaction which has an eth address as a public key, this means with roughly 96 bits
-// of work you can burn funds from the L2 but you would need far more to actually steal funds, as finding a preimage
-// with 96 bits of first zeros requires roughly 2^96 tries but would only allow theft if you could also find a matching
-// address priv key requring far more bits.
-
-// TODO - We might want to work on an escape hatch or other mechanism, requiring the user to self sequence a withdraw tx
-//        might be too much of a burden if they are being censored (because it requires staking).
-
 contract Withdraw is Spine {
     using PredictableMerkleLib for Leaf;
 
@@ -22,34 +20,33 @@ contract Withdraw is Spine {
     function withdraw(
         Leaf memory leaf,
         BlockData memory data,
-        uint256 blobHashIndex,
         uint256 txNr,
         uint256 which,
         bytes calldata commitment,
         bytes calldata proof
     ) external {
         // Checks that the anchor is confirmed and that the leaf is in the tree
-        require(isConfirmed(data));
-        // TODO need more index info on withdraws
-        require(!withdrawn[data.blockNr][(txNr << 2) + which]);
+        if (!isConfirmed(data)) revert BlockNotConfirmed();
+        if (withdrawn[data.blockNr][(txNr << 2) + which]) revert AlreadyWithdrawn();
+
+        // Validate the tx info and then compute the location "leaf" should be in the blob
+        if (which >= 3) revert InvalidLeafWhich();
+        if (txNr >= data.numTransactions) revert TxIndexOutOfBounds();
 
         // Get the leaf hash and the blob hash
         bytes32 leafHash = leaf.hash();
-        bytes32 l2blobhash = data.blobhashes[blobHashIndex];
-
-        // Validate the tx info and then compute the location "leaf" should be in the blob
-        require(which < 3);
-        require(txNr < data.numTransactions);
+        uint256 memoryAddress = leafMemoryAddress(txNr, data.numDeposits, false, which);
+        bytes32 l2blobhash = data.blobhashes[memoryAddress/4096];
         // We cannot withdraw from deposit leafs
-        // TODO - Consider allowing withdraws from deposit leaves?
-        uint256 blobIndex = leafMemoryAddress(txNr, data.numDeposits, false, which) % 4096;
+        uint256 blobIndex = memoryAddress % 4096;
         // Validate will revert on any problems but will otherwise prove that the is an output leaf
         // of transaction number txNumber
         validateSingle(l2blobhash, commitment, blobIndex, leafHash, proof);
 
         // Next we check that the leaf is actually withdrawable
-        // The user submits a transaction which is to a key which
-        require(leaf.publicKey == 0);
+        // The user submits a transaction to a public key zero while setting the blinding factor,
+        // this renders this note provably un-spendable.
+        if (leaf.publicKey != 0) revert PublicKeyNotZero();
 
         // Now process
         withdrawn[data.blockNr][(txNr << 2) + which] = true;

@@ -10,6 +10,7 @@ import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "./interfaces/ITransferVerifier.sol";
 import {ITransactionRegistry} from "./TransactionRegistry.sol";
+import {NotAllowed, EpochNotFinished} from "./library/Errors.sol";
 
 // This is the main entrypoint for sequencing and handles the percentage payouts.
 // Through the inheritance system this pulls in all of the logic needed.
@@ -41,7 +42,7 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
 
     // The function which allows sequencers to post
     function post(BlockData memory data, uint256[] memory blobIndices) external {
-        require(isAllowed(msg.sender));
+        if (!isAllowed(msg.sender)) revert NotAllowed();
         addBlock(data, blobIndices);
         (uint256 epoch, bool currentlyPriority) = currentEpoch();
 
@@ -55,7 +56,7 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
 
     function getPercentInEpoch(address sequencer, uint256 epoch) external view returns (uint256) {
         (uint256 epochNow,) = currentEpoch();
-        require(epochNow > epoch, "Not finished");
+        if (epochNow <= epoch) revert EpochNotFinished();
         if (totalBlobUse[epoch] == 0) {
             return (0);
         }
