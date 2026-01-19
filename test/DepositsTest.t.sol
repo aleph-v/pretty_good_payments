@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Deposits} from "../src/Deposits.sol";
@@ -56,7 +56,7 @@ contract DepositsHarness is Deposits {
 
     // Push a root directly for testing (bypasses validation)
     function pushRootForTest(bytes32 root) external {
-        assembly {
+        assembly ("memory-safe") {
             // Load the slot for roots array
             let slot := roots.slot
             let len := sload(slot)

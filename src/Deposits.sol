@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 import {Spine} from "./Spine.sol";
 import {PredictableMerkleLib, Leaf} from "./library/PredictableMerkleLib.sol";

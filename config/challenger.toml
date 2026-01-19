@@ -1,0 +1,35 @@
+# Pretty Good Payments - Challenger Configuration
+# Chain ID: 31337
+# Generated at block: 0
+
+[network]
+rpc_url = "http://localhost:8545"
+# beacon_url = "http://localhost:5052"
+chain_id = 31337
+
+[contracts]
+entrypoint = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+transaction_registry = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+
+[challenger]
+private_key = "${CHALLENGER_PRIVATE_KEY}"
+poll_interval_ms = 2000
+lookback_blocks = 100
+max_gas_price_gwei = 100
+challenge_gas_limit = 500000
+
+[challenger.validators]
+transaction_zk = true
+deposit = true
+nullifier = true
+tree_update = true
+
+[storage]
+db_path = "./data/challenger.db"
+
+[logging]
+level = "info"
+format = "pretty"
+
+[metrics]
+enabled = false

@@ -1,0 +1,95 @@
+# Pretty Good Payments - Sequencer Configuration
+#
+# Copy this file to sequencer.toml and update with your values.
+# Environment variables can be used for secrets: ${ENV_VAR_NAME}
+#
+# Run GenerateConfig.s.sol after deployment to auto-generate with contract addresses.
+
+[network]
+# Execution layer RPC endpoint
+rpc_url = "http://localhost:8545"
+
+# Beacon chain RPC (required for non-Anvil networks)
+# beacon_url = "http://localhost:5052"
+
+# Network chain ID (31337 for Anvil, 11155111 for Sepolia)
+chain_id = 31337
+
+[contracts]
+# Entrypoint contract address (main PGP contract)
+entrypoint = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+
+# Yield router contract address
+yield_router = "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0"
+
+# Transaction registry contract address
+transaction_registry = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+
+# Supported token address (USDC, etc.)
+token = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+
+[sequencer]
+# Private key for submitting blocks and blobs
+# SECURITY: Use environment variable in production
+private_key = "${SEQUENCER_PRIVATE_KEY}"
+
+# Maximum transactions per block (limited by blob capacity)
+# Each transaction uses 15 fields = 480 bytes
+max_transactions_per_block = 4096
+
+# Maximum deposits per block
+# Each deposit uses 4 fields = 128 bytes
+max_deposits_per_block = 3072
+
+# Maximum blobs per EIP-4844 transaction (protocol max is 6)
+max_blobs_per_block = 6
+
+# Target block submission interval (milliseconds)
+block_time_ms = 12000
+
+# How long to wait for priority sequencer before submitting (milliseconds)
+# Only applies to non-priority sequencers
+epoch_wait_ms = 5000
+
+# Gas settings for blob transactions
+max_gas_price_gwei = 100
+max_blob_gas_price_gwei = 50
+
+[api]
+# Enable REST API for transaction submission
+enabled = true
+
+# API server host
+host = "0.0.0.0"
+
+# API server port
+port = 8080
+
+# Rate limiting
+max_requests_per_second = 100
+max_pending_transactions = 10000
+
+[mempool]
+# Maximum pending transactions in mempool
+max_size = 50000
+
+# Eviction policy when mempool is full: fifo, priority
+eviction_policy = "fifo"
+
+[storage]
+# SQLite database path for persistent state
+db_path = "./data/sequencer.db"
+
+[logging]
+# Log level: trace, debug, info, warn, error
+level = "info"
+
+# Log format: pretty (human-readable), json (structured)
+format = "pretty"
+
+[metrics]
+# Enable Prometheus metrics endpoint
+enabled = false
+
+# Port for metrics server (if enabled)
+# prometheus_port = 9091

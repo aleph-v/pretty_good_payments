@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 import {Test, console} from "forge-std/Test.sol";
 import {TransactionChallenge} from "../src/TransactionChallenge.sol";
@@ -136,6 +136,8 @@ contract TransactionChallengeIntegrationTest is Test {
 
     TxChallengeTestData sameBlockTestData;
     bool sameBlockTestDataGenerated;
+
+    uint256 internal constant SECONDS_PER_DAY = 86400;
 
     function setUp() public {
         realTransferVerifier = new Groth16Verifier();
@@ -432,68 +434,101 @@ contract TransactionChallengeIntegrationTest is Test {
         TxChallengeTestData storage data,
         uint256 startTime
     ) internal returns (uint256 targetBlockArrayIndex, Spine.BlockData[] memory storedBlocks) {
-        uint256 SECONDS_PER_DAY = 86400;
         targetBlockArrayIndex = data.targetDay * 5 + data.targetBlockIdx;
         storedBlocks = new Spine.BlockData[](targetBlockArrayIndex);
+        bool needsTwoBlobs = _needsTwoBlobs(data);
+        _fillBlockChain(harness, data, startTime, storedBlocks, targetBlockArrayIndex, needsTwoBlobs);
+    }
 
-        // Calculate if blocks need 2 blob hashes
-        // Formula: numDepositGroups * 4 + numTransactions * 15 > 4096
-        uint256 numDepositGroups = (data.targetNumDeposits + 2) / 3; // ceil(deposits/3)
+    function _needsTwoBlobs(TxChallengeTestData storage data) internal view returns (bool) {
+        uint256 numDepositGroups = (data.targetNumDeposits + 2) / 3;
         uint256 blobElements = numDepositGroups * 4 + data.targetNumTx * 15;
-        bool needsTwoBlobs = blobElements > 4096;
+        return blobElements > 4096;
+    }
 
-        for (uint256 i = 0; i < targetBlockArrayIndex; i++) {
-            uint256 day = i / 5;
-            uint256 blockIdx = i % 5;
-
-            vm.warp(startTime + day * SECONDS_PER_DAY + blockIdx * 100);
-
-            bytes32[] memory blobHashes;
-            uint256[] memory blockIndices;
-
-            if (needsTwoBlobs) {
-                // Cross-blob config: 273 tx + 6 deposits = 4103 elements > 4096
-                // Need 2 blob hashes for each prior block
-                blobHashes = new bytes32[](2);
-                blockIndices = new uint256[](2);
-
-                if (!data.sameBlockMode && i == data.anchorBlockNr) {
-                    blobHashes[0] = data.priorAnchorBlobHash;
-                } else {
-                    blobHashes[0] = keccak256(abi.encodePacked("fake_blob_", i, "_1"));
-                }
-                blobHashes[1] = keccak256(abi.encodePacked("fake_blob_", i, "_2"));
-                blockIndices[0] = 0;
-                blockIndices[1] = 1;
-            } else {
-                // Single blob is sufficient
-                blobHashes = new bytes32[](1);
-                blockIndices = new uint256[](1);
-
-                if (!data.sameBlockMode && i == data.anchorBlockNr) {
-                    blobHashes[0] = data.priorAnchorBlobHash;
-                } else {
-                    blobHashes[0] = keccak256(abi.encodePacked("fake_blob_", i));
-                }
-                blockIndices[0] = 0;
+    function _fillBlockChain(
+        TransactionChallengeRealHarness harness,
+        TxChallengeTestData storage data,
+        uint256 startTime,
+        Spine.BlockData[] memory storedBlocks,
+        uint256 count,
+        bool needsTwoBlobs
+    ) internal {
+        for (uint256 i; i < count;) {
+            _warpToBlockTx(startTime, i);
+            storedBlocks[i] = _addBlockAtIndexTx(harness, data, i, needsTwoBlobs);
+            unchecked {
+                ++i;
             }
-
-            vm.blobhashes(blobHashes);
-
-            Spine.BlockData memory blockData = Spine.BlockData({
-                anchor: data.blockAnchors[i],
-                timestamp: 0,
-                numTransactions: data.targetNumTx, // Use dynamic value from config
-                numDeposits: data.targetNumDeposits, // Use dynamic value from config
-                blockNr: 0,
-                blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
-                sequencer: sequencer,
-                blobhashes: blobHashes
-            });
-
-            vm.prank(sequencer);
-            storedBlocks[i] = harness.addBlockTest(blockData, blockIndices);
         }
+    }
+
+    function _warpToBlockTx(uint256 startTime, uint256 i) internal {
+        vm.warp(startTime + (i / 5) * SECONDS_PER_DAY + (i % 5) * 100);
+    }
+
+    function _addBlockAtIndexTx(
+        TransactionChallengeRealHarness harness,
+        TxChallengeTestData storage data,
+        uint256 i,
+        bool needsTwoBlobs
+    ) internal returns (Spine.BlockData memory storedBlock) {
+        if (needsTwoBlobs) {
+            storedBlock = _addBlockDoubleBlob(harness, data, i);
+        } else {
+            storedBlock = _addBlockSingleBlob(harness, data, i);
+        }
+    }
+
+    function _addBlockSingleBlob(TransactionChallengeRealHarness harness, TxChallengeTestData storage data, uint256 i)
+        internal
+        returns (Spine.BlockData memory storedBlock)
+    {
+        bytes32[] memory h = new bytes32[](1);
+        h[0] = (!data.sameBlockMode && i == data.anchorBlockNr)
+            ? data.priorAnchorBlobHash
+            : keccak256(abi.encodePacked("fake_blob_", i));
+        vm.blobhashes(h);
+        storedBlock = _createBlockDataTx(data, i, h);
+        uint256[] memory idx = new uint256[](1);
+        idx[0] = 0;
+        vm.prank(sequencer);
+        storedBlock = harness.addBlockTest(storedBlock, idx);
+    }
+
+    function _addBlockDoubleBlob(TransactionChallengeRealHarness harness, TxChallengeTestData storage data, uint256 i)
+        internal
+        returns (Spine.BlockData memory storedBlock)
+    {
+        bytes32[] memory h = new bytes32[](2);
+        h[0] = (!data.sameBlockMode && i == data.anchorBlockNr)
+            ? data.priorAnchorBlobHash
+            : keccak256(abi.encodePacked("fake_blob_", i, "_1"));
+        h[1] = keccak256(abi.encodePacked("fake_blob_", i, "_2"));
+        vm.blobhashes(h);
+        storedBlock = _createBlockDataTx(data, i, h);
+        uint256[] memory idx = new uint256[](2);
+        idx[0] = 0;
+        idx[1] = 1;
+        vm.prank(sequencer);
+        storedBlock = harness.addBlockTest(storedBlock, idx);
+    }
+
+    function _createBlockDataTx(TxChallengeTestData storage data, uint256 i, bytes32[] memory blobHashes)
+        internal
+        view
+        returns (Spine.BlockData memory blockData)
+    {
+        blockData = Spine.BlockData({
+            anchor: data.blockAnchors[i],
+            timestamp: 0,
+            numTransactions: data.targetNumTx,
+            numDeposits: data.targetNumDeposits,
+            blockNr: 0,
+            blockIndex: Spine.TimestampAndIndex(uint16(i / 5), uint16(i % 5)),
+            sequencer: sequencer,
+            blobhashes: blobHashes
+        });
     }
 
     /// @notice Add target block with real KZG blob hash
@@ -502,8 +537,6 @@ contract TransactionChallengeIntegrationTest is Test {
         TxChallengeTestData storage data,
         uint256 startTime
     ) internal returns (Spine.BlockData memory targetBlockData) {
-        uint256 SECONDS_PER_DAY = 86400;
-
         vm.warp(startTime + data.targetDay * SECONDS_PER_DAY + data.targetBlockIdx * 100);
 
         bytes32[] memory realBlobHashes = new bytes32[](1);
@@ -610,8 +643,6 @@ contract TransactionChallengeIntegrationTest is Test {
         TxChallengeTestData storage data,
         uint256 startTime
     ) internal returns (Spine.BlockData memory targetBlockData) {
-        uint256 SECONDS_PER_DAY = 86400;
-
         vm.warp(startTime + data.targetDay * SECONDS_PER_DAY + data.targetBlockIdx * 100);
 
         // Two blob hashes for cross-blob scenario

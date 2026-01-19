@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Entrypoint} from "../src/Entrypoint.sol";
@@ -240,7 +240,7 @@ contract EntrypointTest is Test {
 
         // Empty epoch returns 0
         assertEq(entrypoint.getTotalBlobUse(1), 0);
-        vm.warp(block.timestamp + 10);
+        vm.warp(28); // Warp to timestamp 28 (epoch 2) to check epoch 1
         assertEq(entrypoint.getPercentInEpoch(sequencer1, 1), 0, "Empty epoch = 0%");
     }
 

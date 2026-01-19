@@ -18,3 +18,5 @@ docs/
 
 # Dotenv file
 .env
+
+plan.md

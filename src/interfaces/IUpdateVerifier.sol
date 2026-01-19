@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 /// @title IUpdateVerifier
 /// @notice Interface for Groth16 verifier of merkle tree update proofs

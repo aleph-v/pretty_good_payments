@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 /// @title IYieldRouter
 /// @notice Interface for yield routing and sequencer payout functionality

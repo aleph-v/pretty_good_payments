@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 import {PoseidonT5} from "poseidon-solidity/PoseidonT5.sol";
@@ -33,7 +33,7 @@ library Bytes32Poseidon {
     /// @return Poseidon hash as bytes32
     function hash(bytes32[2] memory data) internal pure returns (bytes32) {
         uint256[2] memory converted;
-        assembly {
+        assembly ("memory-safe") {
             converted := data
         }
         return (bytes32)(converted.hash());
@@ -44,7 +44,7 @@ library Bytes32Poseidon {
     /// @return Poseidon hash as bytes32
     function hash(bytes32[4] memory data) internal pure returns (bytes32) {
         uint256[4] memory converted;
-        assembly {
+        assembly ("memory-safe") {
             converted := data
         }
         return (bytes32)(converted.hash());

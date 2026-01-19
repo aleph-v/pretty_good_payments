@@ -125,6 +125,11 @@ template Transfer () {
    leavesOut[0] <== LeafOrZero()(notesOut[0]);
    leavesOut[1] <== LeafOrZero()(notesOut[1]);
    leavesOut[2] <== LeafOrZero()(notesOut[2]);
+
+   // If a user sets leavesOut[1] to 0 but leavesOut[2] to nonzero it can break part of our update system
+   var isLeafOneZero = IsZero()(leavesOut[1]);
+   var isLeafTwoZero = IsZero()(leavesOut[2]);
+   ForceEqualIfEnabled()(isLeafOneZero, [isLeafTwoZero, 1]);
 }
 
 // Returns hash(leaf) if the value of the leaf is not zero or zero if the value is zero

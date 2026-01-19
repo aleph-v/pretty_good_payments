@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {TreeUpdateChallenge} from "../src/TreeUpdateChallenge.sol";
@@ -120,6 +120,32 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         bytes32 hash;
         bytes[] proofs;
     }
+
+    // Structure to hold built-up test state (reduces local variables in test functions)
+    struct TestState {
+        TreeUpdateChallengeRealHarness harness;
+        Spine.BlockData[] storedBlocks;
+        Spine.BlockData targetBlockData;
+        uint256 startTime;
+    }
+
+    // Structure to hold challenge data (reduces local variables in test functions)
+    struct ChallengeData {
+        BlobData.Region region;
+        BlobData.Region emptyRegion;
+        bytes priorAnchorProof;
+        bytes32 priorAnchor;
+        bytes32 trueAnchor;
+    }
+
+    // Structure to hold block building context (reduces parameters)
+    struct BlockBuildContext {
+        TreeUpdateChallengeRealHarness harness;
+        uint256 startTime;
+        uint256 numBlobsPerBlock;
+    }
+
+    uint256 internal constant SECONDS_PER_DAY = 86400;
 
     MultiBlockTestData testData;
     bool testDataGenerated;
@@ -477,39 +503,63 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         internal
         returns (uint256 targetBlockArrayIndex)
     {
-        uint256 SECONDS_PER_DAY = 86400;
         targetBlockArrayIndex = testData.targetDay * 5 + testData.targetBlockIdx;
 
         for (uint256 i = 0; i < targetBlockArrayIndex; i++) {
-            uint256 day = i / 5;
-            uint256 blockIdx = i % 5;
-
-            // Warp time to the correct day
-            vm.warp(startTime + day * SECONDS_PER_DAY + blockIdx * 100);
-
-            // Use fake blob hash for prior blocks (we won't challenge them)
-            bytes32 fakeBlobHash = keccak256(abi.encodePacked("fake_blob_", i));
-            bytes32[] memory blobHashes = new bytes32[](1);
-            blobHashes[0] = fakeBlobHash;
-            vm.blobhashes(blobHashes);
-
-            Spine.BlockData memory blockData = Spine.BlockData({
-                anchor: testData.blockAnchors[i],
-                timestamp: 0,
-                numTransactions: 1,
-                numDeposits: 12,
-                blockNr: 0,
-                blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
-                sequencer: sequencer,
-                blobhashes: blobHashes
-            });
-
-            uint256[] memory blockIndices = new uint256[](1);
-            blockIndices[0] = 0;
-
-            vm.prank(sequencer);
-            harness.addBlockTest(blockData, blockIndices);
+            _addBlockAtIndexSimple(harness, testData, startTime, i);
         }
+    }
+
+    /// @notice Add a single block - simplified version with fewer stack variables
+    function _addBlockAtIndexSimple(
+        TreeUpdateChallengeRealHarness harness,
+        MultiBlockTestData storage data,
+        uint256 startTime,
+        uint256 i
+    ) internal {
+        _warpToBlock(startTime, i);
+        _setBlobHashSingle(i);
+        Spine.BlockData memory blockData = _createBlockData(data, i);
+        _addBlockSingle(harness, blockData);
+    }
+
+    function _warpToBlock(uint256 startTime, uint256 i) internal {
+        vm.warp(startTime + (i / 5) * SECONDS_PER_DAY + (i % 5) * 100);
+    }
+
+    function _setBlobHashSingle(uint256 i) internal {
+        bytes32[] memory blobHashes = new bytes32[](1);
+        blobHashes[0] = keccak256(abi.encodePacked("fake_blob_", i));
+        vm.blobhashes(blobHashes);
+    }
+
+    function _createBlockData(MultiBlockTestData storage data, uint256 i)
+        internal
+        view
+        returns (Spine.BlockData memory blockData)
+    {
+        bytes32[] memory blobHashes = new bytes32[](1);
+        blobHashes[0] = keccak256(abi.encodePacked("fake_blob_", i));
+        blockData = Spine.BlockData({
+            anchor: data.blockAnchors[i],
+            timestamp: 0,
+            numTransactions: 1,
+            numDeposits: 12,
+            blockNr: 0,
+            blockIndex: Spine.TimestampAndIndex(uint16(i / 5), uint16(i % 5)),
+            sequencer: sequencer,
+            blobhashes: blobHashes
+        });
+    }
+
+    function _addBlockSingle(TreeUpdateChallengeRealHarness harness, Spine.BlockData memory blockData)
+        internal
+        returns (Spine.BlockData memory)
+    {
+        uint256[] memory blockIndices = new uint256[](1);
+        blockIndices[0] = 0;
+        vm.prank(sequencer);
+        return harness.addBlockTest(blockData, blockIndices);
     }
 
     /// @notice Add target block with REAL KZG blob hash
@@ -524,8 +574,6 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         bytes32 blobHash,
         bytes32 finalAnchor
     ) internal returns (Spine.BlockData memory targetBlockData) {
-        uint256 SECONDS_PER_DAY = 86400;
-
         // Warp to target day/block
         vm.warp(startTime + testData.targetDay * SECONDS_PER_DAY + testData.targetBlockIdx * 100);
 
@@ -604,6 +652,284 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         priorAnchorProof = hasPriorAnchorProof ? kzgProofs[0] : bytes("");
     }
 
+    /// @notice Build complete test state from MultiBlockTestData (generic version)
+    /// @param data The test data to use
+    /// @return state The built test state with harness, stored blocks, and target block
+    function _buildTestState(MultiBlockTestData storage data) internal returns (TestState memory state) {
+        state.startTime = block.timestamp;
+
+        // Create harness
+        state.harness = new TreeUpdateChallengeRealHarness(
+            data.genesisAnchor,
+            IYieldRouter(address(yieldRouter)),
+            IUpdateVerifier(address(realZkVerifier)),
+            ITransferVerifier(address(fakeTransferVerifier)),
+            ITransactionRegistry(address(txRegistry))
+        );
+        state.harness.fundSequencer{value: 20 ether}(sequencer);
+
+        // Build block chain and store blocks
+        state.storedBlocks = _buildBlockChainGeneric(state.harness, data, state.startTime);
+
+        // Add target block
+        state.targetBlockData = _addTargetBlockGeneric(state.harness, data, state.startTime);
+    }
+
+    /// @notice Build block chain from any MultiBlockTestData
+    function _buildBlockChainGeneric(
+        TreeUpdateChallengeRealHarness harness,
+        MultiBlockTestData storage data,
+        uint256 startTime
+    ) internal returns (Spine.BlockData[] memory storedBlocks) {
+        uint256 count = data.targetDay * 5 + data.targetBlockIdx;
+        storedBlocks = new Spine.BlockData[](count);
+        _fillStoredBlocks(harness, data, startTime, storedBlocks, count);
+    }
+
+    function _fillStoredBlocks(
+        TreeUpdateChallengeRealHarness harness,
+        MultiBlockTestData storage data,
+        uint256 startTime,
+        Spine.BlockData[] memory storedBlocks,
+        uint256 count
+    ) internal {
+        for (uint256 i; i < count;) {
+            _warpToBlock(startTime, i);
+            _setBlobHashSingle(i);
+            storedBlocks[i] = _createAndAddBlockInline(harness, data.blockAnchors[i], i);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _createAndAddBlockInline(TreeUpdateChallengeRealHarness harness, bytes32 anchor, uint256 i)
+        internal
+        returns (Spine.BlockData memory storedBlock)
+    {
+        bytes32[] memory h = new bytes32[](1);
+        h[0] = keccak256(abi.encodePacked("fake_blob_", i));
+        storedBlock = Spine.BlockData({
+            anchor: anchor,
+            timestamp: 0,
+            numTransactions: 1,
+            numDeposits: 12,
+            blockNr: 0,
+            blockIndex: Spine.TimestampAndIndex(uint16(i / 5), uint16(i % 5)),
+            sequencer: sequencer,
+            blobhashes: h
+        });
+        uint256[] memory idx = new uint256[](1);
+        idx[0] = 0;
+        vm.prank(sequencer);
+        storedBlock = harness.addBlockTest(storedBlock, idx);
+    }
+
+    /// @notice Add target block from any MultiBlockTestData
+    function _addTargetBlockGeneric(
+        TreeUpdateChallengeRealHarness harness,
+        MultiBlockTestData storage data,
+        uint256 startTime
+    ) internal returns (Spine.BlockData memory targetBlockData) {
+        vm.warp(startTime + data.targetDay * SECONDS_PER_DAY + data.targetBlockIdx * 100);
+        _setBlobHashFromData(data.kzgBlobHash);
+        targetBlockData = _createTargetBlockData(data);
+        targetBlockData = _addBlockSingle(harness, targetBlockData);
+    }
+
+    function _setBlobHashFromData(bytes32 hash) internal {
+        bytes32[] memory blobHashes = new bytes32[](1);
+        blobHashes[0] = hash;
+        vm.blobhashes(blobHashes);
+    }
+
+    function _createTargetBlockData(MultiBlockTestData storage data)
+        internal
+        view
+        returns (Spine.BlockData memory targetBlockData)
+    {
+        bytes32[] memory blobHashes = new bytes32[](1);
+        blobHashes[0] = data.kzgBlobHash;
+        targetBlockData = Spine.BlockData({
+            anchor: data.targetFinalAnchor,
+            timestamp: 0,
+            numTransactions: data.targetNumTx,
+            numDeposits: data.targetNumDeposits,
+            blockNr: 0,
+            blockIndex: Spine.TimestampAndIndex(uint16(data.targetDay), uint16(data.targetBlockIdx)),
+            sequencer: sequencer,
+            blobhashes: blobHashes
+        });
+    }
+
+    /// @notice Build challenge data from MultiBlockTestData
+    function _buildChallengeData(MultiBlockTestData storage data) internal view returns (ChallengeData memory cd) {
+        (cd.region, cd.emptyRegion, cd.priorAnchorProof) = _buildChallengeRegion(
+            data.kzgClaims,
+            data.kzgProofs,
+            data.kzgCommitment,
+            data.kzgBlobHash,
+            data.regionStart,
+            data.targetUpdateIndex > 0
+        );
+        cd.priorAnchor = data.targetPriorAnchor;
+        cd.trueAnchor = data.targetNewAnchor;
+    }
+
+    // Structure to hold cross-blob challenge data (has extensionRegion instead of emptyRegion)
+    struct CrossblobChallengeData {
+        BlobData.Region region;
+        BlobData.Region extensionRegion;
+        bytes priorAnchorProof;
+        bytes32 priorAnchor;
+        bytes32 trueAnchor;
+        uint256 updateNr;
+    }
+
+    /// @notice Build test state for cross-blob tests (2 blob hashes per block)
+    function _buildTestStateCrossblob(MultiBlockTestData storage data) internal returns (TestState memory state) {
+        state.startTime = block.timestamp;
+
+        // Create harness
+        state.harness = new TreeUpdateChallengeRealHarness(
+            data.genesisAnchor,
+            IYieldRouter(address(yieldRouter)),
+            IUpdateVerifier(address(realZkVerifier)),
+            ITransferVerifier(address(fakeTransferVerifier)),
+            ITransactionRegistry(address(txRegistry))
+        );
+        state.harness.fundSequencer{value: 20 ether}(sequencer);
+
+        // Build block chain (cross-blob: 2 blob hashes per block)
+        state.storedBlocks = _buildBlockChainCrossblob(state.harness, data, state.startTime);
+
+        // Add target block (cross-blob: 2 real blob hashes)
+        state.targetBlockData = _addTargetBlockCrossblob(state.harness, data, state.startTime);
+    }
+
+    /// @notice Build block chain for cross-blob tests (2 blob hashes per block)
+    function _buildBlockChainCrossblob(
+        TreeUpdateChallengeRealHarness harness,
+        MultiBlockTestData storage data,
+        uint256 startTime
+    ) internal returns (Spine.BlockData[] memory storedBlocks) {
+        uint256 count = data.targetDay * 5 + data.targetBlockIdx;
+        storedBlocks = new Spine.BlockData[](count);
+        _fillStoredBlocksCrossblob(harness, data, startTime, storedBlocks, count);
+    }
+
+    function _fillStoredBlocksCrossblob(
+        TreeUpdateChallengeRealHarness harness,
+        MultiBlockTestData storage data,
+        uint256 startTime,
+        Spine.BlockData[] memory storedBlocks,
+        uint256 count
+    ) internal {
+        for (uint256 i; i < count;) {
+            _warpToBlock(startTime, i);
+            _setBlobHashDouble(i);
+            storedBlocks[i] = _createAndAddBlockCrossblobInline(harness, data, i);
+            unchecked {
+                ++i;
+            }
+        }
+    }
+
+    function _setBlobHashDouble(uint256 i) internal {
+        bytes32[] memory h = new bytes32[](2);
+        h[0] = keccak256(abi.encodePacked("fake_blob_", i, "_1"));
+        h[1] = keccak256(abi.encodePacked("fake_blob_", i, "_2"));
+        vm.blobhashes(h);
+    }
+
+    function _createAndAddBlockCrossblobInline(
+        TreeUpdateChallengeRealHarness harness,
+        MultiBlockTestData storage data,
+        uint256 i
+    ) internal returns (Spine.BlockData memory storedBlock) {
+        bytes32[] memory h = new bytes32[](2);
+        h[0] = keccak256(abi.encodePacked("fake_blob_", i, "_1"));
+        h[1] = keccak256(abi.encodePacked("fake_blob_", i, "_2"));
+        storedBlock = Spine.BlockData({
+            anchor: data.blockAnchors[i],
+            timestamp: 0,
+            numTransactions: data.targetNumTx,
+            numDeposits: data.targetNumDeposits,
+            blockNr: 0,
+            blockIndex: Spine.TimestampAndIndex(uint16(i / 5), uint16(i % 5)),
+            sequencer: sequencer,
+            blobhashes: h
+        });
+        uint256[] memory idx = new uint256[](2);
+        idx[0] = 0;
+        idx[1] = 1;
+        vm.prank(sequencer);
+        storedBlock = harness.addBlockTest(storedBlock, idx);
+    }
+
+    function _addBlockDouble(TreeUpdateChallengeRealHarness harness, Spine.BlockData memory blockData)
+        internal
+        returns (Spine.BlockData memory)
+    {
+        uint256[] memory idx = new uint256[](2);
+        idx[0] = 0;
+        idx[1] = 1;
+        vm.prank(sequencer);
+        return harness.addBlockTest(blockData, idx);
+    }
+
+    /// @notice Add target block for cross-blob tests (2 real blob hashes)
+    function _addTargetBlockCrossblob(
+        TreeUpdateChallengeRealHarness harness,
+        MultiBlockTestData storage data,
+        uint256 startTime
+    ) internal returns (Spine.BlockData memory targetBlockData) {
+        vm.warp(startTime + data.targetDay * SECONDS_PER_DAY + data.targetBlockIdx * 100);
+        _setBlobHashDoubleFromData(data.kzgBlobHash, data.extensionKzgBlobHash);
+        targetBlockData = _createTargetBlockDataCrossblob(data);
+        targetBlockData = _addBlockDouble(harness, targetBlockData);
+    }
+
+    function _setBlobHashDoubleFromData(bytes32 hash1, bytes32 hash2) internal {
+        bytes32[] memory blobHashes = new bytes32[](2);
+        blobHashes[0] = hash1;
+        blobHashes[1] = hash2;
+        vm.blobhashes(blobHashes);
+    }
+
+    function _createTargetBlockDataCrossblob(MultiBlockTestData storage data)
+        internal
+        view
+        returns (Spine.BlockData memory targetBlockData)
+    {
+        bytes32[] memory blobHashes = new bytes32[](2);
+        blobHashes[0] = data.kzgBlobHash;
+        blobHashes[1] = data.extensionKzgBlobHash;
+        targetBlockData = Spine.BlockData({
+            anchor: data.targetFinalAnchor,
+            timestamp: 0,
+            numTransactions: data.targetNumTx,
+            numDeposits: data.targetNumDeposits,
+            blockNr: 0,
+            blockIndex: Spine.TimestampAndIndex(uint16(data.targetDay), uint16(data.targetBlockIdx)),
+            sequencer: sequencer,
+            blobhashes: blobHashes
+        });
+    }
+
+    /// @notice Build challenge data for cross-blob tests
+    function _buildChallengeDataCrossblob(MultiBlockTestData storage data)
+        internal
+        view
+        returns (CrossblobChallengeData memory cd)
+    {
+        (cd.region, cd.extensionRegion, cd.priorAnchorProof) = _buildCrossblobChallengeRegions(data);
+        cd.priorAnchor = data.targetPriorAnchor;
+        cd.trueAnchor = data.targetNewAnchor;
+        // For transactions, updateNr is the transaction index (not the overall update index)
+        cd.updateNr = data.targetUpdateIndex - data.numDepositGroups;
+    }
+
     // ============================================================================
     // Full Integration Test with REAL ZK and KZG proofs
     // ============================================================================
@@ -616,50 +942,33 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     function test_FullIntegration_RealZkAndKzg_NoFraud() public {
         require(testDataGenerated, "Test data not generated");
 
-        // Create harness and build block chain
-        TreeUpdateChallengeRealHarness harness = _createRealHarness();
-        uint256 startTime = block.timestamp;
-        uint256 targetBlockArrayIndex = _buildBlockChain(harness, startTime);
-
-        // Add target block with real KZG blob hash and correct anchor
-        Spine.BlockData memory targetBlockData =
-            _addTargetBlock(harness, startTime, testData.kzgBlobHash, testData.targetFinalAnchor);
+        // Build test state using generic helper (same as other passing tests)
+        TestState memory state = _buildTestState(testData);
+        ChallengeData memory cd = _buildChallengeData(testData);
 
         // Verify block was added at correct position
-        assertEq(targetBlockData.blockNr, targetBlockArrayIndex, "Block number should match");
-
-        // Build challenge region with real KZG proofs
-        (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof) = _buildChallengeRegion(
-            testData.kzgClaims,
-            testData.kzgProofs,
-            testData.kzgCommitment,
-            testData.kzgBlobHash,
-            testData.regionStart,
-            testData.targetUpdateIndex > 0
-        );
-
-        // The prior and new anchors come from test data
-        bytes32 priorAnchor = testData.targetPriorAnchor;
-        bytes32 trueAnchor = testData.targetNewAnchor;
+        uint256 targetBlockArrayIndex = testData.targetDay * 5 + testData.targetBlockIdx;
+        assertEq(state.targetBlockData.blockNr, targetBlockArrayIndex, "Block number should match");
 
         // Challenge with real proofs - should revert with "No Fraud"
         // because trueAnchor matches what's in the blob
         vm.prank(challenger);
         Spine.BlockData memory rollbackTarget;
         vm.expectRevert(NoFraud.selector);
-        harness.challengeTreeUpdate(
-            targetBlockData,
-            testData.targetUpdateIndex,
-            testData.targetIsTx, // isTx from test data
-            region,
-            emptyRegion,
-            priorAnchor,
-            testData.kzgCommitment,
-            priorAnchorProof,
-            trueAnchor,
-            testData.zkProof,
-            rollbackTarget
-        );
+        state.harness
+            .challengeTreeUpdate(
+                state.targetBlockData,
+                testData.targetUpdateIndex,
+                testData.targetIsTx,
+                cd.region,
+                cd.emptyRegion,
+                cd.priorAnchor,
+                testData.kzgCommitment,
+                cd.priorAnchorProof,
+                cd.trueAnchor,
+                testData.zkProof,
+                rollbackTarget
+            );
     }
 
     /// @notice Test that KZG proofs were correctly generated and match blob data
@@ -695,138 +1004,52 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     ///         - Real KZG blob proofs proving a FRAUDULENT anchor in the blob
     ///         - Challenger proves fraud and sequencer gets slashed
     function test_FullIntegration_RealZkAndKzg_Fraud() public {
-        // Generate fraud test data (blob has incorrect anchor)
         _generateFraudTestData();
         require(fraudTestDataGenerated, "Fraud test data not generated");
         require(fraudTestData.fraudMode, "Should be in fraud mode");
 
-        // Create harness with real genesis anchor and real ZK verifier
-        TreeUpdateChallengeRealHarness harness = new TreeUpdateChallengeRealHarness(
-            fraudTestData.genesisAnchor,
-            IYieldRouter(address(yieldRouter)),
-            IUpdateVerifier(address(realZkVerifier)), // Real Groth16 verifier
-            ITransferVerifier(address(fakeTransferVerifier)),
-            ITransactionRegistry(address(txRegistry))
-        );
-
-        harness.fundSequencer{value: 20 ether}(sequencer);
-
-        // Constants for time progression
-        uint256 SECONDS_PER_DAY = 86400;
-        uint256 startTime = block.timestamp;
-
-        // Build up state: Add all blocks before target
-        // Store each block after adding so we have correct data for rollback target
-        uint256 targetBlockArrayIndex = fraudTestData.targetDay * 5 + fraudTestData.targetBlockIdx;
-        Spine.BlockData[] memory storedBlocks = new Spine.BlockData[](targetBlockArrayIndex);
-
-        for (uint256 i = 0; i < targetBlockArrayIndex; i++) {
-            uint256 day = i / 5;
-            uint256 blockIdx = i % 5;
-
-            vm.warp(startTime + day * SECONDS_PER_DAY + blockIdx * 100);
-
-            bytes32 fakeBlobHash = keccak256(abi.encodePacked("fake_blob_", i));
-            bytes32[] memory blobHashes = new bytes32[](1);
-            blobHashes[0] = fakeBlobHash;
-            vm.blobhashes(blobHashes);
-
-            Spine.BlockData memory blockData = Spine.BlockData({
-                anchor: fraudTestData.blockAnchors[i],
-                timestamp: 0,
-                numTransactions: 1,
-                numDeposits: 12,
-                blockNr: 0,
-                blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
-                sequencer: sequencer,
-                blobhashes: blobHashes
-            });
-
-            uint256[] memory blockIndices = new uint256[](1);
-            blockIndices[0] = 0;
-
-            vm.prank(sequencer);
-            storedBlocks[i] = harness.addBlockTest(blockData, blockIndices);
-        }
-
-        // Add target block with FRAUDULENT KZG blob hash
-        vm.warp(startTime + fraudTestData.targetDay * SECONDS_PER_DAY + fraudTestData.targetBlockIdx * 100);
-
-        bytes32[] memory fraudBlobHashes = new bytes32[](1);
-        fraudBlobHashes[0] = fraudTestData.kzgBlobHash;
-        vm.blobhashes(fraudBlobHashes);
-
-        Spine.BlockData memory targetBlockData = Spine.BlockData({
-            anchor: fraudTestData.targetFinalAnchor,
-            timestamp: 0,
-            numTransactions: fraudTestData.targetNumTx,
-            numDeposits: fraudTestData.targetNumDeposits,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(uint16(fraudTestData.targetDay), uint16(fraudTestData.targetBlockIdx)),
-            sequencer: sequencer,
-            blobhashes: fraudBlobHashes
-        });
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-
-        vm.prank(sequencer);
-        targetBlockData = harness.addBlockTest(targetBlockData, indices);
-
-        // Build challenge region with FRAUD KZG proofs
-        (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof) = _buildChallengeRegion(
-            fraudTestData.kzgClaims,
-            fraudTestData.kzgProofs,
-            fraudTestData.kzgCommitment,
-            fraudTestData.kzgBlobHash,
-            fraudTestData.regionStart,
-            fraudTestData.targetUpdateIndex > 0
-        );
-
-        // The prior anchor is the same as normal (computed correctly by FFI)
-        bytes32 priorAnchor = fraudTestData.targetPriorAnchor;
-
-        // The TRUE anchor (what ZK proof proves is correct)
-        bytes32 trueAnchor = fraudTestData.targetNewAnchor;
-
-        // The FRAUD anchor (what's actually in the blob - differs from trueAnchor!)
-        bytes32 fraudAnchor = fraudTestData.fraudAnchor;
+        // Build test state using helper
+        TestState memory state = _buildTestState(fraudTestData);
+        ChallengeData memory cd = _buildChallengeData(fraudTestData);
 
         // Verify the fraud: blob anchor differs from true anchor
-        assertTrue(fraudAnchor != trueAnchor, "Fraud anchor should differ from true anchor");
+        assertTrue(fraudTestData.fraudAnchor != cd.trueAnchor, "Fraud anchor should differ from true anchor");
 
-        // Verify blob data at position 3 of region contains the fraudulent anchor
+        // Verify blob data contains the fraudulent anchor
         uint256 fraudAnchorBlobPos = fraudTestData.targetUpdateIndex * 4 + 3;
-        assertEq(fraudTestData.blobData[fraudAnchorBlobPos], fraudAnchor, "Blob should contain fraud anchor");
+        assertEq(
+            fraudTestData.blobData[fraudAnchorBlobPos], fraudTestData.fraudAnchor, "Blob should contain fraud anchor"
+        );
 
         // Capture sequencer state before challenge
-        (bool isActiveBefore,,,,, uint64 stakeBefore,) = harness.getSequencerStatus(sequencer);
+        (bool isActiveBefore,,,,, uint64 stakeBefore,) = state.harness.getSequencerStatus(sequencer);
         assertTrue(isActiveBefore, "Sequencer should be active before");
         assertTrue(stakeBefore > 0, "Sequencer should have stake before");
 
-        // Use the stored block data for rollback target (the block BEFORE the fraudulent block)
-        Spine.BlockData memory rollbackTarget = storedBlocks[targetBlockArrayIndex - 1];
+        // Get rollback target (block before fraudulent block)
+        uint256 targetBlockArrayIndex = fraudTestData.targetDay * 5 + fraudTestData.targetBlockIdx;
+        Spine.BlockData memory rollbackTarget = state.storedBlocks[targetBlockArrayIndex - 1];
 
         // Challenge with real proofs - should SUCCEED and slash sequencer
-        // because trueAnchor (ZK verified) != fraudAnchor (in blob)
         vm.prank(challenger);
-        harness.challengeTreeUpdate(
-            targetBlockData,
-            fraudTestData.targetUpdateIndex,
-            fraudTestData.targetIsTx,
-            region,
-            emptyRegion,
-            priorAnchor,
-            fraudTestData.kzgCommitment,
-            priorAnchorProof,
-            trueAnchor,
-            fraudTestData.zkProof,
-            rollbackTarget
-        );
+        state.harness
+            .challengeTreeUpdate(
+                state.targetBlockData,
+                fraudTestData.targetUpdateIndex,
+                fraudTestData.targetIsTx,
+                cd.region,
+                cd.emptyRegion,
+                cd.priorAnchor,
+                fraudTestData.kzgCommitment,
+                cd.priorAnchorProof,
+                cd.trueAnchor,
+                fraudTestData.zkProof,
+                rollbackTarget
+            );
 
         // Verify sequencer was slashed
         (bool isActiveAfter,,,,, uint64 stakeAfter, address payable challengerAfter) =
-            harness.getSequencerStatus(sequencer);
+            state.harness.getSequencerStatus(sequencer);
         assertFalse(isActiveAfter, "Sequencer should be slashed (inactive)");
         assertEq(challengerAfter, challenger, "Challenger should be recorded");
         assertTrue(stakeAfter > 0, "Stake should still be held for later claim");
@@ -839,241 +1062,84 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     /// @notice Transaction integration test - No Fraud case
     ///         Tests a transaction update (not deposit) with real proofs
     function test_FullIntegration_Transaction_RealZkAndKzg_NoFraud() public {
-        // Generate transaction test data
         _generateTxTestData();
         require(txTestDataGenerated, "Tx test data not generated");
         require(txTestData.targetIsTx, "Should target a transaction");
 
-        // Create harness with real ZK verifier
-        TreeUpdateChallengeRealHarness harness = new TreeUpdateChallengeRealHarness(
-            txTestData.genesisAnchor,
-            IYieldRouter(address(yieldRouter)),
-            IUpdateVerifier(address(realZkVerifier)),
-            ITransferVerifier(address(fakeTransferVerifier)),
-            ITransactionRegistry(address(txRegistry))
-        );
-
-        harness.fundSequencer{value: 20 ether}(sequencer);
-
-        uint256 SECONDS_PER_DAY = 86400;
-        uint256 startTime = block.timestamp;
-
-        // Build up state: Add all blocks before target
-        uint256 targetBlockArrayIndex = txTestData.targetDay * 5 + txTestData.targetBlockIdx;
-
-        for (uint256 i = 0; i < targetBlockArrayIndex; i++) {
-            uint256 day = i / 5;
-            uint256 blockIdx = i % 5;
-
-            vm.warp(startTime + day * SECONDS_PER_DAY + blockIdx * 100);
-
-            bytes32 fakeBlobHash = keccak256(abi.encodePacked("fake_blob_", i));
-            bytes32[] memory blobHashes = new bytes32[](1);
-            blobHashes[0] = fakeBlobHash;
-            vm.blobhashes(blobHashes);
-
-            Spine.BlockData memory blockData = Spine.BlockData({
-                anchor: txTestData.blockAnchors[i],
-                timestamp: 0,
-                numTransactions: 1,
-                numDeposits: 12,
-                blockNr: 0,
-                blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
-                sequencer: sequencer,
-                blobhashes: blobHashes
-            });
-
-            uint256[] memory blockIndices = new uint256[](1);
-            blockIndices[0] = 0;
-
-            vm.prank(sequencer);
-            harness.addBlockTest(blockData, blockIndices);
-        }
-
-        // Add target block with real KZG blob hash
-        vm.warp(startTime + txTestData.targetDay * SECONDS_PER_DAY + txTestData.targetBlockIdx * 100);
-
-        bytes32[] memory realBlobHashes = new bytes32[](1);
-        realBlobHashes[0] = txTestData.kzgBlobHash;
-        vm.blobhashes(realBlobHashes);
-
-        Spine.BlockData memory targetBlockData = Spine.BlockData({
-            anchor: txTestData.targetFinalAnchor,
-            timestamp: 0,
-            numTransactions: txTestData.targetNumTx,
-            numDeposits: txTestData.targetNumDeposits,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(uint16(txTestData.targetDay), uint16(txTestData.targetBlockIdx)),
-            sequencer: sequencer,
-            blobhashes: realBlobHashes
-        });
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-
-        vm.prank(sequencer);
-        targetBlockData = harness.addBlockTest(targetBlockData, indices);
-
-        // Build challenge region
-        (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof) = _buildChallengeRegion(
-            txTestData.kzgClaims,
-            txTestData.kzgProofs,
-            txTestData.kzgCommitment,
-            txTestData.kzgBlobHash,
-            txTestData.regionStart,
-            txTestData.targetUpdateIndex > 0
-        );
+        // Build test state using helper
+        TestState memory state = _buildTestState(txTestData);
+        ChallengeData memory cd = _buildChallengeData(txTestData);
 
         // For transactions, updateNr is the transaction index (not the overall update index)
-        // updateNr for tx = targetUpdateIndex - numDepositGroups
         uint256 updateNr = txTestData.targetUpdateIndex - txTestData.numDepositGroups;
 
         // Challenge with real proofs - should revert with "No Fraud"
         vm.prank(challenger);
         Spine.BlockData memory rollbackTarget;
         vm.expectRevert(NoFraud.selector);
-        harness.challengeTreeUpdate(
-            targetBlockData,
-            updateNr,
-            txTestData.targetIsTx, // true for transaction
-            region,
-            emptyRegion,
-            txTestData.targetPriorAnchor,
-            txTestData.kzgCommitment,
-            priorAnchorProof,
-            txTestData.targetNewAnchor,
-            txTestData.zkProof,
-            rollbackTarget
-        );
+        state.harness
+            .challengeTreeUpdate(
+                state.targetBlockData,
+                updateNr,
+                txTestData.targetIsTx,
+                cd.region,
+                cd.emptyRegion,
+                cd.priorAnchor,
+                txTestData.kzgCommitment,
+                cd.priorAnchorProof,
+                cd.trueAnchor,
+                txTestData.zkProof,
+                rollbackTarget
+            );
     }
 
     /// @notice Transaction integration test - Fraud case
     ///         Tests fraud detection for a transaction update with real proofs
     function test_FullIntegration_Transaction_RealZkAndKzg_Fraud() public {
-        // Generate transaction fraud test data
         _generateTxFraudTestData();
         require(txFraudTestDataGenerated, "Tx fraud test data not generated");
         require(txFraudTestData.fraudMode, "Should be in fraud mode");
         require(txFraudTestData.targetIsTx, "Should target a transaction");
 
-        // Create harness with real ZK verifier
-        TreeUpdateChallengeRealHarness harness = new TreeUpdateChallengeRealHarness(
-            txFraudTestData.genesisAnchor,
-            IYieldRouter(address(yieldRouter)),
-            IUpdateVerifier(address(realZkVerifier)),
-            ITransferVerifier(address(fakeTransferVerifier)),
-            ITransactionRegistry(address(txRegistry))
-        );
-
-        harness.fundSequencer{value: 20 ether}(sequencer);
-
-        uint256 SECONDS_PER_DAY = 86400;
-        uint256 startTime = block.timestamp;
-
-        // Build up state: Add all blocks before target
-        uint256 targetBlockArrayIndex = txFraudTestData.targetDay * 5 + txFraudTestData.targetBlockIdx;
-        Spine.BlockData[] memory storedBlocks = new Spine.BlockData[](targetBlockArrayIndex);
-
-        for (uint256 i = 0; i < targetBlockArrayIndex; i++) {
-            uint256 day = i / 5;
-            uint256 blockIdx = i % 5;
-
-            vm.warp(startTime + day * SECONDS_PER_DAY + blockIdx * 100);
-
-            bytes32 fakeBlobHash = keccak256(abi.encodePacked("fake_blob_", i));
-            bytes32[] memory blobHashes = new bytes32[](1);
-            blobHashes[0] = fakeBlobHash;
-            vm.blobhashes(blobHashes);
-
-            Spine.BlockData memory blockData = Spine.BlockData({
-                anchor: txFraudTestData.blockAnchors[i],
-                timestamp: 0,
-                numTransactions: 1,
-                numDeposits: 12,
-                blockNr: 0,
-                blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
-                sequencer: sequencer,
-                blobhashes: blobHashes
-            });
-
-            uint256[] memory blockIndices = new uint256[](1);
-            blockIndices[0] = 0;
-
-            vm.prank(sequencer);
-            storedBlocks[i] = harness.addBlockTest(blockData, blockIndices);
-        }
-
-        // Add target block with fraud KZG blob hash
-        vm.warp(startTime + txFraudTestData.targetDay * SECONDS_PER_DAY + txFraudTestData.targetBlockIdx * 100);
-
-        bytes32[] memory fraudBlobHashes = new bytes32[](1);
-        fraudBlobHashes[0] = txFraudTestData.kzgBlobHash;
-        vm.blobhashes(fraudBlobHashes);
-
-        Spine.BlockData memory targetBlockData = Spine.BlockData({
-            anchor: txFraudTestData.targetFinalAnchor,
-            timestamp: 0,
-            numTransactions: txFraudTestData.targetNumTx,
-            numDeposits: txFraudTestData.targetNumDeposits,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(
-                uint16(txFraudTestData.targetDay), uint16(txFraudTestData.targetBlockIdx)
-            ),
-            sequencer: sequencer,
-            blobhashes: fraudBlobHashes
-        });
-
-        uint256[] memory indices = new uint256[](1);
-        indices[0] = 0;
-
-        vm.prank(sequencer);
-        targetBlockData = harness.addBlockTest(targetBlockData, indices);
-
-        // Build challenge region
-        (BlobData.Region memory region, BlobData.Region memory emptyRegion, bytes memory priorAnchorProof) = _buildChallengeRegion(
-            txFraudTestData.kzgClaims,
-            txFraudTestData.kzgProofs,
-            txFraudTestData.kzgCommitment,
-            txFraudTestData.kzgBlobHash,
-            txFraudTestData.regionStart,
-            txFraudTestData.targetUpdateIndex > 0
-        );
+        // Build test state using helper
+        TestState memory state = _buildTestState(txFraudTestData);
+        ChallengeData memory cd = _buildChallengeData(txFraudTestData);
 
         // Verify fraud: blob anchor differs from true anchor
-        bytes32 trueAnchor = txFraudTestData.targetNewAnchor;
-        bytes32 fraudAnchor = txFraudTestData.fraudAnchor;
-        assertTrue(fraudAnchor != trueAnchor, "Fraud anchor should differ from true anchor");
+        assertTrue(txFraudTestData.fraudAnchor != cd.trueAnchor, "Fraud anchor should differ from true anchor");
 
-        // For transactions, updateNr is the transaction index (not the overall update index)
+        // For transactions, updateNr is the transaction index
         uint256 updateNr = txFraudTestData.targetUpdateIndex - txFraudTestData.numDepositGroups;
 
         // Capture sequencer state before challenge
-        (bool isActiveBefore,,,,, uint64 stakeBefore,) = harness.getSequencerStatus(sequencer);
+        (bool isActiveBefore,,,,, uint64 stakeBefore,) = state.harness.getSequencerStatus(sequencer);
         assertTrue(isActiveBefore, "Sequencer should be active before");
         assertTrue(stakeBefore > 0, "Sequencer should have stake before");
 
-        // Use stored block data for rollback target
-        Spine.BlockData memory rollbackTarget = storedBlocks[targetBlockArrayIndex - 1];
+        // Get rollback target
+        uint256 targetBlockArrayIndex = txFraudTestData.targetDay * 5 + txFraudTestData.targetBlockIdx;
+        Spine.BlockData memory rollbackTarget = state.storedBlocks[targetBlockArrayIndex - 1];
 
         // Challenge with real proofs - should SUCCEED and slash sequencer
         vm.prank(challenger);
-        harness.challengeTreeUpdate(
-            targetBlockData,
-            updateNr,
-            txFraudTestData.targetIsTx, // true for transaction
-            region,
-            emptyRegion,
-            txFraudTestData.targetPriorAnchor,
-            txFraudTestData.kzgCommitment,
-            priorAnchorProof,
-            trueAnchor,
-            txFraudTestData.zkProof,
-            rollbackTarget
-        );
+        state.harness
+            .challengeTreeUpdate(
+                state.targetBlockData,
+                updateNr,
+                txFraudTestData.targetIsTx,
+                cd.region,
+                cd.emptyRegion,
+                cd.priorAnchor,
+                txFraudTestData.kzgCommitment,
+                cd.priorAnchorProof,
+                cd.trueAnchor,
+                txFraudTestData.zkProof,
+                rollbackTarget
+            );
 
         // Verify sequencer was slashed
         (bool isActiveAfter,,,,, uint64 stakeAfter, address payable challengerAfter) =
-            harness.getSequencerStatus(sequencer);
+            state.harness.getSequencerStatus(sequencer);
         assertFalse(isActiveAfter, "Sequencer should be slashed (inactive)");
         assertEq(challengerAfter, challenger, "Challenger should be recorded");
         assertTrue(stakeAfter > 0, "Stake should still be held for later claim");
@@ -1138,7 +1204,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     ///   - extensionRegion contains the rest (in blob 2, at positions 0-2)
     ///   - Both regions use real KZG proofs
     function test_FullIntegration_RealZkAndKzg_CrossBlob_NoFraud() public {
-        // Generate cross-blob test data
+        // Generate and validate cross-blob test data
         _generateCrossblobTestData();
         require(crossblobTestDataGenerated, "Cross-blob test data not generated");
         require(crossblobTestData.crossblobMode, "Should be in cross-blob mode");
@@ -1153,123 +1219,38 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         );
         assertTrue(crossblobTestData.regionStart >= 4093, "Update should start near blob boundary");
 
-        emit log_named_uint("Region length", crossblobTestData.regionLength);
-        emit log_named_uint("Extension region length", crossblobTestData.extensionRegionLength);
-        emit log_named_uint("Region start (memory address)", crossblobTestData.regionStart);
+        // Build test state using helper
+        TestState memory state = _buildTestStateCrossblob(crossblobTestData);
 
-        // Create harness with real ZK verifier
-        TreeUpdateChallengeRealHarness harness = new TreeUpdateChallengeRealHarness(
-            crossblobTestData.genesisAnchor,
-            IYieldRouter(address(yieldRouter)),
-            IUpdateVerifier(address(realZkVerifier)),
-            ITransferVerifier(address(fakeTransferVerifier)),
-            ITransactionRegistry(address(txRegistry))
-        );
-
-        harness.fundSequencer{value: 20 ether}(sequencer);
-
-        uint256 SECONDS_PER_DAY = 86400;
-        uint256 startTime = block.timestamp;
-
-        // Build up state: Add all blocks before target
-        uint256 targetBlockArrayIndex = crossblobTestData.targetDay * 5 + crossblobTestData.targetBlockIdx;
-
-        for (uint256 i = 0; i < targetBlockArrayIndex; i++) {
-            uint256 day = i / 5;
-            uint256 blockIdx = i % 5;
-
-            vm.warp(startTime + day * SECONDS_PER_DAY + blockIdx * 100);
-
-            // Cross-blob config: 3 deposits + 273 tx = 4 + 4095 = 4099 elements
-            // This exceeds 4096, so we need 2 blob hashes for each prior block
-            bytes32 fakeBlobHash1 = keccak256(abi.encodePacked("fake_blob_", i, "_1"));
-            bytes32 fakeBlobHash2 = keccak256(abi.encodePacked("fake_blob_", i, "_2"));
-            bytes32[] memory blobHashes = new bytes32[](2);
-            blobHashes[0] = fakeBlobHash1;
-            blobHashes[1] = fakeBlobHash2;
-            vm.blobhashes(blobHashes);
-
-            // Prior blocks use the cross-blob config (same numTx/numDeposits as target)
-            Spine.BlockData memory blockData = Spine.BlockData({
-                anchor: crossblobTestData.blockAnchors[i],
-                timestamp: 0,
-                numTransactions: crossblobTestData.targetNumTx, // Same as target for consistency
-                numDeposits: crossblobTestData.targetNumDeposits, // Same as target for consistency
-                blockNr: 0,
-                blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
-                sequencer: sequencer,
-                blobhashes: blobHashes
-            });
-
-            uint256[] memory blockIndices = new uint256[](2);
-            blockIndices[0] = 0;
-            blockIndices[1] = 1;
-
-            vm.prank(sequencer);
-            harness.addBlockTest(blockData, blockIndices);
-        }
-
-        // Add target block with TWO blob hashes for cross-blob scenario
-        vm.warp(startTime + crossblobTestData.targetDay * SECONDS_PER_DAY + crossblobTestData.targetBlockIdx * 100);
-
-        bytes32[] memory realBlobHashes = new bytes32[](2);
-        realBlobHashes[0] = crossblobTestData.kzgBlobHash;
-        realBlobHashes[1] = crossblobTestData.extensionKzgBlobHash;
-        vm.blobhashes(realBlobHashes);
-
-        Spine.BlockData memory targetBlockData = Spine.BlockData({
-            anchor: crossblobTestData.targetFinalAnchor,
-            timestamp: 0,
-            numTransactions: crossblobTestData.targetNumTx,
-            numDeposits: crossblobTestData.targetNumDeposits,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(
-                uint16(crossblobTestData.targetDay), uint16(crossblobTestData.targetBlockIdx)
-            ),
-            sequencer: sequencer,
-            blobhashes: realBlobHashes
-        });
-
-        uint256[] memory indices = new uint256[](2);
-        indices[0] = 0;
-        indices[1] = 1;
-
-        vm.prank(sequencer);
-        targetBlockData = harness.addBlockTest(targetBlockData, indices);
-
-        // Build cross-blob challenge regions
-        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes memory priorAnchorProof) =
-            _buildCrossblobChallengeRegions(crossblobTestData);
+        // Build challenge data using helper
+        CrossblobChallengeData memory cd = _buildChallengeDataCrossblob(crossblobTestData);
 
         // Verify regions are properly constructed
-        assertEq(region.length, crossblobTestData.regionLength, "Region length mismatch");
-        assertEq(extensionRegion.length, crossblobTestData.extensionRegionLength, "Extension length mismatch");
-        assertEq(extensionRegion.memoryAddress, 0, "Extension should start at 0");
-
-        // For transactions, updateNr is the transaction index (not the overall update index)
-        uint256 updateNr = crossblobTestData.targetUpdateIndex - crossblobTestData.numDepositGroups;
+        assertEq(cd.region.length, crossblobTestData.regionLength, "Region length mismatch");
+        assertEq(cd.extensionRegion.length, crossblobTestData.extensionRegionLength, "Extension length mismatch");
+        assertEq(cd.extensionRegion.memoryAddress, 0, "Extension should start at 0");
 
         // Challenge with real proofs - should revert with "No Fraud"
-        // because the ZK proof and blob data match
         vm.prank(challenger);
         Spine.BlockData memory rollbackTarget;
         vm.expectRevert(NoFraud.selector);
-        harness.challengeTreeUpdate(
-            targetBlockData,
-            updateNr,
-            crossblobTestData.targetIsTx, // true for transaction
-            region,
-            extensionRegion, // This is the key difference - non-empty extension region
-            crossblobTestData.targetPriorAnchor,
-            crossblobTestData.kzgCommitment,
-            priorAnchorProof,
-            crossblobTestData.targetNewAnchor,
-            crossblobTestData.zkProof,
-            rollbackTarget
-        );
+        state.harness
+            .challengeTreeUpdate(
+                state.targetBlockData,
+                cd.updateNr,
+                crossblobTestData.targetIsTx,
+                cd.region,
+                cd.extensionRegion,
+                cd.priorAnchor,
+                crossblobTestData.kzgCommitment,
+                cd.priorAnchorProof,
+                cd.trueAnchor,
+                crossblobTestData.zkProof,
+                rollbackTarget
+            );
 
         // Verify sequencer is still active
-        (bool isActive,,,,,,) = harness.getSequencerStatus(sequencer);
+        (bool isActive,,,,,,) = state.harness.getSequencerStatus(sequencer);
         assertTrue(isActive, "Sequencer should still be active - no fraud");
     }
 
@@ -1282,7 +1263,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     /// The fraud is that the anchor in the extension region (blob 2) is incorrect.
     /// Structure: [update0 in blob1] [update1, update2, fraudAnchor in blob2]
     function test_FullIntegration_RealZkAndKzg_CrossBlob_Fraud() public {
-        // Generate cross-blob fraud test data
+        // Generate and validate cross-blob fraud test data
         _generateCrossblobFraudTestData();
         require(crossblobFraudTestDataGenerated, "Cross-blob fraud test data not generated");
         require(crossblobFraudTestData.crossblobMode, "Should be in cross-blob mode");
@@ -1304,133 +1285,47 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         );
         assertTrue(crossblobFraudTestData.regionStart >= 4093, "Update should start near blob boundary");
 
-        emit log_named_uint("Region length", crossblobFraudTestData.regionLength);
-        emit log_named_uint("Extension region length", crossblobFraudTestData.extensionRegionLength);
-        emit log_named_uint("Region start (memory address)", crossblobFraudTestData.regionStart);
+        // Build test state using helper
+        TestState memory state = _buildTestStateCrossblob(crossblobFraudTestData);
 
-        // Create harness with real ZK verifier
-        TreeUpdateChallengeRealHarness harness = new TreeUpdateChallengeRealHarness(
-            crossblobFraudTestData.genesisAnchor,
-            IYieldRouter(address(yieldRouter)),
-            IUpdateVerifier(address(realZkVerifier)),
-            ITransferVerifier(address(fakeTransferVerifier)),
-            ITransactionRegistry(address(txRegistry))
-        );
-
-        harness.fundSequencer{value: 20 ether}(sequencer);
-
-        uint256 SECONDS_PER_DAY = 86400;
-        uint256 startTime = block.timestamp;
-
-        // Build up state: Add all blocks before target
-        uint256 targetBlockArrayIndex = crossblobFraudTestData.targetDay * 5 + crossblobFraudTestData.targetBlockIdx;
-        Spine.BlockData[] memory storedBlocks = new Spine.BlockData[](targetBlockArrayIndex);
-
-        for (uint256 i = 0; i < targetBlockArrayIndex; i++) {
-            uint256 day = i / 5;
-            uint256 blockIdx = i % 5;
-
-            vm.warp(startTime + day * SECONDS_PER_DAY + blockIdx * 100);
-
-            // Cross-blob config: 3 deposits + 273 tx = 4 + 4095 = 4099 elements
-            // This exceeds 4096, so we need 2 blob hashes for each prior block
-            bytes32 fakeBlobHash1 = keccak256(abi.encodePacked("fake_blob_", i, "_1"));
-            bytes32 fakeBlobHash2 = keccak256(abi.encodePacked("fake_blob_", i, "_2"));
-            bytes32[] memory blobHashes = new bytes32[](2);
-            blobHashes[0] = fakeBlobHash1;
-            blobHashes[1] = fakeBlobHash2;
-            vm.blobhashes(blobHashes);
-
-            Spine.BlockData memory blockData = Spine.BlockData({
-                anchor: crossblobFraudTestData.blockAnchors[i],
-                timestamp: 0,
-                numTransactions: crossblobFraudTestData.targetNumTx,
-                numDeposits: crossblobFraudTestData.targetNumDeposits,
-                blockNr: 0,
-                blockIndex: Spine.TimestampAndIndex(uint16(day), uint16(blockIdx)),
-                sequencer: sequencer,
-                blobhashes: blobHashes
-            });
-
-            uint256[] memory blockIndices = new uint256[](2);
-            blockIndices[0] = 0;
-            blockIndices[1] = 1;
-
-            vm.prank(sequencer);
-            storedBlocks[i] = harness.addBlockTest(blockData, blockIndices);
-        }
-
-        // Add target block with TWO blob hashes for cross-blob scenario
-        vm.warp(
-            startTime + crossblobFraudTestData.targetDay * SECONDS_PER_DAY + crossblobFraudTestData.targetBlockIdx * 100
-        );
-
-        bytes32[] memory realBlobHashes = new bytes32[](2);
-        realBlobHashes[0] = crossblobFraudTestData.kzgBlobHash;
-        realBlobHashes[1] = crossblobFraudTestData.extensionKzgBlobHash;
-        vm.blobhashes(realBlobHashes);
-
-        Spine.BlockData memory targetBlockData = Spine.BlockData({
-            anchor: crossblobFraudTestData.targetFinalAnchor,
-            timestamp: 0,
-            numTransactions: crossblobFraudTestData.targetNumTx,
-            numDeposits: crossblobFraudTestData.targetNumDeposits,
-            blockNr: 0,
-            blockIndex: Spine.TimestampAndIndex(
-                uint16(crossblobFraudTestData.targetDay), uint16(crossblobFraudTestData.targetBlockIdx)
-            ),
-            sequencer: sequencer,
-            blobhashes: realBlobHashes
-        });
-
-        uint256[] memory indices = new uint256[](2);
-        indices[0] = 0;
-        indices[1] = 1;
-
-        vm.prank(sequencer);
-        targetBlockData = harness.addBlockTest(targetBlockData, indices);
-
-        // Build cross-blob challenge regions
-        (BlobData.Region memory region, BlobData.Region memory extensionRegion, bytes memory priorAnchorProof) =
-            _buildCrossblobChallengeRegions(crossblobFraudTestData);
+        // Build challenge data using helper
+        CrossblobChallengeData memory cd = _buildChallengeDataCrossblob(crossblobFraudTestData);
 
         // Verify regions are properly constructed
-        assertEq(region.length, crossblobFraudTestData.regionLength, "Region length mismatch");
-        assertEq(extensionRegion.length, crossblobFraudTestData.extensionRegionLength, "Extension length mismatch");
-        assertEq(extensionRegion.memoryAddress, 0, "Extension should start at 0");
-
-        // For transactions, updateNr is the transaction index (not the overall update index)
-        uint256 updateNr = crossblobFraudTestData.targetUpdateIndex - crossblobFraudTestData.numDepositGroups;
+        assertEq(cd.region.length, crossblobFraudTestData.regionLength, "Region length mismatch");
+        assertEq(cd.extensionRegion.length, crossblobFraudTestData.extensionRegionLength, "Extension length mismatch");
+        assertEq(cd.extensionRegion.memoryAddress, 0, "Extension should start at 0");
 
         // Capture sequencer state before challenge
-        (bool isActiveBefore,,,,, uint64 stakeBefore,) = harness.getSequencerStatus(sequencer);
+        (bool isActiveBefore,,,,, uint64 stakeBefore,) = state.harness.getSequencerStatus(sequencer);
         assertTrue(isActiveBefore, "Sequencer should be active before");
         assertTrue(stakeBefore > 0, "Sequencer should have stake before");
 
         // Rollback target is the block before the fraudulent block
-        Spine.BlockData memory rollbackTarget = storedBlocks[targetBlockArrayIndex - 1];
+        uint256 targetBlockArrayIndex = crossblobFraudTestData.targetDay * 5 + crossblobFraudTestData.targetBlockIdx;
+        Spine.BlockData memory rollbackTarget = state.storedBlocks[targetBlockArrayIndex - 1];
 
         // Challenge with real proofs - should SUCCEED because the blob contains fraudAnchor
         // but the ZK proof proves targetNewAnchor is correct
-        // The challenger provides targetNewAnchor (the TRUE anchor from ZK proof)
         vm.prank(challenger);
-        harness.challengeTreeUpdate(
-            targetBlockData,
-            updateNr,
-            crossblobFraudTestData.targetIsTx,
-            region,
-            extensionRegion, // Cross-blob: non-empty extension region with fraud anchor
-            crossblobFraudTestData.targetPriorAnchor,
-            crossblobFraudTestData.kzgCommitment,
-            priorAnchorProof,
-            crossblobFraudTestData.targetNewAnchor, // The TRUE anchor (ZK verified)
-            crossblobFraudTestData.zkProof,
-            rollbackTarget
-        );
+        state.harness
+            .challengeTreeUpdate(
+                state.targetBlockData,
+                cd.updateNr,
+                crossblobFraudTestData.targetIsTx,
+                cd.region,
+                cd.extensionRegion,
+                cd.priorAnchor,
+                crossblobFraudTestData.kzgCommitment,
+                cd.priorAnchorProof,
+                cd.trueAnchor,
+                crossblobFraudTestData.zkProof,
+                rollbackTarget
+            );
 
         // Verify sequencer was slashed
         (bool isActiveAfter,,,,, uint64 stakeAfter, address payable challengerAfter) =
-            harness.getSequencerStatus(sequencer);
+            state.harness.getSequencerStatus(sequencer);
         assertFalse(isActiveAfter, "Sequencer should be slashed (inactive)");
         assertEq(challengerAfter, challenger, "Challenger should be recorded");
         assertTrue(stakeAfter > 0, "Stake should still be held for later claim");
