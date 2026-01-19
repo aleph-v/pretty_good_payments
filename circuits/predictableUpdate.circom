@@ -1,4 +1,5 @@
-// Audited PSE Merkle Lib
+pragma circom 2.1.5;
+
 include "binary-merkle-root.circom";
 include "poseidon.circom";
 include "bitify.circom";

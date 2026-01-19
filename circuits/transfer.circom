@@ -91,7 +91,7 @@ template Transfer () {
    // and isSameKeyTransaction5 = 1. If any of the keys except the second mismatch both isSameKeyTransactions will be 0, if all match except
    // the second isSameKeyTransaction5 will be 0 and if this key is included root2_notEq = 0.
    var isSameKeyTransaction = isSameKeyTransaction4*root2_notEq + isSameKeyTransaction5;
-   var isNotSameKeyTransaction = IsEqual()([isSameKeyTransaction, 1]);
+   var isNotSameKeyTransaction = IsZero()(isSameKeyTransaction);
 
    ForceEqualIfEnabled()(isEthKey*isNotSameKeyTransaction, [privateKeys[0]*isNotTotalWithdraw, ethKey]);
    // If the first key is not an eth address the second must not be

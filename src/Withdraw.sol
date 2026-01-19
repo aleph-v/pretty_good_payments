@@ -61,6 +61,6 @@ contract Withdraw is Spine {
 
         // Now process
         withdrawn[data.blockNr][(txNr << 2) + which] = true;
-        yieldRouter.triggerWithdraw(address(leaf.asset), leaf.amount, address(bytes20(leaf.blinding)));
+        yieldRouter.triggerWithdraw(address(leaf.asset), leaf.amount, address(uint160(uint256(leaf.blinding))));
     }
 }

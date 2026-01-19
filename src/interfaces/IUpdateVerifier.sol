@@ -10,7 +10,7 @@ interface IUpdateVerifier {
     /// @param _pA First elliptic curve point (2 uint256 coordinates)
     /// @param _pB Second elliptic curve point (2x2 uint256 coordinates)
     /// @param _pC Third elliptic curve point (2 uint256 coordinates)
-    /// @param _pubSignals Public inputs: [anchorBefore, blockIndex, update0, update1, update2, anchorAfter]
+    /// @param _pubSignals Public signals: [anchorAfter, anchorBefore, update0, update1, update2, blockIndex]
     /// @return True if the proof is valid
     function verifyProof(
         uint256[2] calldata _pA,

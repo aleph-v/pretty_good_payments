@@ -49,24 +49,25 @@ contract PredictableMerkleLibTest is Test {
         uint256 pC1 = vm.parseJsonUint(jsonStr, ".proof._pC[1]");
 
         // Parse public signals
-        uint256 anchorBefore = vm.parseJsonUint(jsonStr, ".publicSignals[0]");
-        uint256 blockIndex = vm.parseJsonUint(jsonStr, ".publicSignals[1]");
+        // Snarkjs order: [anchorAfter (output), anchorBefore, update0, update1, update2, blockIndex]
+        uint256 anchorAfter = vm.parseJsonUint(jsonStr, ".publicSignals[0]");
+        uint256 anchorBefore = vm.parseJsonUint(jsonStr, ".publicSignals[1]");
         uint256 update0 = vm.parseJsonUint(jsonStr, ".publicSignals[2]");
         uint256 update1 = vm.parseJsonUint(jsonStr, ".publicSignals[3]");
         uint256 update2 = vm.parseJsonUint(jsonStr, ".publicSignals[4]");
-        uint256 anchorAfter = vm.parseJsonUint(jsonStr, ".publicSignals[5]");
+        uint256 blockIndex = vm.parseJsonUint(jsonStr, ".publicSignals[5]");
 
         // Cache the proof
         cachedProof = Proof({_pA: [pA0, pA1], _pB: [[pB00, pB01], [pB10, pB11]], _pC: [pC0, pC1]});
 
-        // Cache public inputs
+        // Cache public inputs in snarkjs order: [anchorAfter, anchorBefore, update0, update1, update2, blockIndex]
         cachedPublicInputs = [
+            bytes32(anchorAfter),
             bytes32(anchorBefore),
-            bytes32(blockIndex),
             bytes32(update0),
             bytes32(update1),
             bytes32(update2),
-            bytes32(anchorAfter)
+            bytes32(blockIndex)
         ];
 
         proofGenerated = true;
@@ -150,9 +151,9 @@ contract PredictableMerkleLibTest is Test {
         bytes32 solidityHash = PredictableMerkleLib.hash(leaf);
 
         // Compute hash via FFI using circomlibjs
-        // The hash function uses bytes32(bytes20(asset)) which LEFT-aligns the address
+        // The hash function uses uint256(uint160(asset)) which RIGHT-aligns the address (low 160 bits)
         uint256[4] memory inputs;
-        inputs[0] = uint256(uint160(asset)) << 96;
+        inputs[0] = uint256(uint160(asset));
         inputs[1] = amount;
         inputs[2] = uint256(blinding);
         inputs[3] = uint256(publicKey);
