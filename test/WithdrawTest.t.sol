@@ -167,8 +167,9 @@ contract WithdrawTest is Test {
     function test_BasicWithdraw() public {
         address recipient = address(0xBEEF);
         uint256 amount = 100 ether;
-        Leaf memory leaf =
-            Leaf({asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)});
+        Leaf memory leaf = Leaf({
+            asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+        });
 
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 12345);
 
@@ -187,7 +188,10 @@ contract WithdrawTest is Test {
     function test_WithdrawRevertsIfNotConfirmed() public {
         address recipient = address(0xBEEF);
         Leaf memory leaf = Leaf({
-            asset: address(token), amount: 100 ether, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+            asset: address(token),
+            amount: 100 ether,
+            blinding: bytes32(uint256(uint160(recipient))),
+            publicKey: bytes32(0)
         });
 
         bytes32 anchor = keccak256("anchor");
@@ -240,7 +244,10 @@ contract WithdrawTest is Test {
 
         for (uint256 which = 0; which < 3; which++) {
             Leaf memory leaf = Leaf({
-                asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+                asset: address(token),
+                amount: amount,
+                blinding: bytes32(uint256(uint160(recipient))),
+                publicKey: bytes32(0)
             });
 
             (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 1, which, 2, 0, 999 + which);
@@ -265,7 +272,10 @@ contract WithdrawTest is Test {
     function test_WithdrawWhichBoundary() public {
         address recipient = address(0xBEEF);
         Leaf memory leaf = Leaf({
-            asset: address(token), amount: 100 ether, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+            asset: address(token),
+            amount: 100 ether,
+            blinding: bytes32(uint256(uint160(recipient))),
+            publicKey: bytes32(0)
         });
 
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 666);
@@ -278,7 +288,10 @@ contract WithdrawTest is Test {
     function test_WithdrawTxNrBoundary() public {
         address recipient = address(0xBEEF);
         Leaf memory leaf = Leaf({
-            asset: address(token), amount: 100 ether, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+            asset: address(token),
+            amount: 100 ether,
+            blinding: bytes32(uint256(uint160(recipient))),
+            publicKey: bytes32(0)
         });
 
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, 0, 1, 0, 777);
@@ -294,8 +307,9 @@ contract WithdrawTest is Test {
         // Test withdrawal when there are deposits in the block
         address recipient = address(0xBEEF);
         uint256 amount = 100 ether;
-        Leaf memory leaf =
-            Leaf({asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)});
+        Leaf memory leaf = Leaf({
+            asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+        });
 
         (Spine.BlockData memory blockData,) =
             _createConfirmedBlockWithLeaf(
@@ -317,8 +331,9 @@ contract WithdrawTest is Test {
     function test_WithdrawFromSecondBlob() public {
         address recipient = address(0xBEEF);
         uint256 amount = 100 ether;
-        Leaf memory leaf =
-            Leaf({asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)});
+        Leaf memory leaf = Leaf({
+            asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+        });
 
         uint256 numTx = 300; // This will span into second blob
         uint256 txNr = 280; // This tx should be in second blob
@@ -347,8 +362,9 @@ contract WithdrawTest is Test {
         if (recipient == address(0)) recipient = address(1);
 
         uint256 amount = bound(seed, 1, 1000 ether);
-        Leaf memory leaf =
-            Leaf({asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)});
+        Leaf memory leaf = Leaf({
+            asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+        });
 
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, 0, whichVal, numTx, 0, seed);
 
@@ -368,8 +384,9 @@ contract WithdrawTest is Test {
         if (recipient == address(0)) recipient = address(1);
 
         uint256 amount = bound(seed, 1, 1000 ether);
-        Leaf memory leaf =
-            Leaf({asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)});
+        Leaf memory leaf = Leaf({
+            asset: address(token), amount: amount, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+        });
 
         (Spine.BlockData memory blockData,) = _createConfirmedBlockWithLeaf(leaf, txNr, whichVal, numTx, 0, seed);
 
@@ -402,15 +419,24 @@ contract WithdrawTest is Test {
 
         // Create leaves for different txNr/which combinations
         Leaf memory leaf1 = Leaf({
-            asset: address(token), amount: amount1, blinding: bytes32(uint256(uint160(recipient1))), publicKey: bytes32(0)
+            asset: address(token),
+            amount: amount1,
+            blinding: bytes32(uint256(uint160(recipient1))),
+            publicKey: bytes32(0)
         });
 
         Leaf memory leaf2 = Leaf({
-            asset: address(token), amount: amount2, blinding: bytes32(uint256(uint160(recipient2))), publicKey: bytes32(0)
+            asset: address(token),
+            amount: amount2,
+            blinding: bytes32(uint256(uint160(recipient2))),
+            publicKey: bytes32(0)
         });
 
         Leaf memory leaf3 = Leaf({
-            asset: address(token), amount: amount3, blinding: bytes32(uint256(uint160(recipient3))), publicKey: bytes32(0)
+            asset: address(token),
+            amount: amount3,
+            blinding: bytes32(uint256(uint160(recipient3))),
+            publicKey: bytes32(0)
         });
 
         // Create a block with multiple transactions
@@ -475,7 +501,10 @@ contract WithdrawTest is Test {
         // Test that providing wrong leaf data fails validation
         address recipient = address(0xBEEF);
         Leaf memory correctLeaf = Leaf({
-            asset: address(token), amount: 100 ether, blinding: bytes32(uint256(uint160(recipient))), publicKey: bytes32(0)
+            asset: address(token),
+            amount: 100 ether,
+            blinding: bytes32(uint256(uint160(recipient))),
+            publicKey: bytes32(0)
         });
 
         // Create a confirmed block with the correct leaf

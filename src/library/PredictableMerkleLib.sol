@@ -80,7 +80,8 @@ library PredictableMerkleLib {
     /// @param leaf The leaf
     /// @dev Note that we are doing a width 4 for the leaves and a width 2 in the tree, so do not use a domain separator for leaves
     function hash(Leaf memory leaf) public pure returns (bytes32) {
-        bytes32[4] memory data = [(bytes32)(uint256(uint160(leaf.asset))), (bytes32)(leaf.amount), leaf.blinding, leaf.publicKey];
+        bytes32[4] memory data =
+            [(bytes32)(uint256(uint160(leaf.asset))), (bytes32)(leaf.amount), leaf.blinding, leaf.publicKey];
         // Hashes a leaf, should match the hash in the zk proof.
         return (bytes32)(data.hash());
     }
