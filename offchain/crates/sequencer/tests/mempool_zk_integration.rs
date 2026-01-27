@@ -900,7 +900,7 @@ fn build_transfer_input_json(input: &TransferInput) -> String {
 
     // ethKey (as decimal)
     let eth_key_uint = U256::from_be_slice(input.eth_key.as_slice());
-    json.push_str(&format!("  \"ethKey\": \"{}\"\n", eth_key_uint));
+    json.push_str(&format!("  \"ethKey\": \"{eth_key_uint}\"\n"));
 
     json.push('}');
     json
@@ -1207,7 +1207,7 @@ async fn test_generate_single_transfer_proof() -> Result<()> {
     let circuit_paths = match CircuitPaths::find() {
         Ok(paths) => paths,
         Err(e) => {
-            eprintln!("Skipping test: circuit files not found: {}", e);
+            eprintln!("Skipping test: circuit files not found: {e}");
             return Ok(());
         }
     };
@@ -1262,7 +1262,7 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
     let circuit_paths = match CircuitPaths::find() {
         Ok(paths) => paths,
         Err(e) => {
-            eprintln!("Skipping test: circuit files not found: {}", e);
+            eprintln!("Skipping test: circuit files not found: {e}");
             return Ok(());
         }
     };
@@ -1278,8 +1278,7 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
     let amount_per_note = 50u64; // Each note has 50, pairs have 100 total
 
     println!(
-        "Creating shared test tree with {} note pairs...",
-        num_transactions
+        "Creating shared test tree with {num_transactions} note pairs..."
     );
     let test_tree = TestTreeSetup::new(num_transactions, asset_id, amount_per_note);
     println!("  Test genesis anchor: {}", test_tree.anchor);
@@ -1318,10 +1317,9 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
     let mempool_len = mempool.len().await;
     assert_eq!(
         mempool_len, num_transactions,
-        "Mempool should have {} transactions",
-        num_transactions
+        "Mempool should have {num_transactions} transactions"
     );
-    println!("✓ Mempool contains {} transactions", mempool_len);
+    println!("✓ Mempool contains {mempool_len} transactions");
 
     // Create builder config with LOW threshold for testing (3 transactions instead of 273)
     let builder_config = ctx.create_builder_config(num_transactions);
@@ -1352,11 +1350,10 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
             block_data,
         } => {
             println!(
-                "✓ Block {} submitted successfully via try_build_and_submit_block!",
-                block_nr
+                "✓ Block {block_nr} submitted successfully via try_build_and_submit_block!"
             );
-            println!("  - Anchor: {}", anchor);
-            println!("  - Transactions: {}", tx_count);
+            println!("  - Anchor: {anchor}");
+            println!("  - Transactions: {tx_count}");
             assert_eq!(
                 tx_count, num_transactions,
                 "Should have submitted all transactions"
@@ -1368,18 +1365,17 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
             required,
         } => {
             panic!(
-                "Block building failed: insufficient transactions ({}/{})",
-                available, required
+                "Block building failed: insufficient transactions ({available}/{required})"
             );
         }
         BlockBuildResult::NotAllowed => {
             panic!("Block building failed: not allowed to submit (epoch timing)");
         }
         BlockBuildResult::Error(e) => {
-            panic!("Block building failed with error: {}", e);
+            panic!("Block building failed with error: {e}");
         }
         other => {
-            panic!("Block building failed with unexpected result: {:?}", other);
+            panic!("Block building failed with unexpected result: {other:?}");
         }
     };
 
@@ -1397,7 +1393,7 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
         current_block_nr >= U256::from(1),
         "Should have at least 1 block on-chain"
     );
-    println!("✓ Current on-chain block number: {}", current_block_nr);
+    println!("✓ Current on-chain block number: {current_block_nr}");
 
     // === RUN CHALLENGER VALIDATION ===
     println!("\n--- Running Challenger Validation ---");
@@ -1419,7 +1415,7 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
     // 4. Real Groth16 proofs were generated (verified in test_generate_single_transfer_proof)
 
     println!("\n✓ End-to-end test passed!");
-    println!("  - Generated {} real ZK transfer proofs", num_transactions);
+    println!("  - Generated {num_transactions} real ZK transfer proofs");
     println!("  - Added transactions to ACTUAL Mempool");
     println!("  - Called ACTUAL try_build_and_submit_block");
     println!("  - Block was built and submitted via BlockSubmitter");
@@ -1444,7 +1440,7 @@ async fn test_api_submits_to_mempool() -> Result<()> {
     let circuit_paths = match CircuitPaths::find() {
         Ok(paths) => paths,
         Err(e) => {
-            eprintln!("Skipping test: circuit files not found: {}", e);
+            eprintln!("Skipping test: circuit files not found: {e}");
             return Ok(());
         }
     };
@@ -1471,7 +1467,7 @@ async fn test_api_submits_to_mempool() -> Result<()> {
     // Bind to get the actual port
     let listener = tokio::net::TcpListener::bind(api_addr).await?;
     let actual_addr = listener.local_addr()?;
-    println!("API server listening on {}", actual_addr);
+    println!("API server listening on {actual_addr}");
 
     // Spawn the server in the background
     let server_handle = tokio::spawn(async move {
@@ -1483,13 +1479,13 @@ async fn test_api_submits_to_mempool() -> Result<()> {
 
     // Submit transaction via HTTP API
     let client = reqwest::Client::new();
-    let api_url = format!("http://{}/tx", actual_addr);
+    let api_url = format!("http://{actual_addr}/tx");
 
     let request_body = serde_json::json!({
         "transaction": tx
     });
 
-    println!("Submitting transaction to API at {}...", api_url);
+    println!("Submitting transaction to API at {api_url}...");
     let response = client
         .post(&api_url)
         .header("Content-Type", "application/json")
@@ -1513,10 +1509,10 @@ async fn test_api_submits_to_mempool() -> Result<()> {
     // Verify transaction is in the mempool
     let mempool_len = mempool.len().await;
     assert_eq!(mempool_len, 1, "Mempool should have 1 transaction");
-    println!("✓ Mempool contains {} transaction", mempool_len);
+    println!("✓ Mempool contains {mempool_len} transaction");
 
     // Check mempool status via API
-    let status_url = format!("http://{}/mempool", actual_addr);
+    let status_url = format!("http://{actual_addr}/mempool");
     let status_response = client.get(&status_url).send().await?;
     let status: serde_json::Value = status_response.json().await?;
 
@@ -1550,7 +1546,7 @@ async fn test_full_sequencer_flow() -> Result<()> {
     let circuit_paths = match CircuitPaths::find() {
         Ok(paths) => paths,
         Err(e) => {
-            eprintln!("Skipping test: circuit files not found: {}", e);
+            eprintln!("Skipping test: circuit files not found: {e}");
             return Ok(());
         }
     };
@@ -1564,8 +1560,7 @@ async fn test_full_sequencer_flow() -> Result<()> {
     let asset_id = B256::from(U256::from(1));
     let test_tree = TestTreeSetup::new(num_transactions, asset_id, 50u64);
     println!(
-        "Created shared test tree with {} note pairs",
-        num_transactions
+        "Created shared test tree with {num_transactions} note pairs"
     );
     println!("  Test genesis anchor: {}", test_tree.anchor);
 
@@ -1581,7 +1576,7 @@ async fn test_full_sequencer_flow() -> Result<()> {
     let router = pgp_sequencer::create_router(api_state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
     let actual_addr = listener.local_addr()?;
-    println!("API server listening on {}", actual_addr);
+    println!("API server listening on {actual_addr}");
 
     let server_handle = tokio::spawn(async move {
         axum::serve(listener, router).await.ok();
@@ -1590,12 +1585,11 @@ async fn test_full_sequencer_flow() -> Result<()> {
 
     // Generate proofs and submit transactions via API
     let client = reqwest::Client::new();
-    let api_url = format!("http://{}/tx", actual_addr);
+    let api_url = format!("http://{actual_addr}/tx");
     let mut original_transactions: Vec<ParsedTransaction> = Vec::new();
 
     println!(
-        "Generating and submitting {} transactions via API...",
-        num_transactions
+        "Generating and submitting {num_transactions} transactions via API..."
     );
     for i in 0..num_transactions {
         let input = test_tree.create_transfer_input(i, asset_id);
@@ -1615,8 +1609,7 @@ async fn test_full_sequencer_flow() -> Result<()> {
 
         assert!(
             response.status().is_success(),
-            "API should accept transaction {}",
-            i
+            "API should accept transaction {i}"
         );
         println!(
             "  Submitted transaction {}/{} via API",
@@ -1629,10 +1622,9 @@ async fn test_full_sequencer_flow() -> Result<()> {
     let mempool_len = mempool.len().await;
     assert_eq!(
         mempool_len, num_transactions,
-        "Mempool should have {} transactions",
-        num_transactions
+        "Mempool should have {num_transactions} transactions"
     );
-    println!("✓ Mempool contains {} transactions", mempool_len);
+    println!("✓ Mempool contains {mempool_len} transactions");
 
     // Create builder config with low threshold for testing
     let builder_config = ctx.create_builder_config(num_transactions);
@@ -1661,14 +1653,14 @@ async fn test_full_sequencer_flow() -> Result<()> {
             block_data,
             ..
         } => {
-            println!("✓ Block {} submitted!", block_nr);
-            println!("  - Anchor: {}", anchor);
-            println!("  - Transactions: {}", tx_count);
+            println!("✓ Block {block_nr} submitted!");
+            println!("  - Anchor: {anchor}");
+            println!("  - Transactions: {tx_count}");
             assert_eq!(tx_count, num_transactions);
             (blobs, block_data)
         }
         other => {
-            panic!("Block building failed: {:?}", other);
+            panic!("Block building failed: {other:?}");
         }
     };
 
@@ -1683,7 +1675,7 @@ async fn test_full_sequencer_flow() -> Result<()> {
     // Verify on-chain state
     let current_block_nr = ctx.entrypoint().getCurrentBlocknumber().call().await?;
     assert!(current_block_nr >= U256::from(1));
-    println!("✓ On-chain block number: {}", current_block_nr);
+    println!("✓ On-chain block number: {current_block_nr}");
 
     // Run challenger validation: decode blobs and verify against original transactions
     println!("\n--- Running Challenger Validation ---");

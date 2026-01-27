@@ -1,6 +1,9 @@
 //! PGP Sequencer - Block building and submission for Pretty Good Payments.
 //!
 //! This crate provides the core components for sequencing L2 blocks:
+//!
+// Allow clippy lints for complex domain-specific code
+#![allow(clippy::large_enum_variant)]
 //! - `BlobBuilder`: Constructs blob data from deposits and transactions
 //! - `BlockSubmitter`: Submits blocks to the Entrypoint contract
 //! - `EpochWatcher`: Monitors epoch timing for submission windows

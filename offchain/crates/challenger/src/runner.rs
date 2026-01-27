@@ -476,9 +476,10 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
 
                 // Populate anchor_lookup from this block's updates
                 let block_nr_u32 = block_nr as u32;
-                let mut deposit_update_nr: u32 = 0;
 
-                for group in &parsed_block.deposit_groups {
+                for (deposit_update_nr, group) in
+                    (0u32..).zip(parsed_block.deposit_groups.iter())
+                {
                     self.anchor_lookup.insert(
                         block_nr_u32,
                         deposit_update_nr,
@@ -491,16 +492,13 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                         true,
                         group.new_root,
                     )?;
-                    deposit_update_nr += 1;
                 }
 
-                let mut tx_update_nr: u32 = 0;
-                for tx in &parsed_block.transactions {
+                for (tx_update_nr, tx) in (0u32..).zip(parsed_block.transactions.iter()) {
                     self.anchor_lookup
                         .insert(block_nr_u32, tx_update_nr, false, tx.new_root);
                     self.state
                         .save_anchor(block_nr_u32, tx_update_nr, false, tx.new_root)?;
-                    tx_update_nr += 1;
                 }
 
                 // Save block data

@@ -312,9 +312,7 @@ impl RootTreeTracker {
     pub fn compute_tree_index(day: u64, block_index_in_day: u64) -> u64 {
         assert!(
             block_index_in_day < BLOCKS_PER_DAY,
-            "block_index_in_day {} must be < BLOCKS_PER_DAY {}",
-            block_index_in_day,
-            BLOCKS_PER_DAY
+            "block_index_in_day {block_index_in_day} must be < BLOCKS_PER_DAY {BLOCKS_PER_DAY}"
         );
 
         let tree_index = day
@@ -445,13 +443,12 @@ pub fn compute_anchor_from_path(
     let mut current = block_root;
     let mut index = tree_index as usize;
 
-    for level in 0..ROOT_DEPTH {
-        let sibling = root_path[level];
+    for sibling in root_path.iter().take(ROOT_DEPTH) {
         let is_left = index % 2 == 0;
         current = if is_left {
-            poseidon2(current, sibling)
+            poseidon2(current, *sibling)
         } else {
-            poseidon2(sibling, current)
+            poseidon2(*sibling, current)
         };
         index /= 2;
     }
@@ -496,8 +493,8 @@ impl BlockTreeTracker {
     /// # Arguments
     /// * `block_index` - The block's position in the root tree (tree_index)
     /// * `root_path` - Sibling hashes for the block's position in the root tree.
-    ///                 Should have ROOT_DEPTH (28) elements. Missing elements will
-    ///                 be filled with zero hashes.
+    ///   Should have ROOT_DEPTH (28) elements. Missing elements will
+    ///   be filled with zero hashes.
     pub fn new(block_index: usize, root_path: &[B256]) -> Self {
         // Initialize block tree
         let block_tree = IncrementalMerkleTree::new(BLOCK_DEPTH);

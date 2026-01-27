@@ -2,6 +2,11 @@
 //!
 //! This library provides fraud detection and validation for L2 blocks.
 
+// Allow clippy lints for complex domain-specific code
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::large_enum_variant)]
+#![allow(clippy::type_complexity)]
+
 pub mod beacon;
 pub mod challenge;
 pub mod contracts;

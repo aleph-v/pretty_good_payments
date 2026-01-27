@@ -207,7 +207,7 @@ impl Mempool {
                     }
                 }
                 Err(e) => {
-                    return AddResult::DatabaseError(format!("Failed to check nullifiers: {}", e));
+                    return AddResult::DatabaseError(format!("Failed to check nullifiers: {e}"));
                 }
             }
 
@@ -225,7 +225,7 @@ impl Mempool {
                     0
                 }
                 Err(e) => {
-                    return AddResult::DatabaseError(format!("Failed to get latest block: {}", e));
+                    return AddResult::DatabaseError(format!("Failed to get latest block: {e}"));
                 }
             };
 
@@ -242,7 +242,7 @@ impl Mempool {
             {
                 Ok(max) => max,
                 Err(e) => {
-                    return AddResult::DatabaseError(format!("Failed to get max update_nr: {}", e));
+                    return AddResult::DatabaseError(format!("Failed to get max update_nr: {e}"));
                 }
             };
 
@@ -292,7 +292,7 @@ impl Mempool {
                     });
                 }
                 Err(e) => {
-                    return AddResult::DatabaseError(format!("Failed to load anchor: {}", e));
+                    return AddResult::DatabaseError(format!("Failed to load anchor: {e}"));
                 }
             }
         };
@@ -324,7 +324,7 @@ impl Mempool {
             Err(e) => {
                 warn!("ZK proof verification error: {}", e);
                 return AddResult::ValidationFailed(ValidationError::InvalidZkProof {
-                    reason: format!("Verification error: {}", e),
+                    reason: format!("Verification error: {e}"),
                 });
             }
         }
@@ -683,7 +683,7 @@ mod tests {
                 assert_eq!(block_nr, 100);
                 assert_eq!(tx_index, 5);
             }
-            other => panic!("Expected NullifierAlreadySpent, got {:?}", other),
+            other => panic!("Expected NullifierAlreadySpent, got {other:?}"),
         }
     }
 

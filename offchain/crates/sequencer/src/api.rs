@@ -149,8 +149,7 @@ async fn submit_tx(
                         nullifier, block_nr, tx_index
                     );
                     format!(
-                        "Nullifier {} already spent in block {} transaction {}",
-                        nullifier, block_nr, tx_index
+                        "Nullifier {nullifier} already spent in block {block_nr} transaction {tx_index}"
                     )
                 }
                 ValidationError::NullifierPending { nullifier } => {
@@ -158,14 +157,14 @@ async fn submit_tx(
                         "Transaction rejected: nullifier {} already pending",
                         nullifier
                     );
-                    format!("Nullifier {} already pending in mempool", nullifier)
+                    format!("Nullifier {nullifier} already pending in mempool")
                 }
                 ValidationError::DuplicateNullifiersInTx { nullifier } => {
                     warn!(
                         "Transaction rejected: duplicate nullifier {} in tx",
                         nullifier
                     );
-                    format!("Transaction contains duplicate nullifier {}", nullifier)
+                    format!("Transaction contains duplicate nullifier {nullifier}")
                 }
                 ValidationError::AnchorBlockInFuture {
                     referenced_block,
@@ -176,8 +175,7 @@ async fn submit_tx(
                         referenced_block, latest_block
                     );
                     format!(
-                        "Anchor references future block {} (latest: {})",
-                        referenced_block, latest_block
+                        "Anchor references future block {referenced_block} (latest: {latest_block})"
                     )
                 }
                 ValidationError::AnchorUpdateOutOfBounds {
@@ -191,8 +189,7 @@ async fn submit_tx(
                         update_nr, block_nr, is_deposit, max_update_nr
                     );
                     format!(
-                        "Anchor update_nr {} out of bounds for block {} (max: {:?})",
-                        update_nr, block_nr, max_update_nr
+                        "Anchor update_nr {update_nr} out of bounds for block {block_nr} (max: {max_update_nr:?})"
                     )
                 }
                 ValidationError::AnchorNotFound {
@@ -205,13 +202,12 @@ async fn submit_tx(
                         block_nr, update_nr, is_deposit
                     );
                     format!(
-                        "Anchor not found: block={}, update={}, is_deposit={}",
-                        block_nr, update_nr, is_deposit
+                        "Anchor not found: block={block_nr}, update={update_nr}, is_deposit={is_deposit}"
                     )
                 }
                 ValidationError::InvalidZkProof { reason } => {
                     warn!("Transaction rejected: invalid ZK proof - {}", reason);
-                    format!("Invalid ZK proof: {}", reason)
+                    format!("Invalid ZK proof: {reason}")
                 }
             };
             (
@@ -283,8 +279,7 @@ async fn poke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
         Json(PokeResponse {
             triggered: true,
             message: format!(
-                "Block submission triggered with {} pending transactions",
-                mempool_size
+                "Block submission triggered with {mempool_size} pending transactions"
             ),
             mempool_size,
         }),

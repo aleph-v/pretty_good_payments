@@ -1102,8 +1102,7 @@ pub mod memory {
     ) -> u64 {
         assert!(
             which < 3,
-            "Leaf index 'which' must be 0, 1, or 2, got {}",
-            which
+            "Leaf index 'which' must be 0, 1, or 2, got {which}"
         );
 
         if is_deposit {
@@ -1138,8 +1137,7 @@ pub mod memory {
     pub fn nullifier_memory_address(tx_number: u64, num_deposits: u64, which: u64) -> u64 {
         assert!(
             which < 2,
-            "Nullifier index 'which' must be 0 or 1, got {}",
-            which
+            "Nullifier index 'which' must be 0 or 1, got {which}"
         );
 
         let deposits_length = num_deposits_to_memory_length(num_deposits);

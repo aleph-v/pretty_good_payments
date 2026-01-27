@@ -1035,7 +1035,7 @@ async fn test_multi_block_deposit_fraud() -> Result<()> {
             let anchor_info = DecodedAnchorInfo {
                 block_nr: (i - 1) as u32,
                 update_nr: 0,
-                is_deposit: if i == 1 { true } else { false },
+                is_deposit: i == 1,
                 eth_key: Address::ZERO,
             };
             let mut tx_fields = vec![B256::ZERO; 15];
@@ -1493,10 +1493,10 @@ async fn test_groth16_verification_key_loading() -> Result<()> {
     );
     // Result can be Ok(false) for invalid proof, or Err for verification error
     // Either is acceptable for an invalid proof
-    match result {
-        Ok(valid) => assert!(!valid, "Invalid proof should fail verification"),
-        Err(_) => {} // Verification error is also acceptable for invalid proof
+    if let Ok(valid) = result {
+        assert!(!valid, "Invalid proof should fail verification");
     }
+    // Err case: Verification error is also acceptable for invalid proof
 
     Ok(())
 }
@@ -1534,16 +1534,9 @@ async fn test_region_building() -> Result<()> {
     assert_eq!(tx_region.memoryAddress, U256::from(100));
 
     // Case 4: Blob boundary crossing detection
-    const BLOB_SIZE: u64 = 4096;
-    const TX_LENGTH: u64 = 15;
-    assert!(
-        4082 + TX_LENGTH > BLOB_SIZE,
-        "Should detect boundary crossing"
-    );
-    assert!(
-        4081 + TX_LENGTH <= BLOB_SIZE,
-        "Should fit without extension"
-    );
+    // Compile-time verification of blob/tx size assumptions (BLOB_SIZE=4096, TX_LENGTH=15)
+    const _: () = assert!(4082 + 15 > 4096); // Should detect boundary crossing
+    const _: () = assert!(4081 + 15 <= 4096); // Should fit without extension
 
     Ok(())
 }
