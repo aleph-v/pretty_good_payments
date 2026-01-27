@@ -13,8 +13,7 @@ use std::path::Path;
 ///
 /// A single config file can run either binary. Fields are organized by section
 /// for clarity, matching the TOML structure.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
     /// Network configuration
     #[serde(default)]
@@ -195,7 +194,6 @@ impl Default for StorageConfig {
         }
     }
 }
-
 
 // ============================================================================
 // Default value functions

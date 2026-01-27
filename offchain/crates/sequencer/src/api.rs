@@ -278,9 +278,7 @@ async fn poke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
         StatusCode::OK,
         Json(PokeResponse {
             triggered: true,
-            message: format!(
-                "Block submission triggered with {mempool_size} pending transactions"
-            ),
+            message: format!("Block submission triggered with {mempool_size} pending transactions"),
             mempool_size,
         }),
     )

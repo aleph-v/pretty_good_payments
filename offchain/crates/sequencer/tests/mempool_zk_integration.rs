@@ -1277,9 +1277,7 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
     let asset_id = B256::from(U256::from(1));
     let amount_per_note = 50u64; // Each note has 50, pairs have 100 total
 
-    println!(
-        "Creating shared test tree with {num_transactions} note pairs..."
-    );
+    println!("Creating shared test tree with {num_transactions} note pairs...");
     let test_tree = TestTreeSetup::new(num_transactions, asset_id, amount_per_note);
     println!("  Test genesis anchor: {}", test_tree.anchor);
 
@@ -1349,9 +1347,7 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
             blobs,
             block_data,
         } => {
-            println!(
-                "✓ Block {block_nr} submitted successfully via try_build_and_submit_block!"
-            );
+            println!("✓ Block {block_nr} submitted successfully via try_build_and_submit_block!");
             println!("  - Anchor: {anchor}");
             println!("  - Transactions: {tx_count}");
             assert_eq!(
@@ -1364,9 +1360,7 @@ async fn test_mempool_e2e_with_real_zk_proofs() -> Result<()> {
             available,
             required,
         } => {
-            panic!(
-                "Block building failed: insufficient transactions ({available}/{required})"
-            );
+            panic!("Block building failed: insufficient transactions ({available}/{required})");
         }
         BlockBuildResult::NotAllowed => {
             panic!("Block building failed: not allowed to submit (epoch timing)");
@@ -1559,9 +1553,7 @@ async fn test_full_sequencer_flow() -> Result<()> {
     let num_transactions = 3;
     let asset_id = B256::from(U256::from(1));
     let test_tree = TestTreeSetup::new(num_transactions, asset_id, 50u64);
-    println!(
-        "Created shared test tree with {num_transactions} note pairs"
-    );
+    println!("Created shared test tree with {num_transactions} note pairs");
     println!("  Test genesis anchor: {}", test_tree.anchor);
 
     // Create all the ACTUAL sequencer components
@@ -1588,9 +1580,7 @@ async fn test_full_sequencer_flow() -> Result<()> {
     let api_url = format!("http://{actual_addr}/tx");
     let mut original_transactions: Vec<ParsedTransaction> = Vec::new();
 
-    println!(
-        "Generating and submitting {num_transactions} transactions via API..."
-    );
+    println!("Generating and submitting {num_transactions} transactions via API...");
     for i in 0..num_transactions {
         let input = test_tree.create_transfer_input(i, asset_id);
         let proof_output = generate_transfer_proof(&circuit_paths, &input).await?;

@@ -477,9 +477,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 // Populate anchor_lookup from this block's updates
                 let block_nr_u32 = block_nr as u32;
 
-                for (deposit_update_nr, group) in
-                    (0u32..).zip(parsed_block.deposit_groups.iter())
-                {
+                for (deposit_update_nr, group) in (0u32..).zip(parsed_block.deposit_groups.iter()) {
                     self.anchor_lookup.insert(
                         block_nr_u32,
                         deposit_update_nr,

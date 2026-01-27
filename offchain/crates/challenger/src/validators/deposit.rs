@@ -65,10 +65,8 @@ impl DepositValidator {
 
         // Check 1: Each deposit leaf matches expected value from contract
         let check_count = num_deposits.min(expected_count);
-        for (deposit_idx, &expected_leaf) in
-            expected_deposits.iter().enumerate().take(check_count)
+        for (deposit_idx, &expected_leaf) in expected_deposits.iter().enumerate().take(check_count)
         {
-
             // Get the actual leaf from the parsed block
             match block.get_deposit_leaf(deposit_idx) {
                 Ok(submitted_leaf) => {
