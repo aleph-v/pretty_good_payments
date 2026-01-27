@@ -49,7 +49,7 @@ pub struct SubmittedBlock {
 impl SubmittedBlock {
     /// Get the blobs for this block as BlobWithHash references.
     /// Returns a single blob (tests use single-blob blocks).
-    pub fn as_blobs(&self) -> Vec<BlobWithHash> {
+    pub fn as_blobs(&self) -> Vec<BlobWithHash<'_>> {
         let hash = self
             .block_data
             .blobhashes
@@ -1534,9 +1534,9 @@ async fn test_region_building() -> Result<()> {
     assert_eq!(tx_region.memoryAddress, U256::from(100));
 
     // Case 4: Blob boundary crossing detection
-    // Compile-time verification of blob/tx size assumptions (BLOB_SIZE=4096, TX_LENGTH=15)
-    const _: () = assert!(4082 + 15 > 4096); // Should detect boundary crossing
-    const _: () = assert!(4081 + 15 <= 4096); // Should fit without extension
+    // Note: BLOB_SIZE=4096, TX_LENGTH=15
+    // - Position 4082 + 15 > 4096: crosses boundary (needs extension region)
+    // - Position 4081 + 15 <= 4096: fits without extension
 
     Ok(())
 }

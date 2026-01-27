@@ -166,14 +166,14 @@ mod tests {
             blob_idx += 1;
 
             // After every 3 deposits, there's a root slot
-            if (i + 1) % 3 == 0 {
+            if (i + 1).is_multiple_of(3) {
                 blob_idx += 1; // Skip root slot (leave as zero)
             }
         }
 
         // If partial group, the remaining slots stay zero (which is correct)
         // and we need to skip to after the root
-        if deposits.len() % 3 != 0 {
+        if !deposits.len().is_multiple_of(3) {
             // We're in a partial group, pad remaining leaf slots
             let remaining = 3 - (deposits.len() % 3);
             let _ = blob_idx + remaining; // Skip padding slots (value unused but documents layout)

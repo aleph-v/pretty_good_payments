@@ -1026,7 +1026,7 @@ pub mod memory {
     /// # Panics
     /// Panics on arithmetic overflow (which would require impossibly large inputs)
     pub fn num_deposits_to_memory_length(num_deposits: u64) -> u64 {
-        let rounding = if num_deposits % 3 == 0 { 0 } else { 1 };
+        let rounding = if num_deposits.is_multiple_of(3) { 0 } else { 1 };
         let groups = num_deposits
             .checked_div(3)
             .and_then(|d| d.checked_add(rounding))

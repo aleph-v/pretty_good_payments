@@ -138,7 +138,7 @@ impl IncrementalMerkleTree {
         // Update all parents up to the root
         for level in 0..self.depth {
             let parent_index = current_index / 2;
-            let is_left = current_index % 2 == 0;
+            let is_left = current_index.is_multiple_of(2);
             let sibling_index = if is_left {
                 current_index + 1
             } else {
@@ -208,7 +208,7 @@ impl MerkleProof {
         let mut index = self.leaf_index;
 
         for sibling in &self.siblings {
-            let is_left = index % 2 == 0;
+            let is_left = index.is_multiple_of(2);
             current = if is_left {
                 poseidon2(current, *sibling)
             } else {

@@ -344,7 +344,7 @@ impl<P: Provider + Clone> BlockSubmitter<P> {
         let predicted_index = if current_block_nr == 0 {
             // First block ever
             0
-        } else if last_day == predicted_day as u64 {
+        } else if last_day == predicted_day {
             // Same day as last block
             last_index + 1
         } else {

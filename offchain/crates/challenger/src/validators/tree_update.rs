@@ -444,7 +444,7 @@ pub fn compute_anchor_from_path(
     let mut index = tree_index as usize;
 
     for sibling in root_path.iter().take(ROOT_DEPTH) {
-        let is_left = index % 2 == 0;
+        let is_left = index.is_multiple_of(2);
         current = if is_left {
             poseidon2(current, *sibling)
         } else {
@@ -572,7 +572,7 @@ impl BlockTreeTracker {
                 self.root_zero_hashes[level]
             };
 
-            let is_left = index % 2 == 0;
+            let is_left = index.is_multiple_of(2);
             current = if is_left {
                 poseidon2(current, sibling)
             } else {
