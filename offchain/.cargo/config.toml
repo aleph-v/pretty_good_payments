@@ -1,0 +1,9 @@
+# Cargo configuration for the offchain workspace
+#
+# Stack size configuration:
+# The c-kzg library used for KZG commitments requires more stack space than
+# the default 2MB on macOS, especially in debug builds. Setting RUST_MIN_STACK
+# to 16MB prevents stack overflow in tests that perform KZG operations.
+
+[env]
+RUST_MIN_STACK = "16777216"

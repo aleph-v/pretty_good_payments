@@ -1,0 +1,25 @@
+[package]
+name = "pgp-common"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Ethereum
+alloy.workspace = true
+alloy-primitives.workspace = true
+alloy-sol-types.workspace = true
+
+# Utilities
+eyre.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+hex.workspace = true
+tokio = { workspace = true, features = ["signal"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio = { workspace = true, features = ["test-util"] }

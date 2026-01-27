@@ -43,7 +43,7 @@ contract Spine is BlobData {
 
     TimestampAndIndex public lastTimestamp;
     uint256 constant DAY = 86400;
-    uint256 immutable START = block.timestamp;
+    uint256 public immutable START = block.timestamp;
 
     // The anchor is the root of the merkle tree at the end of this block
     struct BlockData {

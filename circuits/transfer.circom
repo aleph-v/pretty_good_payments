@@ -93,6 +93,9 @@ template Transfer () {
    var isSameKeyTransaction = isSameKeyTransaction4*root2_notEq + isSameKeyTransaction5;
    var isNotSameKeyTransaction = IsZero()(isSameKeyTransaction);
 
+   // Note that ETH key can be SET in public while not being an eth keyed transaction, we do not enforce zero
+   // unless it is a total withdraw. (While this is not intentional it can be used to generate proofs which
+   // require authorization of a non owner to spend)
    ForceEqualIfEnabled()(isEthKey*isNotSameKeyTransaction, [privateKeys[0]*isNotTotalWithdraw, ethKey]);
    // If the first key is not an eth address the second must not be
    var notEthKeyed = IsZero()(isEthKey);

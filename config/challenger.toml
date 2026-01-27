@@ -15,8 +15,8 @@ transaction_registry = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
 private_key = "${CHALLENGER_PRIVATE_KEY}"
 poll_interval_ms = 2000
 lookback_blocks = 100
-max_gas_price_gwei = 100
-challenge_gas_limit = 500000
+max_gas_price_gwei = 1000
+challenge_gas_limit = 5000000
 
 [challenger.validators]
 transaction_zk = true

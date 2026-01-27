@@ -1,0 +1,70 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+repository = "https://github.com/your-org/pretty-good-payments"
+
+[workspace.dependencies]
+# Ethereum (alloy includes KZG support via alloy-consensus)
+alloy = { version = "1.4", features = ["full", "node-bindings", "kzg"] }
+alloy-primitives = "1.5"
+alloy-sol-types = "1.5"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Crypto - KZG (for blob proofs)
+c-kzg = "2.1"
+
+# Crypto - Groth16 (BN254 curve, matching circom/snarkjs)
+ark-bn254 = "0.5"
+ark-groth16 = "0.5"
+ark-snark = "0.5"
+ark-ff = "0.5"
+ark-ec = "0.5"
+ark-serialize = "0.5"
+
+# Crypto - Poseidon (MUST match circomlib constants)
+light-poseidon = "0.4"
+
+# Persistence
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# API
+axum = "0.7"
+tower = "0.5"
+
+# CLI
+clap = { version = "4", features = ["derive", "env"] }
+
+# Utilities
+eyre = "0.6"
+thiserror = "2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+hex = "0.4"
+
+# Bigint for VK parsing
+num-bigint = "0.4"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# Async utilities
+async-trait = "0.1"
+
+# Caching
+lru = "0.12"
+
+# Crypto - SHA2
+sha2 = "0.10"
+
+# Testing
+tempfile = "3"

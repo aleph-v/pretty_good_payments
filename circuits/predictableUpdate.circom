@@ -61,4 +61,7 @@ template PredictableUpdate () {
     anchorAfter <== BinaryMerkleRoot(28)(blockRootAfter, 28, blockIndex, rootPath);
 }
 
-component main {public [anchorBefore, blockIndex, updates]} = PredictableUpdate();
+// Public inputs order must match what Solidity expects:
+// [anchorAfter, anchorBefore, updates[0], updates[1], updates[2], blockIndex]
+// Output comes first, then public inputs in declaration order
+component main {public [anchorBefore, updates, blockIndex]} = PredictableUpdate();

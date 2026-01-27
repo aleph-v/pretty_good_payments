@@ -26,6 +26,14 @@ contract Deposits is Spine {
 
     event Deposit(bytes32 indexed leafHash, uint256 block, uint256 number);
 
+    /// @notice Returns all deposit leaf hashes recorded for a given L2 block number
+    /// @dev Used by challengers to validate that sequencers include the correct deposits in blobs
+    /// @param blockNr The L2 block number to fetch deposits for
+    /// @return Array of deposit leaf hashes in the order they were added
+    function getDepositArray(uint256 blockNr) external view returns (bytes32[] memory) {
+        return perBlockDeposits[blockNr];
+    }
+
     /// @notice Creates a deposit by transferring tokens to yield router and recording the leaf hash
     /// @dev Leaf hash is computed via Poseidon. Deposit targets max(highestDeposit, currentBlock+2).
     /// @param leaf Deposit leaf with asset, amount, and publicKey. amount must be > 0.

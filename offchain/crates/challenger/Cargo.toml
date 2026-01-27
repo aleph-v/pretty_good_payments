@@ -1,0 +1,68 @@
+[package]
+name = "pgp-challenger"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "pgp_challenger"
+path = "src/lib.rs"
+
+[[bin]]
+name = "challenger"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+pgp-common = { path = "../common" }
+pgp-merkle = { path = "../merkle" }
+
+# Ethereum
+alloy.workspace = true
+alloy-primitives.workspace = true
+alloy-sol-types.workspace = true
+
+# Async
+tokio.workspace = true
+async-trait.workspace = true
+
+# Crypto - KZG (for blob proofs)
+c-kzg.workspace = true
+
+# Crypto - Groth16
+ark-bn254.workspace = true
+ark-groth16.workspace = true
+ark-snark.workspace = true
+ark-ff.workspace = true
+ark-ec.workspace = true
+ark-serialize.workspace = true
+
+# Persistence
+rusqlite.workspace = true
+
+# CLI
+clap.workspace = true
+
+# Utilities
+eyre.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+hex.workspace = true
+num-bigint.workspace = true
+
+# HTTP client for beacon API
+reqwest.workspace = true
+
+# Caching
+lru.workspace = true
+
+# Crypto - SHA2 for versioned hash computation
+sha2.workspace = true
+
+# Async util for proof generation
+tempfile = "3"
+
+[dev-dependencies]
+tempfile.workspace = true

@@ -51,6 +51,8 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
     ///      Priority sequencers receive a 2x bonus on their blob usage credits.
     /// @param data Block data struct with anchor, transactions, deposits, and sequencer info
     /// @param blobIndices EVM blob indices to read hashes from
+    /// TODO - Currently we have a fraud type for deposits length being mismatched but we can just reject here.
+    ///        We should just not allow such blocks to be submitted.
     function post(BlockData memory data, uint256[] memory blobIndices) external {
         if (!isAllowed(msg.sender)) revert NotAllowed();
         addBlock(data, blobIndices);

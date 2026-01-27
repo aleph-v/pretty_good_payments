@@ -1,0 +1,20 @@
+[package]
+name = "pgp-merkle"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+# Crypto - Poseidon (circomlib-compatible)
+light-poseidon.workspace = true
+ark-bn254.workspace = true
+
+# Ethereum types
+alloy-primitives.workspace = true
+
+# Utilities
+thiserror.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+alloy-primitives.workspace = true

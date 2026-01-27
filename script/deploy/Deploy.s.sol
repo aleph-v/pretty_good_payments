@@ -50,13 +50,24 @@ abstract contract Deploy is Script {
     /// @notice Main deployment function
     /// @return deployed Struct containing all deployed addresses
     function run() external returns (DeployedAddresses memory deployed) {
-        uint256 deployerPrivateKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        address deployer = vm.addr(deployerPrivateKey);
+        // Use private key from env if available, otherwise use the one from --private-key CLI arg
+        uint256 deployerPrivateKey;
+        try vm.envUint("DEPLOYER_PRIVATE_KEY") returns (uint256 pk) {
+            deployerPrivateKey = pk;
+        } catch {
+            // If env var not set, startBroadcast() will use the --private-key CLI arg
+            deployerPrivateKey = 0;
+        }
 
-        console.log("Deployer:", deployer);
         console.log("Chain ID:", block.chainid);
 
-        vm.startBroadcast(deployerPrivateKey);
+        if (deployerPrivateKey != 0) {
+            console.log("Deployer:", vm.addr(deployerPrivateKey));
+            vm.startBroadcast(deployerPrivateKey);
+        } else {
+            console.log("Using CLI provided private key");
+            vm.startBroadcast();
+        }
 
         // 1. Deploy verifiers
         deployed.transferVerifier = deployTransferVerifier();
@@ -102,6 +113,17 @@ abstract contract Deploy is Script {
         console.log("Transfer Verifier:    ", deployed.transferVerifier);
         console.log("Update Verifier:      ", deployed.updateVerifier);
         console.log("Token:                ", deployed.token);
+
+        // Output JSON-formatted addresses for easy parsing
+        console.log("\n=== JSON Output ===");
+        console.log("{");
+        console.log("  \"entrypoint\": \"%s\",", deployed.entrypoint);
+        console.log("  \"yieldRouter\": \"%s\",", deployed.yieldRouter);
+        console.log("  \"transactionRegistry\": \"%s\",", deployed.transactionRegistry);
+        console.log("  \"transferVerifier\": \"%s\",", deployed.transferVerifier);
+        console.log("  \"updateVerifier\": \"%s\",", deployed.updateVerifier);
+        console.log("  \"token\": \"%s\"", deployed.token);
+        console.log("}");
 
         return deployed;
     }
