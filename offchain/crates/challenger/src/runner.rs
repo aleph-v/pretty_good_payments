@@ -10,7 +10,7 @@ use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    beacon::{create_production_blob_provider, BlobProvider, DatabaseBlobProvider},
+    beacon::{create_production_blob_provider, BlobProvider},
     challenge::{memory, BlobWithHash, ChallengeBuilder, ChallengeSubmitter},
     contracts,
     events::ChainEvent,
@@ -91,7 +91,7 @@ pub struct ChallengerRunner<P> {
     deposit_validator: DepositValidator,
     nullifier_validator: NullifierValidator,
     tree_update_validator: TreeUpdateValidator,
-    transaction_validator: Option<TransactionValidator>,
+    transaction_validator: TransactionValidator,
 
     // State tracking
     anchor_lookup: AnchorLookup,
@@ -100,8 +100,8 @@ pub struct ChallengerRunner<P> {
     // Challenge infrastructure
     challenge_builder: Option<ChallengeBuilder>,
     challenge_submitter: Option<ChallengeSubmitter<P>>,
-    blob_provider: Option<Arc<dyn BlobProvider>>,
-    snarkjs_prover: Option<SnarkjsProver>,
+    blob_provider: Arc<dyn BlobProvider>,
+    snarkjs_prover: SnarkjsProver,
 
     // Configuration
     deposits_address: Address,
@@ -124,36 +124,20 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
         let nullifier_validator = NullifierValidator::new();
         let tree_update_validator = TreeUpdateValidator::new();
 
-        // Initialize transaction validator if verification keys are configured
-        let transaction_validator = match (
-            config.transfer_verification_key(),
-            config.update_verification_key(),
-        ) {
-            (Some(transfer_vk_path), Some(update_vk_path)) => {
-                info!("Loading verification keys...");
-                let transfer_vk = std::fs::read(transfer_vk_path)
-                    .map_err(|e| eyre::eyre!("Failed to read transfer VK: {}", e))?;
-                let update_vk = std::fs::read(update_vk_path)
-                    .map_err(|e| eyre::eyre!("Failed to read update VK: {}", e))?;
+        // Initialize transaction validator with verification keys
+        let transaction_validator = {
+            let transfer_vk_path = config.transfer_verification_key();
+            let update_vk_path = config.update_verification_key();
+            info!("Loading verification keys from {} and {}...", transfer_vk_path, update_vk_path);
+            let transfer_vk = std::fs::read(transfer_vk_path)
+                .map_err(|e| eyre::eyre!("Failed to read transfer VK from {}: {}", transfer_vk_path, e))?;
+            let update_vk = std::fs::read(update_vk_path)
+                .map_err(|e| eyre::eyre!("Failed to read update VK from {}: {}", update_vk_path, e))?;
 
-                match Groth16Verifier::from_json(&transfer_vk, &update_vk) {
-                    Ok(verifier) => {
-                        info!("Transaction validator initialized with verification keys");
-                        Some(TransactionValidator::new(verifier))
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to initialize Groth16 verifier: {} - transaction validation disabled",
-                            e
-                        );
-                        None
-                    }
-                }
-            }
-            _ => {
-                info!("Verification keys not configured - transaction validation disabled");
-                None
-            }
+            let verifier = Groth16Verifier::from_json(&transfer_vk, &update_vk)
+                .map_err(|e| eyre::eyre!("Failed to initialize Groth16 verifier: {}", e))?;
+            info!("Transaction validator initialized with verification keys");
+            TransactionValidator::new(verifier)
         };
 
         // Fetch genesis anchor from contract
@@ -204,30 +188,23 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
             root_tree_tracker.current_anchor()
         );
 
-        // Initialize blob provider
-        let blob_provider: Option<Arc<dyn BlobProvider>> = match config.beacon_api_url() {
-            Some(url) => {
-                info!("Initializing blob provider with database storage + beacon fallback");
-                info!("  Database: {}", config.database_path());
-                info!("  Beacon API: {}", url);
-                info!(
-                    "  Blob cache size: {} (~{}MB)",
-                    config.blob_cache_size(),
-                    config.blob_cache_size() * 131 / 1024
-                );
-                let provider = create_production_blob_provider(
-                    config.database_path(),
-                    url,
-                    config.blob_cache_size(),
-                );
-                Some(Arc::new(provider))
-            }
-            None => {
-                warn!("No beacon API URL configured - blob retrieval from beacon chain disabled");
-                warn!("Blobs will only be available from database (if previously stored)");
-                let db_provider = DatabaseBlobProvider::new(config.database_path());
-                Some(Arc::new(db_provider))
-            }
+        // Initialize blob provider with database storage + beacon fallback
+        let blob_provider: Arc<dyn BlobProvider> = {
+            let url = config.beacon_api_url();
+            info!("Initializing blob provider with database storage + beacon fallback");
+            info!("  Database: {}", config.database_path());
+            info!("  Beacon API: {}", url);
+            info!(
+                "  Blob cache size: {} (~{}MB)",
+                config.blob_cache_size(),
+                config.blob_cache_size() * 131 / 1024
+            );
+            let provider = create_production_blob_provider(
+                config.database_path(),
+                url,
+                config.blob_cache_size(),
+            );
+            Arc::new(provider)
         };
 
         // Initialize challenge infrastructure (only if not in dry run mode)
@@ -259,23 +236,19 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
         };
 
         // Initialize snarkjs prover for tree update challenges
-        let snarkjs_prover: Option<SnarkjsProver> = match (
-            config.snarkjs_path(),
-            config.circuit_wasm_path(),
-            config.circuit_zkey_path(),
-        ) {
-            (Some(snarkjs_path), Some(wasm_path), Some(zkey_path)) => {
-                info!("Initializing snarkjs prover for tree update challenges");
-                Some(SnarkjsProver::new(
-                    snarkjs_path,
-                    std::path::Path::new(wasm_path),
-                    std::path::Path::new(zkey_path),
-                ))
-            }
-            _ => {
-                info!("Snarkjs not fully configured - tree update challenges disabled");
-                None
-            }
+        let snarkjs_prover = {
+            let snarkjs_path = config.snarkjs_path();
+            let wasm_path = config.circuit_wasm_path();
+            let zkey_path = config.circuit_zkey_path();
+            info!("Initializing snarkjs prover for tree update challenges");
+            info!("  snarkjs: {}", snarkjs_path);
+            info!("  wasm: {}", wasm_path);
+            info!("  zkey: {}", zkey_path);
+            SnarkjsProver::new(
+                snarkjs_path,
+                std::path::Path::new(wasm_path),
+                std::path::Path::new(zkey_path),
+            )
         };
 
         Ok(Self {
@@ -337,8 +310,9 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
             .wrap_err("Database delete health check failed")?;
         info!("  Database health check passed");
 
-        // Verify beacon API connectivity (if configured)
-        if let Some(beacon_url) = config.beacon_api_url() {
+        // Verify beacon API connectivity
+        {
+            let beacon_url = config.beacon_api_url();
             let client = reqwest::Client::new();
             let health_url = format!("{}/eth/v1/node/health", beacon_url.trim_end_matches('/'));
 
@@ -442,20 +416,10 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                     return Ok(all_fraud);
                 }
 
-                let blob_data = match &self.blob_provider {
-                    Some(provider) => {
-                        provider
-                            .get_blobs(new_root.l1_block_number, versioned_hashes)
-                            .await?
-                    }
-                    None => {
-                        warn!(
-                            "No blob provider - skipping validation for block {}",
-                            block_nr
-                        );
-                        return Ok(all_fraud);
-                    }
-                };
+                let blob_data = self
+                    .blob_provider
+                    .get_blobs(new_root.l1_block_number, versioned_hashes)
+                    .await?;
 
                 info!(
                     "Retrieved {} blob(s) for block {}",
@@ -572,26 +536,25 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 }
                 raw_fraud.extend(nullifier_fraud);
 
-                // 3. Transaction ZK validation (if enabled)
-                if let Some(tx_validator) = &self.transaction_validator {
-                    let tx_fraud = tx_validator
-                        .validate_block(
-                            &self.provider,
-                            self.registry_address,
-                            &new_root.block_data,
-                            &parsed_block,
-                            &self.anchor_lookup,
-                        )
-                        .await?;
-                    if !tx_fraud.is_empty() {
-                        warn!(
-                            "Detected {} transaction fraud(s) in block {}",
-                            tx_fraud.len(),
-                            block_nr
-                        );
-                    }
-                    raw_fraud.extend(tx_fraud);
+                // 3. Transaction ZK validation
+                let tx_fraud = self
+                    .transaction_validator
+                    .validate_block(
+                        &self.provider,
+                        self.registry_address,
+                        &new_root.block_data,
+                        &parsed_block,
+                        &self.anchor_lookup,
+                    )
+                    .await?;
+                if !tx_fraud.is_empty() {
+                    warn!(
+                        "Detected {} transaction fraud(s) in block {}",
+                        tx_fraud.len(),
+                        block_nr
+                    );
                 }
+                raw_fraud.extend(tx_fraud);
 
                 // 4. Tree update validation
                 let day = new_root.block_data.blockIndex.day as u64;
@@ -738,11 +701,6 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
         };
 
         // Fetch blob data
-        let blob_provider = self
-            .blob_provider
-            .as_ref()
-            .ok_or_else(|| eyre::eyre!("No blob provider configured for challenge submission"))?;
-
         if block_data.blobhashes.is_empty() {
             return Err(eyre::eyre!(
                 "Block {} has no blob hashes",
@@ -751,7 +709,8 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
         }
 
         // Fetch all blobs for the current block (multi-blob support)
-        let current_blobs_data = blob_provider
+        let current_blobs_data = self
+            .blob_provider
             .get_blobs(fraud_ctx.l1_block_number, &block_data.blobhashes)
             .await?;
         let current_blobs: Vec<BlobWithHash> = current_blobs_data
@@ -803,7 +762,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                         first_block_nr
                     ));
                 }
-                let first_blobs_data = blob_provider
+                let first_blobs_data = self.blob_provider
                     .get_blobs(first_l1, &first_block_data.blobhashes)
                     .await?;
 
@@ -817,7 +776,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                             second_block_nr
                         ));
                     }
-                    blob_provider
+                    self.blob_provider
                         .get_blobs(second_l1, &second_block_data.blobhashes)
                         .await?
                 };
@@ -903,7 +862,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                     ));
                 }
                 // Fetch all blobs for prior anchor block (multi-blob support)
-                let prior_anchor_blobs_data = blob_provider
+                let prior_anchor_blobs_data = self.blob_provider
                     .get_blobs(prior_anchor_l1, &prior_anchor_block.blobhashes)
                     .await?;
                 let prior_anchor_blobs: Vec<BlobWithHash> = prior_anchor_blobs_data
@@ -952,10 +911,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                     block_data.blockNr, update_nr
                 );
 
-                let prover = self
-                    .snarkjs_prover
-                    .as_ref()
-                    .ok_or_else(|| eyre::eyre!("Tree update challenges require snarkjs prover"))?;
+                let prover = &self.snarkjs_prover;
 
                 let merkle = merkle_data
                     .as_ref()
@@ -994,7 +950,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                         ));
                     }
                     // Fetch all blobs for prior block (multi-blob support)
-                    let prior_blobs_data = blob_provider
+                    let prior_blobs_data = self.blob_provider
                         .get_blobs(prior_l1, &prior_blk_data.blobhashes)
                         .await?;
 

@@ -22,8 +22,7 @@ import {
 // The core library managing new blocks
 
 contract Spine is BlobData {
-    // TODO real number
-    uint256 public constant CHALLENGE_PERIOD = 100;
+    uint256 public constant CHALLENGE_PERIOD = 3600;
     uint256 public constant MAX_TX = 4096;
     // Each deposit is a single field plus one root for three deposits, and we want them to fit in one blob (3072/3) + 3072 = 4096
     uint256 public constant MAX_DEPOSITS = 3072;

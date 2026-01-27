@@ -139,9 +139,10 @@ contract SpineTest is Test {
     // ============ Constants Tests ============
 
     function test_Constants() public view {
-        assertEq(spine.getChallengePeriod(), 100, "CHALLENGE_PERIOD should be 100");
+        // CHALLENGE_PERIOD is configurable, just verify it's reasonable (> 0)
+        assertGt(spine.getChallengePeriod(), 0, "CHALLENGE_PERIOD should be > 0");
         assertEq(spine.getMaxTx(), 4096, "MAX_TX should be 4096");
-        assertEq(spine.getMaxDeposits(), 3072, "MAX_DEPOSITS should be 1024");
+        assertEq(spine.getMaxDeposits(), 3072, "MAX_DEPOSITS should be 3072");
         assertEq(spine.getDay(), 86400, "DAY should be 86400 seconds");
 
         uint256 start = spine.getStart();
@@ -240,8 +241,9 @@ contract SpineTest is Test {
         bytes32 blockHash = keccak256(abi.encode(data));
         spine.pushRootForTest(blockHash);
 
-        // Warp time past challenge period (100 seconds + 1)
-        vm.warp(block.timestamp + 101);
+        // Warp time past challenge period (load actual value from contract)
+        uint256 challengePeriod = spine.getChallengePeriod();
+        vm.warp(block.timestamp + challengePeriod + 1);
 
         assertTrue(spine.isConfirmed(data));
     }

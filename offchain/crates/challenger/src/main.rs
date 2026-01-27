@@ -7,7 +7,7 @@ use alloy::primitives::Address;
 use alloy::providers::ProviderBuilder;
 use clap::Parser;
 use eyre::Result;
-use pgp_common::{load_config_or_default, ChallengerConfig, EnvOverride};
+use pgp_common::{load_config_or_default, Config, EnvOverride};
 use std::path::PathBuf;
 use std::time::Duration;
 use tracing::{error, info, Level};
@@ -53,40 +53,47 @@ async fn main() -> Result<()> {
     info!("Starting PGP Challenger");
 
     // Load configuration
-    let mut config: ChallengerConfig = load_config_or_default(args.config.as_deref())?;
+    let mut config: Config = load_config_or_default(args.config.as_deref())?;
     config.apply_env_overrides()?;
 
+    // Apply CLI dry_run override
     if args.dry_run {
-        config.dry_run = true;
+        config.challenger.dry_run = true;
     }
 
     info!("Configuration loaded:");
-    info!("  RPC URL: {}", config.common.rpc_url);
-    info!("  Chain ID: {}", config.common.chain_id);
-    info!("  Entrypoint: {:?}", config.common.entrypoint_address);
-    info!("  Deposits: {:?}", config.common.deposits_address);
-    info!("  Database: {}", config.database_path);
-    info!("  Dry run: {}", config.dry_run);
+    info!("  RPC URL: {}", config.network.rpc_url);
+    info!("  Chain ID: {}", config.network.chain_id);
+    info!("  Entrypoint: {:?}", config.contracts.entrypoint);
+    info!("  Deposits: {:?}", config.contracts.deposits);
+    info!("  Database: {}", config.storage.database_path);
+    info!("  Dry run: {}", config.challenger.dry_run);
 
     // Validate configuration
-    if config.common.entrypoint_address == Address::ZERO {
+    if config.contracts.entrypoint == Address::ZERO {
         error!("Entrypoint address must be configured");
         return Err(eyre::eyre!("Entrypoint address not configured"));
     }
-    if config.common.deposits_address == Address::ZERO {
+    if config.contracts.deposits == Address::ZERO {
         error!("Deposits address must be configured");
         return Err(eyre::eyre!("Deposits address not configured"));
     }
 
+    // Validate private key requirement for challenge submission
+    if !config.challenger.dry_run && config.keys.challenger_private_key.is_none() {
+        error!("challenger_private_key must be configured for non-dry-run mode");
+        return Err(eyre::eyre!("challenger_private_key not configured"));
+    }
+
     // Initialize state manager
-    let state = StateManager::open(&config.database_path)?;
-    info!("State database opened: {}", config.database_path);
+    let state = StateManager::open(&config.storage.database_path)?;
+    info!("State database opened: {}", config.storage.database_path);
 
     // Connect to RPC provider
     let provider = ProviderBuilder::new()
-        .connect(&config.common.rpc_url)
+        .connect(&config.network.rpc_url)
         .await?;
-    info!("Connected to RPC: {}", config.common.rpc_url);
+    info!("Connected to RPC: {}", config.network.rpc_url);
 
     // Create challenger runner
     let mut runner = ChallengerRunner::new(provider.clone(), state, &config).await?;
@@ -96,10 +103,10 @@ async fn main() -> Result<()> {
 
     // Initialize event listener
     let event_config = EventListenerConfig {
-        entrypoint_address: config.common.entrypoint_address,
-        lookback_blocks: config.lookback_blocks,
-        poll_interval_ms: config.poll_interval_ms,
-        confirmations: config.confirmations,
+        entrypoint_address: config.contracts.entrypoint,
+        lookback_blocks: config.challenger.lookback_blocks,
+        poll_interval_ms: config.challenger.poll_interval_ms,
+        confirmations: config.challenger.confirmations,
     };
     let mut event_listener = EventListener::new(provider.clone(), event_config);
 
@@ -112,8 +119,8 @@ async fn main() -> Result<()> {
 
     // Run the main event loop
     let loop_config = pgp_challenger::EventLoopConfig {
-        poll_interval: Duration::from_millis(config.poll_interval_ms),
-        dry_run: config.dry_run,
+        poll_interval: Duration::from_millis(config.challenger.poll_interval_ms),
+        dry_run: config.challenger.dry_run,
         service_name: "Challenger",
     };
 

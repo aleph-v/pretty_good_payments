@@ -1,0 +1,86 @@
+# Pretty Good Payments - Unified Configuration
+#
+# This single config file works for both the sequencer and challenger binaries.
+# Copy to config.toml and update with your values.
+#
+# Environment variables can override any setting:
+#   PGP_RPC_URL, PGP_CHAIN_ID, PGP_ENTRYPOINT_ADDRESS, etc.
+# Private keys should use environment variables in production:
+#   PGP_SEQUENCER_PRIVATE_KEY, PGP_CHALLENGER_PRIVATE_KEY
+#
+# Run GenerateConfig.s.sol after deployment to auto-generate with contract addresses.
+
+[network]
+# Execution layer RPC endpoint
+rpc_url = "http://localhost:8545"
+
+# Beacon chain API URL (required for non-Anvil networks to fetch blobs)
+# Anvil has native blob methods, so this is optional for local development
+beacon_url = "http://localhost:5052"
+
+# Network chain ID (31337 for Anvil, 11155111 for Sepolia)
+chain_id = 31337
+
+[contracts]
+# Entrypoint contract address (main PGP contract)
+entrypoint = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+
+# Deposits contract address
+deposits = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
+
+# Transaction registry contract address (optional, for eth-key authorization)
+# transaction_registry = "0x..."
+
+[keys]
+# Private keys for sequencer and challenger (separate wallets allow different ETH balances)
+# SECURITY: Use environment variables in production!
+#   export PGP_SEQUENCER_PRIVATE_KEY="0x..."
+#   export PGP_CHALLENGER_PRIVATE_KEY="0x..."
+#
+# sequencer_private_key = "${SEQUENCER_PRIVATE_KEY}"
+# challenger_private_key = "${CHALLENGER_PRIVATE_KEY}"
+
+[sequencer]
+# REST API server configuration
+api_host = "127.0.0.1"
+api_port = 8080
+
+# Block building interval (milliseconds)
+block_interval_ms = 12000
+
+# Maximum transactions to hold in mempool
+mempool_max_pending = 10000
+
+[challenger]
+# How often to poll for new blocks (milliseconds)
+poll_interval_ms = 2000
+
+# Number of confirmations before processing a block
+confirmations = 6
+
+# Number of blocks to look back on startup for unprocessed blocks
+lookback_blocks = 1000
+
+# Monitor only mode (don't submit fraud proofs)
+dry_run = false
+
+# Maximum retry attempts for failed challenge submissions
+max_challenge_retries = 5
+
+[circuits]
+# ZK circuit verification keys (for validating transfer proofs)
+transfer_verification_key = "circuits/outputs/transfer/transferVKey.json"
+update_verification_key = "circuits/outputs/predictableUpdate/predictableUpdateVKey.json"
+
+# Snarkjs configuration (for generating fraud proofs)
+snarkjs_path = "snarkjs"
+circuit_wasm_path = "circuits/outputs/predictableUpdate/predictableUpdate_js/predictableUpdate.wasm"
+circuit_zkey_path = "circuits/outputs/predictableUpdate/predictableUpdate.zkey"
+
+[storage]
+# SQLite database path for persistent state (nullifier tracking, processed blocks)
+# Both sequencer and challenger use the same database file
+database_path = "./data/pgp.db"
+
+# Number of blobs to cache in memory (reduces beacon chain lookups)
+blob_cache_size = 16

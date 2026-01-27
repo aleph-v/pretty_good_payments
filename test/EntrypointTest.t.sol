@@ -49,6 +49,15 @@ contract EntrypointHarness is Entrypoint, FakeBlobs {
         return totalBlobUse[epoch];
     }
 
+    // Expose constants for testing
+    function getEpochLength() external pure returns (uint256) {
+        return EPOCH_LENGTH;
+    }
+
+    function getChallengePeriod() external pure returns (uint256) {
+        return CHALLENGE_PERIOD;
+    }
+
     receive() external payable {}
 }
 
@@ -62,8 +71,6 @@ contract EntrypointTest is Test {
     address sequencer2 = address(0x2222);
 
     bytes32 constant GENESIS = keccak256("genesis");
-    uint256 constant EPOCH_LENGTH = 10;
-    uint256 constant CHALLENGE_PERIOD = 100;
 
     function setUp() public {
         yieldRouter = new MockYieldRouter();
@@ -110,42 +117,63 @@ contract EntrypointTest is Test {
     }
 
     function test_CurrentEpoch() public {
+        uint256 epochLength = entrypoint.getEpochLength();
+
         // Epoch calculation
         (uint256 epoch0, bool closed0) = entrypoint.currentEpoch();
         assertEq(epoch0, 0);
         assertTrue(closed0, "Start of epoch should be closed period");
 
-        vm.warp(block.timestamp + 10);
+        vm.warp(block.timestamp + epochLength);
         (uint256 epoch1,) = entrypoint.currentEpoch();
         assertEq(epoch1, 1);
 
         // Closed period is first half of epoch
-        vm.warp(block.timestamp + 14); // 24 seconds total, epoch 2, 4 seconds in
+        // Warp to second epoch + 40% into epoch (closed period is first half)
+        vm.warp(block.timestamp + epochLength + (epochLength * 4 / 10));
         (, bool closed1) = entrypoint.currentEpoch();
         assertTrue(closed1);
 
-        vm.warp(block.timestamp + 1); // 25 seconds, 5 seconds into epoch = open period
+        // Warp a bit more to reach open period (>50% into epoch)
+        vm.warp(block.timestamp + (epochLength / 10)); // now at 50%+ into epoch
         (, bool closed2) = entrypoint.currentEpoch();
         assertFalse(closed2);
     }
 
     function test_IsFinalized() public {
-        // minEpochsWait = CHALLENGE_PERIOD/EPOCH_LENGTH + 1 = 11
+        uint256 epochLength = entrypoint.getEpochLength();
+        uint256 challengePeriod = entrypoint.getChallengePeriod();
+
+        // minEpochsWait = CHALLENGE_PERIOD/EPOCH_LENGTH + 1
+        uint256 minEpochsWait = challengePeriod / epochLength + 1;
+
         assertFalse(entrypoint.isFinalized(0), "Epoch 0 not finalized at epoch 0");
 
-        vm.warp(block.timestamp + 110); // epoch 11
-        assertFalse(entrypoint.isFinalized(0), "Epoch 0 not finalized at epoch 11");
+        // Warp to exactly minEpochsWait epochs (should NOT be finalized yet)
+        vm.warp(block.timestamp + minEpochsWait * epochLength);
+        assertFalse(entrypoint.isFinalized(0), "Epoch 0 not finalized at minEpochsWait");
 
-        vm.warp(block.timestamp + 10); // epoch 12
-        assertTrue(entrypoint.isFinalized(0), "Epoch 0 finalized at epoch 12");
+        // Warp one more epoch (should now be finalized)
+        vm.warp(block.timestamp + epochLength);
+        assertTrue(entrypoint.isFinalized(0), "Epoch 0 finalized at minEpochsWait + 1");
 
-        // At epoch 20, check various epochs
-        vm.warp(block.timestamp + 80); // epoch 20
-        assertFalse(entrypoint.isFinalized(10), "Recent epoch not finalized");
-        assertTrue(entrypoint.isFinalized(8), "Old epoch finalized");
+        // Warp further and check various epochs
+        vm.warp(block.timestamp + 8 * epochLength); // several more epochs
+        (uint256 currentEpoch,) = entrypoint.currentEpoch();
+
+        // Recent epoch should not be finalized
+        if (currentEpoch > minEpochsWait) {
+            assertFalse(entrypoint.isFinalized(currentEpoch - minEpochsWait), "Recent epoch not finalized");
+        }
+        // Old epoch should be finalized
+        if (currentEpoch > minEpochsWait + 2) {
+            assertTrue(entrypoint.isFinalized(currentEpoch - minEpochsWait - 2), "Old epoch finalized");
+        }
     }
 
     function test_Post_BlobUseTracking() public {
+        uint256 epochLength = entrypoint.getEpochLength();
+
         entrypoint.addFirstLook(sequencer1);
 
         // Test priority bonus in closed period
@@ -159,8 +187,8 @@ contract EntrypointTest is Test {
         uint256 expectedRaw = 10 * 15 + 4; // 154 (3 deposits = 4 blob units)
         assertEq(entrypoint.getSequencerBlobUse(epoch, sequencer1), expectedRaw * 2, "Priority bonus 2x");
 
-        // Test no bonus in open period
-        vm.warp(block.timestamp + 7);
+        // Test no bonus in open period (warp to > 50% into epoch)
+        vm.warp(block.timestamp + (epochLength * 7 / 10));
         (, inClosedPeriod) = entrypoint.currentEpoch();
         assertFalse(inClosedPeriod);
 
@@ -173,8 +201,10 @@ contract EntrypointTest is Test {
     }
 
     function test_Post_EdgeCases() public {
+        uint256 epochLength = entrypoint.getEpochLength();
+
         // Works with no priority sequencers (open period only)
-        vm.warp(block.timestamp + 7);
+        vm.warp(block.timestamp + (epochLength * 7 / 10)); // warp to open period
         (Spine.BlockData memory data1, uint256[] memory indices1) = _createBlockData(1, 1, 100);
         vm.prank(sequencer1);
         entrypoint.post(data1, indices1);
@@ -182,14 +212,14 @@ contract EntrypointTest is Test {
 
         // Works at epoch 0 with priority sequencer
         entrypoint.addFirstLook(sequencer2);
-        vm.warp(block.timestamp - 7); // back to start
+        vm.warp(block.timestamp - (epochLength * 7 / 10)); // back to start
         (Spine.BlockData memory data2, uint256[] memory indices2) = _createBlockData(1, 1, 200);
         vm.prank(sequencer2);
         entrypoint.post(data2, indices2);
         assertGt(entrypoint.getSequencerBlobUse(0, sequencer2), 0);
 
         // Works when prior epoch had no activity
-        vm.warp(block.timestamp + 55);
+        vm.warp(block.timestamp + epochLength * 5 + (epochLength / 2)); // skip several epochs
         (uint256 epoch,) = entrypoint.currentEpoch();
         assertEq(entrypoint.getTotalBlobUse(epoch - 1), 0);
         (Spine.BlockData memory data3, uint256[] memory indices3) = _createBlockData(1, 1, 300);
@@ -199,11 +229,14 @@ contract EntrypointTest is Test {
     }
 
     function test_Post_IsAllowed() public {
+        uint256 epochLength = entrypoint.getEpochLength();
+
         entrypoint.addFirstLook(sequencer1);
         entrypoint.addFirstLook(sequencer2);
 
         // In closed period, only priority sequencer allowed
-        vm.warp(block.timestamp + 20);
+        // Warp to epoch 2, early in closed period
+        vm.warp(block.timestamp + epochLength * 2);
         (uint256 epoch, bool inClosedPeriod) = entrypoint.currentEpoch();
         assertTrue(inClosedPeriod);
 
@@ -214,7 +247,7 @@ contract EntrypointTest is Test {
         entrypoint.post(data1, indices1);
 
         // In open period, any active sequencer allowed
-        vm.warp(block.timestamp + 7);
+        vm.warp(block.timestamp + (epochLength * 7 / 10));
         (, inClosedPeriod) = entrypoint.currentEpoch();
         assertFalse(inClosedPeriod);
 
@@ -224,29 +257,34 @@ contract EntrypointTest is Test {
     }
 
     function test_GetPercentInEpoch() public {
+        uint256 epochLength = entrypoint.getEpochLength();
+
         entrypoint.addFirstLook(sequencer1);
-        vm.warp(block.timestamp + 7); // open period
+        vm.warp(block.timestamp + (epochLength * 7 / 10)); // open period
 
         // Single sequencer gets 100%
         (Spine.BlockData memory data1, uint256[] memory indices1) = _createBlockData(0, 10, 100);
         vm.prank(sequencer1);
         entrypoint.post(data1, indices1);
 
-        vm.warp(block.timestamp + 10); // next epoch
+        vm.warp(block.timestamp + epochLength); // next epoch
         assertEq(entrypoint.getPercentInEpoch(sequencer1, 0), 1e18, "Single sequencer = 100%");
 
         // Sequencer with no activity gets 0%
         assertEq(entrypoint.getPercentInEpoch(sequencer2, 0), 0, "No activity = 0%");
 
-        // Empty epoch returns 0
+        // Empty epoch returns 0 (current epoch is 1, so we check epoch 1 has no activity)
         assertEq(entrypoint.getTotalBlobUse(1), 0);
-        vm.warp(28); // Warp to timestamp 28 (epoch 2) to check epoch 1
+        // Warp to epoch 2+ to check epoch 1
+        vm.warp(block.timestamp + epochLength);
         assertEq(entrypoint.getPercentInEpoch(sequencer1, 1), 0, "Empty epoch = 0%");
     }
 
     function test_GetPercentInEpoch_MultipleSequencers() public {
+        uint256 epochLength = entrypoint.getEpochLength();
+
         entrypoint.addFirstLook(sequencer1);
-        vm.warp(block.timestamp + 7);
+        vm.warp(block.timestamp + (epochLength * 7 / 10)); // open period
 
         (Spine.BlockData memory data1, uint256[] memory indices1) = _createBlockData(0, 10, 100);
         vm.prank(sequencer1);
@@ -256,7 +294,7 @@ contract EntrypointTest is Test {
         vm.prank(sequencer2);
         entrypoint.post(data2, indices2);
 
-        vm.warp(block.timestamp + 10);
+        vm.warp(block.timestamp + epochLength); // next epoch
         assertEq(entrypoint.getPercentInEpoch(sequencer1, 0), 0.5e18);
         assertEq(entrypoint.getPercentInEpoch(sequencer2, 0), 0.5e18);
     }

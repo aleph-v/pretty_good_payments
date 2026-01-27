@@ -87,6 +87,11 @@ contract WithdrawHarness is Withdraw, FakeBlobs {
         return withdrawn[blockNr][(txNr << 2) + which];
     }
 
+    // Expose CHALLENGE_PERIOD constant
+    function getChallengePeriod() public pure returns (uint256) {
+        return CHALLENGE_PERIOD;
+    }
+
     receive() external payable {}
 }
 
@@ -99,7 +104,6 @@ contract WithdrawTest is Test {
     MockTransactionRegistry txRegistry;
     FakeERC20 token;
 
-    uint256 constant CHALLENGE_PERIOD = 100;
     uint256 constant YIELD_ROUTER_BALANCE = 1_000_000 ether;
 
     function setUp() public {
@@ -157,7 +161,8 @@ contract WithdrawTest is Test {
 
         // Warp past challenge period to confirm the block
         // Use blockData.timestamp (captured at function start) to avoid via_ir optimizer issues
-        vm.warp(blockData.timestamp + CHALLENGE_PERIOD + 1);
+        uint256 challengePeriod = harness.getChallengePeriod();
+        vm.warp(blockData.timestamp + challengePeriod + 1);
 
         return (blockData, blobhashes);
     }
@@ -470,7 +475,8 @@ contract WithdrawTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
         blockData = harness.addBlockTest(blockData, indices);
-        vm.warp(block.timestamp + CHALLENGE_PERIOD + 1);
+        uint256 challengePeriod = harness.getChallengePeriod();
+        vm.warp(block.timestamp + challengePeriod + 1);
 
         uint256 yieldRouterBalanceBefore = token.balanceOf(address(yieldRouter));
 

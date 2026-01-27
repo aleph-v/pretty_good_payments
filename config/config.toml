@@ -1,0 +1,45 @@
+# Pretty Good Payments - Unified Configuration
+# Chain ID: 31337
+# Generated at block: 0
+
+[network]
+rpc_url = "http://localhost:8545"
+# beacon_url = "http://localhost:5052"
+chain_id = 31337
+
+[contracts]
+entrypoint = "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707"
+# deposits address - update after deployment
+deposits = "0x0000000000000000000000000000000000000000"
+transaction_registry = "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+
+[keys]
+# Separate private keys allow different ETH balances for sequencer vs challenger
+# SECURITY: Use environment variables in production!
+# sequencer_private_key = "${SEQUENCER_PRIVATE_KEY}"
+# challenger_private_key = "${CHALLENGER_PRIVATE_KEY}"
+
+[sequencer]
+api_host = "0.0.0.0"
+api_port = 8080
+block_interval_ms = 12000
+mempool_max_pending = 50000
+
+[challenger]
+poll_interval_ms = 2000
+confirmations = 6
+lookback_blocks = 100
+dry_run = false
+max_challenge_retries = 5
+
+[circuits]
+transfer_verification_key = "circuits/outputs/transfer/transferVKey.json"
+update_verification_key = "circuits/outputs/predictableUpdate/predictableUpdateVKey.json"
+snarkjs_path = "snarkjs"
+circuit_wasm_path = "circuits/outputs/predictableUpdate/predictableUpdate_js/predictableUpdate.wasm"
+circuit_zkey_path = "circuits/outputs/predictableUpdate/predictableUpdate.zkey"
+
+[storage]
+# Shared database for both sequencer and challenger
+database_path = "./data/pgp.db"
+blob_cache_size = 16

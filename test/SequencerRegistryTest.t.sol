@@ -76,6 +76,19 @@ contract SequencerRegistryHarness is SequencerRegistry {
         return firstLookSequencers[index];
     }
 
+    // Expose constants for testing
+    function getEpochLength() external pure returns (uint256) {
+        return EPOCH_LENGTH;
+    }
+
+    function getChallengeWindow() external pure returns (uint256) {
+        return CHALLENGE_WINDOW;
+    }
+
+    function getStart() external view returns (uint256) {
+        return START;
+    }
+
     receive() external payable {}
 }
 
@@ -90,9 +103,6 @@ contract SequencerRegistryTest is Test {
     MockYieldRouter yieldRouter;
     FakeZK fakeZk;
     MockTransactionRegistry txRegistry;
-
-    uint256 constant EPOCH_LENGTH = 10;
-    uint256 constant CHALLENGE_WINDOW = 10;
 
     address owner = address(this);
     address sequencer1 = address(0x1001);
@@ -236,12 +246,14 @@ contract SequencerRegistryTest is Test {
     }
 
     function test_IsAllowedOpenPeriod() public {
+        uint256 epochLength = harness.getEpochLength();
+
         vm.prank(sequencer2);
         harness.fund{value: 20 ether}();
         harness.addFirstLook(sequencer2);
 
-        // Move to open period
-        vm.warp(block.timestamp + EPOCH_LENGTH / 2 + 1);
+        // Move to open period (>50% into epoch)
+        vm.warp(block.timestamp + epochLength / 2 + 1);
 
         // Active with sufficient stake - allowed
         vm.prank(sequencer1);
@@ -271,6 +283,9 @@ contract SequencerRegistryTest is Test {
     }
 
     function test_PriorityRotation() public {
+        uint256 epochLength = harness.getEpochLength();
+        uint256 start = harness.getStart();
+
         vm.prank(sequencer1);
         harness.fund{value: 20 ether}();
         harness.addFirstLook(sequencer1);
@@ -283,19 +298,19 @@ contract SequencerRegistryTest is Test {
         harness.fund{value: 20 ether}();
         harness.addFirstLook(sequencer3);
 
-        // Epoch 0: seq1 (timestamp 1, START=1)
+        // Epoch 0: seq1
         assertTrue(harness.isAllowed(sequencer1));
 
-        // Epoch 1: seq2 (timestamp 11)
-        vm.warp(11);
+        // Epoch 1: seq2
+        vm.warp(start + epochLength);
         assertTrue(harness.isAllowed(sequencer2));
 
-        // Epoch 2: seq3 (timestamp 21)
-        vm.warp(21);
+        // Epoch 2: seq3
+        vm.warp(start + epochLength * 2);
         assertTrue(harness.isAllowed(sequencer3));
 
-        // Epoch 3: wraps to seq1 (timestamp 31)
-        vm.warp(31);
+        // Epoch 3: wraps to seq1
+        vm.warp(start + epochLength * 3);
         assertTrue(harness.isAllowed(sequencer1));
     }
 
@@ -370,6 +385,8 @@ contract SequencerRegistryTest is Test {
     // ==================== CLAIM CHALLENGE REWARD TESTS ====================
 
     function test_ClaimChallengeReward() public {
+        uint256 challengeWindow = harness.getChallengeWindow();
+
         vm.prank(sequencer1);
         harness.fund{value: 20 ether}();
 
@@ -383,7 +400,7 @@ contract SequencerRegistryTest is Test {
         harness.claimChallengeReward(sequencer1);
 
         // After window - should succeed
-        vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
+        vm.warp(block.timestamp + challengeWindow + 1);
         harness.claimChallengeReward(sequencer1);
 
         assertEq(challenger.balance, balanceBefore + 10 ether, "Should receive half stake");
@@ -396,6 +413,8 @@ contract SequencerRegistryTest is Test {
     }
 
     function test_ClaimChallengeRewardPayoutFails() public {
+        uint256 challengeWindow = harness.getChallengeWindow();
+
         RejectingContract rejecter = new RejectingContract();
 
         vm.prank(sequencer1);
@@ -404,7 +423,7 @@ contract SequencerRegistryTest is Test {
         vm.prank(address(rejecter));
         harness.slashSequencer(sequencer1, 0);
 
-        vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
+        vm.warp(block.timestamp + challengeWindow + 1);
 
         vm.expectRevert(PayoutFailed.selector);
         harness.claimChallengeReward(sequencer1);
@@ -427,6 +446,8 @@ contract SequencerRegistryTest is Test {
     }
 
     function test_Exit() public {
+        uint256 challengeWindow = harness.getChallengeWindow();
+
         vm.prank(sequencer1);
         harness.fund{value: 20 ether}();
 
@@ -440,13 +461,15 @@ contract SequencerRegistryTest is Test {
         harness.exit(sequencer1);
 
         // After window - should succeed
-        vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
+        vm.warp(block.timestamp + challengeWindow + 1);
         harness.exit(sequencer1);
 
         assertEq(sequencer1.balance, balanceBefore + 20 ether);
     }
 
     function test_ExitFailsIfChallenged() public {
+        uint256 challengeWindow = harness.getChallengeWindow();
+
         vm.prank(sequencer1);
         harness.fund{value: 20 ether}();
 
@@ -456,7 +479,7 @@ contract SequencerRegistryTest is Test {
         vm.prank(challenger);
         harness.slashSequencer(sequencer1, 0);
 
-        vm.warp(block.timestamp + CHALLENGE_WINDOW + 1);
+        vm.warp(block.timestamp + challengeWindow + 1);
 
         vm.expectRevert(AlreadyChallenged.selector);
         harness.exit(sequencer1);

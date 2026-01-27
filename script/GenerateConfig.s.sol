@@ -4,227 +4,149 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 
 /// @title GenerateConfig
-/// @notice Generates TOML configuration files for challenger and sequencer binaries
-/// @dev Run after deployment to create config files with correct contract addresses
+/// @notice Generates unified TOML configuration file for both challenger and sequencer binaries
+/// @dev Run after deployment to create config file with correct contract addresses
 contract GenerateConfig is Script {
     function run() external {
         // Read deployed addresses from environment
         address entrypoint = vm.envAddress("ENTRYPOINT_ADDRESS");
-        address yieldRouter = vm.envAddress("YIELD_ROUTER_ADDRESS");
-        address registry = vm.envAddress("TRANSACTION_REGISTRY_ADDRESS");
-        address token = vm.envAddress("TOKEN_ADDRESS");
+        address deposits = vm.envOr("DEPOSITS_ADDRESS", entrypoint); // Default to entrypoint if not set
+        address registry = vm.envOr("TRANSACTION_REGISTRY_ADDRESS", address(0));
         string memory rpcUrl = vm.envOr("RPC_URL", string("http://localhost:8545"));
         uint256 chainId = block.chainid;
 
-        // Generate both config files
-        string memory challengerConfig = generateChallengerConfig(entrypoint, registry, rpcUrl, chainId);
-        string memory sequencerConfig =
-            generateSequencerConfig(entrypoint, yieldRouter, registry, token, rpcUrl, chainId);
+        // Generate unified config file
+        string memory config = generateUnifiedConfig(entrypoint, deposits, registry, rpcUrl, chainId);
 
         // Ensure config directory exists
         vm.createDir("config", true);
 
-        // Write config files
-        vm.writeFile("config/challenger.toml", challengerConfig);
-        console.log("Written: config/challenger.toml");
-
-        vm.writeFile("config/sequencer.toml", sequencerConfig);
-        console.log("Written: config/sequencer.toml");
-
-        // Also write a combined base config
-        string memory baseConfig = generateBaseConfig(entrypoint, yieldRouter, registry, token, rpcUrl, chainId);
-        vm.writeFile("config.toml", baseConfig);
-        console.log("Written: config.toml (base config)");
+        // Write unified config file
+        vm.writeFile("config/config.toml", config);
+        console.log("Written: config/config.toml");
     }
 
-    function generateBaseConfig(
+    function generateUnifiedConfig(
         address entrypoint,
-        address yieldRouter,
+        address deposits,
         address registry,
-        address token,
         string memory rpcUrl,
         uint256 chainId
     ) internal view returns (string memory) {
         return string.concat(
-            "# Auto-generated Pretty Good Payments configuration\n",
+            _header(chainId),
+            _networkSection(rpcUrl, chainId),
+            _contractsSection(entrypoint, deposits, registry),
+            _keysSection(),
+            _sequencerSection(),
+            _challengerSection(),
+            _circuitsSection(),
+            _storageSection()
+        );
+    }
+
+    function _header(uint256 chainId) internal view returns (string memory) {
+        return string.concat(
+            "# Pretty Good Payments - Unified Configuration\n",
             "# Chain ID: ",
             vm.toString(chainId),
             "\n",
             "# Generated at block: ",
             vm.toString(block.number),
-            "\n\n",
-            "[network]\n",
-            "rpc_url = \"",
-            rpcUrl,
-            "\"\n",
-            "chain_id = ",
-            vm.toString(chainId),
-            "\n\n",
-            "[contracts]\n",
-            "entrypoint = \"",
-            vm.toString(entrypoint),
-            "\"\n",
-            "yield_router = \"",
-            vm.toString(yieldRouter),
-            "\"\n",
-            "transaction_registry = \"",
-            vm.toString(registry),
-            "\"\n",
-            "token = \"",
-            vm.toString(token),
-            "\"\n"
-        );
-    }
-
-    function generateChallengerConfig(address entrypoint, address registry, string memory rpcUrl, uint256 chainId)
-        internal
-        view
-        returns (string memory)
-    {
-        return string.concat(
-            _challengerHeader(rpcUrl, chainId), _challengerContracts(entrypoint, registry), _challengerSettings()
-        );
-    }
-
-    function _challengerHeader(string memory rpcUrl, uint256 chainId) internal view returns (string memory) {
-        return string.concat(
-            "# Pretty Good Payments - Challenger Configuration\n",
-            "# Chain ID: ",
-            vm.toString(chainId),
             "\n",
-            "# Generated at block: ",
-            vm.toString(block.number),
-            "\n\n",
+            "#\n",
+            "# This single config file works for both the sequencer and challenger binaries.\n",
+            "# Environment variables can override any setting (e.g., PGP_RPC_URL, PGP_CHAIN_ID)\n",
+            "# Private keys should use environment variables in production:\n",
+            "#   PGP_SEQUENCER_PRIVATE_KEY, PGP_CHALLENGER_PRIVATE_KEY\n\n"
+        );
+    }
+
+    function _networkSection(string memory rpcUrl, uint256 chainId) internal pure returns (string memory) {
+        return string.concat(
             "[network]\n",
             "rpc_url = \"",
             rpcUrl,
             "\"\n",
-            "# beacon_url = \"http://localhost:5052\"\n",
+            "beacon_url = \"http://localhost:5052\"\n",
             "chain_id = ",
             vm.toString(chainId),
             "\n\n"
         );
     }
 
-    function _challengerContracts(address entrypoint, address registry) internal view returns (string memory) {
-        return string.concat(
-            "[contracts]\n",
-            "entrypoint = \"",
-            vm.toString(entrypoint),
-            "\"\n",
-            "transaction_registry = \"",
-            vm.toString(registry),
-            "\"\n\n"
-        );
-    }
-
-    function _challengerSettings() internal pure returns (string memory) {
-        return string.concat(
-            "[challenger]\n",
-            "private_key = \"${CHALLENGER_PRIVATE_KEY}\"\n",
-            "poll_interval_ms = 2000\n",
-            "lookback_blocks = 100\n",
-            "max_gas_price_gwei = 100\n",
-            "challenge_gas_limit = 500000\n\n",
-            "[challenger.validators]\n",
-            "transaction_zk = true\n",
-            "deposit = true\n",
-            "nullifier = true\n",
-            "tree_update = true\n\n",
-            "[storage]\n",
-            "db_path = \"./data/challenger.db\"\n\n",
-            "[logging]\n",
-            "level = \"info\"\n",
-            "format = \"pretty\"\n\n",
-            "[metrics]\n",
-            "enabled = false\n"
-        );
-    }
-
-    function generateSequencerConfig(
-        address entrypoint,
-        address yieldRouter,
-        address registry,
-        address token,
-        string memory rpcUrl,
-        uint256 chainId
-    ) internal view returns (string memory) {
-        return string.concat(
-            _sequencerHeader(rpcUrl, chainId),
-            _sequencerContracts(entrypoint, yieldRouter, registry, token),
-            _sequencerSettings()
-        );
-    }
-
-    function _sequencerHeader(string memory rpcUrl, uint256 chainId) internal view returns (string memory) {
-        return string.concat(
-            "# Pretty Good Payments - Sequencer Configuration\n",
-            "# Chain ID: ",
-            vm.toString(chainId),
-            "\n",
-            "# Generated at block: ",
-            vm.toString(block.number),
-            "\n\n",
-            "[network]\n",
-            "rpc_url = \"",
-            rpcUrl,
-            "\"\n",
-            "# beacon_url = \"http://localhost:5052\"\n",
-            "chain_id = ",
-            vm.toString(chainId),
-            "\n\n"
-        );
-    }
-
-    function _sequencerContracts(address entrypoint, address yieldRouter, address registry, address token)
+    function _contractsSection(address entrypoint, address deposits, address registry)
         internal
         view
         returns (string memory)
     {
+        string memory registryLine = registry != address(0)
+            ? string.concat("transaction_registry = \"", vm.toString(registry), "\"\n")
+            : "# transaction_registry = \"0x...\"\n";
+
         return string.concat(
             "[contracts]\n",
             "entrypoint = \"",
             vm.toString(entrypoint),
             "\"\n",
-            "yield_router = \"",
-            vm.toString(yieldRouter),
+            "deposits = \"",
+            vm.toString(deposits),
             "\"\n",
-            "transaction_registry = \"",
-            vm.toString(registry),
-            "\"\n",
-            "token = \"",
-            vm.toString(token),
-            "\"\n\n"
+            registryLine,
+            "\n"
         );
     }
 
-    function _sequencerSettings() internal pure returns (string memory) {
+    function _keysSection() internal pure returns (string memory) {
+        return string.concat(
+            "[keys]\n",
+            "# Separate private keys allow different ETH balances for sequencer vs challenger\n",
+            "# SECURITY: Use environment variables in production!\n",
+            "#   export PGP_SEQUENCER_PRIVATE_KEY=\"0x...\"\n",
+            "#   export PGP_CHALLENGER_PRIVATE_KEY=\"0x...\"\n",
+            "# sequencer_private_key = \"${SEQUENCER_PRIVATE_KEY}\"\n",
+            "# challenger_private_key = \"${CHALLENGER_PRIVATE_KEY}\"\n\n"
+        );
+    }
+
+    function _sequencerSection() internal pure returns (string memory) {
         return string.concat(
             "[sequencer]\n",
-            "private_key = \"${SEQUENCER_PRIVATE_KEY}\"\n",
-            "max_transactions_per_block = 4096\n",
-            "max_deposits_per_block = 3072\n",
-            "max_blobs_per_block = 6\n",
-            "block_time_ms = 12000\n",
-            "epoch_wait_ms = 5000\n",
-            "max_gas_price_gwei = 100\n",
-            "max_blob_gas_price_gwei = 50\n\n",
-            "[api]\n",
-            "enabled = true\n",
-            "host = \"0.0.0.0\"\n",
-            "port = 8080\n",
-            "max_requests_per_second = 100\n",
-            "max_pending_transactions = 10000\n\n",
-            "[mempool]\n",
-            "max_size = 50000\n",
-            "eviction_policy = \"fifo\"\n\n",
+            "api_host = \"127.0.0.1\"\n",
+            "api_port = 8080\n",
+            "block_interval_ms = 12000\n",
+            "mempool_max_pending = 10000\n\n"
+        );
+    }
+
+    function _challengerSection() internal pure returns (string memory) {
+        return string.concat(
+            "[challenger]\n",
+            "poll_interval_ms = 2000\n",
+            "confirmations = 6\n",
+            "lookback_blocks = 1000\n",
+            "dry_run = false\n",
+            "max_challenge_retries = 5\n\n"
+        );
+    }
+
+    function _circuitsSection() internal pure returns (string memory) {
+        return string.concat(
+            "[circuits]\n",
+            "transfer_verification_key = \"circuits/outputs/transfer/transferVKey.json\"\n",
+            "update_verification_key = \"circuits/outputs/predictableUpdate/predictableUpdateVKey.json\"\n",
+            "snarkjs_path = \"snarkjs\"\n",
+            "circuit_wasm_path = \"circuits/outputs/predictableUpdate/predictableUpdate_js/predictableUpdate.wasm\"\n",
+            "circuit_zkey_path = \"circuits/outputs/predictableUpdate/predictableUpdate.zkey\"\n\n"
+        );
+    }
+
+    function _storageSection() internal pure returns (string memory) {
+        return string.concat(
             "[storage]\n",
-            "db_path = \"./data/sequencer.db\"\n\n",
-            "[logging]\n",
-            "level = \"info\"\n",
-            "format = \"pretty\"\n\n",
-            "[metrics]\n",
-            "enabled = false\n"
+            "# Shared database for both sequencer and challenger\n",
+            "database_path = \"./data/pgp.db\"\n",
+            "blob_cache_size = 16\n"
         );
     }
 }

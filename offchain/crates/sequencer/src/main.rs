@@ -16,7 +16,7 @@ use alloy::primitives::Address;
 use alloy::providers::ProviderBuilder;
 use clap::Parser;
 use eyre::Result;
-use pgp_common::{load_config_or_default, EnvOverride, SequencerConfig, SequencerConfigWithDryRun};
+use pgp_common::{load_config_or_default, Config, ConfigWithDryRun, EnvOverride};
 use pgp_sequencer::{
     block_submitter::{create_config, create_wallet, BlockSubmitter},
     mempool::MempoolConfig,
@@ -73,48 +73,57 @@ async fn main() -> Result<()> {
     info!("Starting PGP Sequencer (with integrated challenger)");
 
     // Load configuration
-    let mut config: SequencerConfig = load_config_or_default(args.config.as_deref())?;
+    let mut config: Config = load_config_or_default(args.config.as_deref())?;
     config.apply_env_overrides()?;
 
+    // Compute API listen address
+    let api_listen_addr = format!(
+        "{}:{}",
+        config.sequencer.api_host, config.sequencer.api_port
+    );
+
     info!("Configuration loaded:");
-    info!("  RPC URL: {}", config.common.rpc_url);
-    info!("  Chain ID: {}", config.common.chain_id);
-    info!("  Entrypoint: {:?}", config.common.entrypoint_address);
-    info!("  Deposits: {:?}", config.common.deposits_address);
-    info!("  Database: {}", config.database_path);
-    info!("  API listen: {}", config.api_listen_addr);
-    info!("  Mempool max pending: {}", config.mempool_max_pending);
+    info!("  RPC URL: {}", config.network.rpc_url);
+    info!("  Chain ID: {}", config.network.chain_id);
+    info!("  Entrypoint: {:?}", config.contracts.entrypoint);
+    info!("  Deposits: {:?}", config.contracts.deposits);
+    info!("  Database: {}", config.storage.database_path);
+    info!("  API listen: {}", api_listen_addr);
+    info!(
+        "  Mempool max pending: {}",
+        config.sequencer.mempool_max_pending
+    );
     info!("  Dry run: {}", args.dry_run);
 
     // Validate configuration
-    if config.common.entrypoint_address == Address::ZERO {
+    if config.contracts.entrypoint == Address::ZERO {
         return Err(eyre::eyre!("Entrypoint address must be configured"));
     }
-    if config.common.deposits_address == Address::ZERO {
+    if config.contracts.deposits == Address::ZERO {
         return Err(eyre::eyre!("Deposits address must be configured"));
     }
 
     // Validate private key requirement for block submission
-    if !args.dry_run && config.private_key.is_none() {
-        return Err(eyre::eyre!("Private key required for block submission"));
+    if !args.dry_run && config.keys.sequencer_private_key.is_none() {
+        return Err(eyre::eyre!("sequencer_private_key required for block submission"));
     }
 
     // Initialize state manager for challenger
-    let state = StateManager::open(&config.database_path)?;
-    info!("State database opened: {}", config.database_path);
+    let state = StateManager::open(&config.storage.database_path)?;
+    info!("State database opened: {}", config.storage.database_path);
 
     // Open a separate StateManager for mempool validation (shares same database file)
     // SQLite supports concurrent readers, and the mempool only needs read access
-    let mempool_state = StateManager::open(&config.database_path)?;
+    let mempool_state = StateManager::open(&config.storage.database_path)?;
     info!("Mempool state opened (sharing database with challenger)");
 
     // Create read-only provider for validation and event listening
-    let provider = ProviderBuilder::new().connect_http(config.common.rpc_url.parse()?);
-    info!("Connected to RPC: {}", config.common.rpc_url);
+    let provider = ProviderBuilder::new().connect_http(config.network.rpc_url.parse()?);
+    info!("Connected to RPC: {}", config.network.rpc_url);
 
     // Log sequencer address if available
-    if let Some(private_key) = &config.private_key {
-        if let Ok(submitter_config) = create_config(private_key, config.common.entrypoint_address) {
+    if let Some(private_key) = &config.keys.sequencer_private_key {
+        if let Ok(submitter_config) = create_config(private_key, config.contracts.entrypoint) {
             info!(
                 "Sequencer address: {:?}",
                 submitter_config.sequencer_address
@@ -123,7 +132,7 @@ async fn main() -> Result<()> {
     }
 
     // Create challenger runner with dry_run override based on CLI args
-    let config_with_dry_run = SequencerConfigWithDryRun {
+    let config_with_dry_run = ConfigWithDryRun {
         config: &config,
         dry_run: args.dry_run,
     };
@@ -134,10 +143,10 @@ async fn main() -> Result<()> {
 
     // Initialize event listener
     let event_config = EventListenerConfig {
-        entrypoint_address: config.common.entrypoint_address,
-        lookback_blocks: config.lookback_blocks,
-        poll_interval_ms: config.block_interval_ms,
-        confirmations: config.confirmations,
+        entrypoint_address: config.contracts.entrypoint,
+        lookback_blocks: config.challenger.lookback_blocks,
+        poll_interval_ms: config.sequencer.block_interval_ms,
+        confirmations: config.challenger.confirmations,
     };
     let mut event_listener = EventListener::new(provider.clone(), event_config);
 
@@ -148,18 +157,14 @@ async fn main() -> Result<()> {
     // Get genesis anchor
     let genesis_anchor: alloy::primitives::B256 = {
         use pgp_common::contracts::Entrypoint;
-        let entrypoint = Entrypoint::new(config.common.entrypoint_address, &provider);
+        let entrypoint = Entrypoint::new(config.contracts.entrypoint, &provider);
         entrypoint.GENESIS_ANCHOR().call().await?
     };
     info!("Genesis anchor: {:?}", genesis_anchor);
 
     // Load verification keys for ZK proof validation
-    let transfer_vk_path = config.transfer_verification_key.as_ref().ok_or_else(|| {
-        eyre::eyre!("transfer_verification_key must be configured for mempool validation")
-    })?;
-    let update_vk_path = config.update_verification_key.as_ref().ok_or_else(|| {
-        eyre::eyre!("update_verification_key must be configured for mempool validation")
-    })?;
+    let transfer_vk_path = &config.circuits.transfer_verification_key;
+    let update_vk_path = &config.circuits.update_verification_key;
 
     info!("Loading verification keys...");
     info!("  Transfer VK: {}", transfer_vk_path);
@@ -174,12 +179,12 @@ async fn main() -> Result<()> {
 
     // Initialize mempool with state for nullifier validation and ZK verification
     let mempool_config = MempoolConfig {
-        max_pending: config.mempool_max_pending,
+        max_pending: config.sequencer.mempool_max_pending,
     };
     let mempool = Arc::new(Mempool::new(mempool_config, mempool_state, zk_verifier));
     info!(
         "Mempool initialized (max pending: {}, nullifier & anchor & ZK validation enabled)",
-        config.mempool_max_pending
+        config.sequencer.mempool_max_pending
     );
 
     // Set up graceful shutdown
@@ -188,13 +193,13 @@ async fn main() -> Result<()> {
     // Initialize block submitter (unless dry run)
     // Open a separate StateManager for reading state (SQLite allows concurrent readers)
     let block_builder_ctx = if !args.dry_run {
-        let private_key = config.private_key.as_ref().unwrap();
-        let submitter_config = create_config(private_key, config.common.entrypoint_address)
+        let private_key = config.keys.sequencer_private_key.as_ref().unwrap();
+        let submitter_config = create_config(private_key, config.contracts.entrypoint)
             .map_err(|e| eyre::eyre!("Failed to create config: {}", e))?;
         let wallet: EthereumWallet = create_wallet(&submitter_config.signer);
         let wallet_provider = ProviderBuilder::new()
             .wallet(wallet)
-            .connect_http(config.common.rpc_url.parse()?);
+            .connect_http(config.network.rpc_url.parse()?);
         let mut block_submitter = BlockSubmitter::new(submitter_config, wallet_provider);
 
         // Initialize the epoch watcher by syncing with the blockchain
@@ -215,7 +220,7 @@ async fn main() -> Result<()> {
 
         // Open a second StateManager for reading - shares the same database file
         // SQLite supports multiple concurrent readers
-        let block_builder_state = StateManager::open(&config.database_path)?;
+        let block_builder_state = StateManager::open(&config.storage.database_path)?;
         info!("Block builder state opened (sharing database with challenger)");
 
         let builder_config = BlockBuilderConfig {
@@ -237,7 +242,7 @@ async fn main() -> Result<()> {
 
     // Start API server (unless dry run)
     let _api_handle = if !args.dry_run {
-        let handle = start_api_server(&config.api_listen_addr, mempool.clone()).await?;
+        let handle = start_api_server(&api_listen_addr, mempool.clone()).await?;
         Some(handle)
     } else {
         info!("API server disabled (dry_run mode)");
@@ -247,7 +252,7 @@ async fn main() -> Result<()> {
     // Run the main event loop (challenger functionality)
     // Block building is integrated via the per-iteration hook
     let loop_config = pgp_challenger::EventLoopConfig {
-        poll_interval: Duration::from_millis(config.block_interval_ms),
+        poll_interval: Duration::from_millis(config.sequencer.block_interval_ms),
         dry_run: args.dry_run,
         service_name: "Sequencer",
     };
