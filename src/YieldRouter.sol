@@ -47,6 +47,7 @@ contract YieldRouter is Ownable {
     /// @param _bridge Address of the bridge contract (only caller allowed for deposits/withdrawals)
     /// @param tracked Initial list of token addresses to track yield for
     constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked) {
+        _initializeOwner(msg.sender);
         EPOCHS_PER_PERIOD = epochPerPeriod;
         PERIOD_LENGTH = periodLength;
         bridge = _bridge;

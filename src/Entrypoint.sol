@@ -31,6 +31,7 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
         ITransferVerifier _transactionZkVerifier,
         ITransactionRegistry _transferRegistry
     ) {
+        _initializeOwner(msg.sender);
         GENESIS_ANCHOR = genesis;
         yieldRouter = _yieldRouter;
         predictableUpdateVerifier = _predictableUpdateVerifier;
