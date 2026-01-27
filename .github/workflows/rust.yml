@@ -27,9 +27,10 @@ jobs:
           submodules: recursive
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+        run: |
+          rustup update stable
+          rustup default stable
+          rustup component add rustfmt clippy
 
       - name: Cache cargo registry
         uses: actions/cache@v4
