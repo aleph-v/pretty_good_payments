@@ -2,7 +2,7 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-fs_permissions = [{ access = "read", path = "./"}, { access = "read", path = "/tmp"}, { access = "write", path = "./config"}, { access = "write", path = "./config.toml"}]
+fs_permissions = [{ access = "read", path = "./"}, { access = "read", path = "/tmp"}, { access = "write", path = "./config"}, { access = "write", path = "./config.toml"}, { access = "write", path = "./verify-contracts.sh"}]
 ffi = true
 no_match_coverage = "test/*"
 via_ir = true
@@ -18,6 +18,14 @@ exclude_lints = [
     "screaming-snake-case-immutable",
     "unsafe-typecast",
     "asm-keccak256"
+]
+
+# Production profile for deployment - uses externally deployed Poseidon libraries
+# See: https://github.com/chancehudson/poseidon-solidity
+[profile.production]
+libraries = [
+    "lib/poseidon-solidity/contracts/PoseidonT3.sol:PoseidonT3:0x3333333C0A88F9BE4fd23ed0536F9B6c427e3B93",
+    "lib/poseidon-solidity/contracts/PoseidonT5.sol:PoseidonT5:0x555333f3f677Ca3930Bf7c56ffc75144c51D9767"
 ]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
