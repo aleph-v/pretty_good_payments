@@ -36,8 +36,8 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install Python dependencies (ckzg)
-        run: pip install ckzg
+      - name: Install Python dependencies
+        run: pip install ckzg eth-abi
 
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
