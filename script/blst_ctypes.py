@@ -8,19 +8,26 @@ import sys
 # Note: This is a little ugly, but I think it's cleanest to use the same lib that ckzg uses.
 #
 
-# The architecture-dependent library name - auto-detect Python version
+# The architecture-dependent library name - auto-detect Python version and platform
 import sys
-libname = f'ckzg.cpython-{sys.version_info.major}{sys.version_info.minor}-darwin.so'
+import platform
+import glob
 
 # Get all site-packages directories (includes both global and virtualenv)
 site_packages = site.getsitepackages() + [site.getusersitepackages()]
 
-# Look for the library within site-packages directories
+# Look for the ckzg library - use glob pattern to handle different platforms
+# macOS: ckzg.cpython-311-darwin.so
+# Linux: ckzg.cpython-311-x86_64-linux-gnu.so
+path = None
 for dir in site_packages:
-    path = os.path.join(dir, libname)
-    if os.path.exists(path):
+    pattern = os.path.join(dir, f'ckzg.cpython-{sys.version_info.major}{sys.version_info.minor}*.so')
+    matches = glob.glob(pattern)
+    if matches:
+        path = matches[0]
         break
-else:
+
+if path is None:
     print("Library not found.", file=sys.stderr)
     exit(1)
 
