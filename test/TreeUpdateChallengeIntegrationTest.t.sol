@@ -13,7 +13,7 @@ import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
 import {ITransactionRegistry} from "../src/TransactionRegistry.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
-import {FakeZK} from "./mocks/FakeZK.sol";
+import {FakeZK} from "./mocks/FakeZk.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 import {NoFraud} from "../src/library/Errors.sol";
 

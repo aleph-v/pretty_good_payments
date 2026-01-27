@@ -11,7 +11,7 @@ import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
 import {ITransactionRegistry} from "../src/TransactionRegistry.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
-import {FakeZK} from "./mocks/FakeZK.sol";
+import {FakeZK} from "./mocks/FakeZk.sol";
 import {ConfigurableTxRegistry} from "./mocks/ConfigurableTxRegistry.sol";
 import {NoFraud, ZeroEthKey} from "../src/library/Errors.sol";
 
