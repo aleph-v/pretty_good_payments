@@ -51,7 +51,6 @@ pub struct FraudWithContext {
 pub fn fraud_type_name(fraud: &FraudEvidence) -> &'static str {
     match fraud {
         FraudEvidence::DepositWrongLeaf { .. } => "DepositWrongLeaf",
-        FraudEvidence::DepositCountMismatch { .. } => "DepositCountMismatch",
         FraudEvidence::DepositPaddingNotZero { .. } => "DepositPaddingNotZero",
         FraudEvidence::NullifierDoubleSpend { .. } => "NullifierDoubleSpend",
         FraudEvidence::InvalidTransactionProof { .. } => "InvalidTransactionProof",
@@ -106,7 +105,6 @@ pub struct ChallengerRunner<P> {
     // Configuration
     deposits_address: Address,
     registry_address: Address,
-    entrypoint_address: Address,
     genesis_anchor: B256,
     max_retries: i32,
     dry_run: bool,
@@ -128,11 +126,20 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
         let transaction_validator = {
             let transfer_vk_path = config.transfer_verification_key();
             let update_vk_path = config.update_verification_key();
-            info!("Loading verification keys from {} and {}...", transfer_vk_path, update_vk_path);
-            let transfer_vk = std::fs::read(transfer_vk_path)
-                .map_err(|e| eyre::eyre!("Failed to read transfer VK from {}: {}", transfer_vk_path, e))?;
-            let update_vk = std::fs::read(update_vk_path)
-                .map_err(|e| eyre::eyre!("Failed to read update VK from {}: {}", update_vk_path, e))?;
+            info!(
+                "Loading verification keys from {} and {}...",
+                transfer_vk_path, update_vk_path
+            );
+            let transfer_vk = std::fs::read(transfer_vk_path).map_err(|e| {
+                eyre::eyre!(
+                    "Failed to read transfer VK from {}: {}",
+                    transfer_vk_path,
+                    e
+                )
+            })?;
+            let update_vk = std::fs::read(update_vk_path).map_err(|e| {
+                eyre::eyre!("Failed to read update VK from {}: {}", update_vk_path, e)
+            })?;
 
             let verifier = Groth16Verifier::from_json(&transfer_vk, &update_vk)
                 .map_err(|e| eyre::eyre!("Failed to initialize Groth16 verifier: {}", e))?;
@@ -268,7 +275,6 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
             registry_address: config
                 .transaction_registry_address()
                 .unwrap_or(Address::ZERO),
-            entrypoint_address: config.entrypoint_address(),
             genesis_anchor,
             max_retries: config.max_challenge_retries() as i32,
             dry_run: config.dry_run(),
@@ -721,7 +727,6 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
 
         match &fraud_ctx.fraud {
             FraudEvidence::DepositWrongLeaf { .. }
-            | FraudEvidence::DepositCountMismatch { .. }
             | FraudEvidence::DepositPaddingNotZero { .. } => {
                 info!(
                     "Building deposit challenge for block {}",
@@ -762,7 +767,8 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                         first_block_nr
                     ));
                 }
-                let first_blobs_data = self.blob_provider
+                let first_blobs_data = self
+                    .blob_provider
                     .get_blobs(first_l1, &first_block_data.blobhashes)
                     .await?;
 
@@ -862,7 +868,8 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                     ));
                 }
                 // Fetch all blobs for prior anchor block (multi-blob support)
-                let prior_anchor_blobs_data = self.blob_provider
+                let prior_anchor_blobs_data = self
+                    .blob_provider
                     .get_blobs(prior_anchor_l1, &prior_anchor_block.blobhashes)
                     .await?;
                 let prior_anchor_blobs: Vec<BlobWithHash> = prior_anchor_blobs_data
@@ -950,7 +957,8 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                         ));
                     }
                     // Fetch all blobs for prior block (multi-blob support)
-                    let prior_blobs_data = self.blob_provider
+                    let prior_blobs_data = self
+                        .blob_provider
                         .get_blobs(prior_l1, &prior_blk_data.blobhashes)
                         .await?;
 

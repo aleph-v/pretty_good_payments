@@ -10,7 +10,7 @@ import {IYieldRouter} from "./interfaces/IYieldRouter.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "./interfaces/ITransferVerifier.sol";
 import {ITransactionRegistry} from "./TransactionRegistry.sol";
-import {NotAllowed, EpochNotFinished} from "./library/Errors.sol";
+import {NotAllowed, EpochNotFinished, WrongNumberOfDeposits} from "./library/Errors.sol";
 
 /// @title Entrypoint
 /// @notice Main contract for L2 sequencing, combining all challenge types and handling sequencer yield payouts
@@ -55,6 +55,7 @@ contract Entrypoint is Withdraw, DepositChallenge, TransactionChallenge, Nullifi
     ///        We should just not allow such blocks to be submitted.
     function post(BlockData memory data, uint256[] memory blobIndices) external {
         if (!isAllowed(msg.sender)) revert NotAllowed();
+        if (data.numDeposits != perBlockDeposits[roots.length].length) revert WrongNumberOfDeposits();
         addBlock(data, blobIndices);
         (uint256 epoch, bool currentlyPriority) = currentEpoch();
 

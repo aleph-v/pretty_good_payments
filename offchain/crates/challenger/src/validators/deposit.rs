@@ -47,35 +47,23 @@ impl DepositValidator {
             Err(_) => {
                 // numDeposits exceeds usize::MAX - this indicates corrupted or malicious data
                 warn!(
-                    "numDeposits {} exceeds usize::MAX in block {} - treating as count mismatch",
+                    "numDeposits {} exceeds usize::MAX in block {} - skipping validation",
                     block_data.numDeposits, block_data.blockNr
                 );
-                // Return 0 to trigger count mismatch detection
-                0
+                return fraud;
             }
         };
         let expected_count = expected_deposits.len();
 
-        // Check 1: Deposit count matches expected from contract
-        if num_deposits != expected_count {
-            warn!(
-                "Deposit count mismatch! block={}, expected={}, submitted={}",
-                block_data.blockNr, expected_count, num_deposits
-            );
-            fraud.push(FraudEvidence::DepositCountMismatch {
-                block_data: block_data.clone(),
-                expected_count: expected_count as u64,
-                submitted_count: num_deposits as u64,
-            });
-            // Continue checking individual deposits up to min of both counts
-        }
+        // Note: Deposit count mismatches are now prevented at submission time
+        // by Entrypoint.post() validation. We only check leaf values and padding.
 
         debug!(
             "Validating {} deposits for block {} (expected {} from contract)",
             num_deposits, block_data.blockNr, expected_count
         );
 
-        // Check 2: Each deposit leaf matches expected value from contract
+        // Check 1: Each deposit leaf matches expected value from contract
         let check_count = num_deposits.min(expected_count);
         for deposit_idx in 0..check_count {
             let expected_leaf = expected_deposits[deposit_idx];
@@ -107,7 +95,7 @@ impl DepositValidator {
             }
         }
 
-        // Check 3: Unused slots in partial deposit groups must be zero
+        // Check 2: Unused slots in partial deposit groups must be zero
         // Deposit groups have 4 slots: [leaf0, leaf1, leaf2, root]
         // If numDeposits % 3 != 0, the last group has unused leaf slots that must be zero
         if num_deposits > 0 {
@@ -246,45 +234,6 @@ mod tests {
                 assert_eq!(*sub, wrong_leaf);
             }
             _ => panic!("Expected DepositWrongLeaf fraud"),
-        }
-    }
-
-    #[test]
-    fn test_deposit_validator_detects_count_mismatch() {
-        let validator = DepositValidator::new();
-
-        // Contract has 3 expected deposits
-        let leaf1 = B256::repeat_byte(0x11);
-        let leaf2 = B256::repeat_byte(0x22);
-        let leaf3 = B256::repeat_byte(0x33);
-        let expected_deposits = vec![leaf1, leaf2, leaf3];
-
-        // But block claims only 2 deposits
-        let blob = create_blob_with_deposits(&[leaf1, leaf2]);
-        let block_data = make_block_data(1, 2);
-        let parsed_block = ParsedBlock::from_blobs(&[blob], 2, 0).unwrap();
-
-        let fraud = validator.validate_block(&block_data, &parsed_block, &expected_deposits);
-
-        // Should detect count mismatch
-        let count_mismatch = fraud
-            .iter()
-            .find(|f| matches!(f, FraudEvidence::DepositCountMismatch { .. }));
-        assert!(
-            count_mismatch.is_some(),
-            "Should detect deposit count mismatch"
-        );
-
-        match count_mismatch.unwrap() {
-            FraudEvidence::DepositCountMismatch {
-                expected_count,
-                submitted_count,
-                ..
-            } => {
-                assert_eq!(*expected_count, 3);
-                assert_eq!(*submitted_count, 2);
-            }
-            _ => panic!("Expected DepositCountMismatch"),
         }
     }
 

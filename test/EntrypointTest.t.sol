@@ -4,10 +4,12 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Entrypoint} from "../src/Entrypoint.sol";
 import {Spine} from "../src/Spine.sol";
+import {Deposits} from "../src/Deposits.sol";
 import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
 import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
 import {ITransactionRegistry} from "../src/TransactionRegistry.sol";
+import {PredictableMerkleLib, Leaf} from "../src/library/PredictableMerkleLib.sol";
 import {FakeZK} from "./mocks/FakeZk.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
@@ -58,6 +60,19 @@ contract EntrypointHarness is Entrypoint, FakeBlobs {
         return CHALLENGE_PERIOD;
     }
 
+    // Setup deposits for a specific block using real leaf hashes (bypasses actual deposit flow for testing)
+    function setupDepositsForBlock(uint256 blockNr, uint256 count, address asset) external {
+        for (uint256 i = 0; i < count; i++) {
+            Leaf memory leaf = Leaf({
+                asset: asset,
+                amount: 1 ether * (i + 1),
+                blinding: BLINDING, // Use the constant blinding factor
+                publicKey: bytes32(uint256(i + 1))
+            });
+            perBlockDeposits[blockNr].push(PredictableMerkleLib.hash(leaf));
+        }
+    }
+
     receive() external payable {}
 }
 
@@ -98,12 +113,15 @@ contract EntrypointTest is Test {
         bytes32[] memory blobhashes = entrypoint.setupBlobData(numDeposits, numTx, seed);
         vm.blobhashes(blobhashes);
 
+        // Block number must be sequential
+        uint256 currentBlockNr = entrypoint.getCurrentBlocknumber();
+
         Spine.BlockData memory data = Spine.BlockData({
             anchor: keccak256(abi.encodePacked("anchor", seed)),
             timestamp: 0,
             numTransactions: numTx,
             numDeposits: numDeposits,
-            blockNr: 0,
+            blockNr: currentBlockNr,
             blockIndex: Spine.TimestampAndIndex(0, 0),
             sequencer: address(0),
             blobhashes: blobhashes
@@ -114,6 +132,17 @@ contract EntrypointTest is Test {
             indices[i] = i;
         }
         return (data, indices);
+    }
+
+    // Helper to create block data that matches actual registered deposits for the current block
+    function _createBlockDataWithActualDeposits(uint256 numTx, uint256 seed)
+        internal
+        returns (Spine.BlockData memory, uint256[] memory)
+    {
+        uint256 currentBlockNr = entrypoint.getCurrentBlocknumber();
+        // Get the actual deposit count for this block from the contract
+        uint256 actualDeposits = entrypoint.getDepositArray(currentBlockNr).length;
+        return _createBlockData(actualDeposits, numTx, seed);
     }
 
     function test_CurrentEpoch() public {
@@ -180,6 +209,9 @@ contract EntrypointTest is Test {
         (uint256 epoch, bool inClosedPeriod) = entrypoint.currentEpoch();
         assertTrue(inClosedPeriod);
 
+        // Setup deposits for block 0 using real leaves
+        entrypoint.setupDepositsForBlock(0, 3, address(0x1234));
+
         (Spine.BlockData memory data1, uint256[] memory indices1) = _createBlockData(3, 10, 100);
         vm.prank(sequencer1);
         entrypoint.post(data1, indices1);
@@ -205,6 +237,8 @@ contract EntrypointTest is Test {
 
         // Works with no priority sequencers (open period only)
         vm.warp(block.timestamp + (epochLength * 7 / 10)); // warp to open period
+        // Setup 1 deposit for block 0 using real leaves
+        entrypoint.setupDepositsForBlock(0, 1, address(0x1234));
         (Spine.BlockData memory data1, uint256[] memory indices1) = _createBlockData(1, 1, 100);
         vm.prank(sequencer1);
         entrypoint.post(data1, indices1);
@@ -213,6 +247,8 @@ contract EntrypointTest is Test {
         // Works at epoch 0 with priority sequencer
         entrypoint.addFirstLook(sequencer2);
         vm.warp(block.timestamp - (epochLength * 7 / 10)); // back to start
+        // Setup 1 deposit for block 1 using real leaves
+        entrypoint.setupDepositsForBlock(1, 1, address(0x1234));
         (Spine.BlockData memory data2, uint256[] memory indices2) = _createBlockData(1, 1, 200);
         vm.prank(sequencer2);
         entrypoint.post(data2, indices2);
@@ -222,6 +258,8 @@ contract EntrypointTest is Test {
         vm.warp(block.timestamp + epochLength * 5 + (epochLength / 2)); // skip several epochs
         (uint256 epoch,) = entrypoint.currentEpoch();
         assertEq(entrypoint.getTotalBlobUse(epoch - 1), 0);
+        // Setup 1 deposit for block 2 using real leaves
+        entrypoint.setupDepositsForBlock(2, 1, address(0x1234));
         (Spine.BlockData memory data3, uint256[] memory indices3) = _createBlockData(1, 1, 300);
         vm.prank(sequencer2);
         entrypoint.post(data3, indices3);
@@ -241,6 +279,8 @@ contract EntrypointTest is Test {
         assertTrue(inClosedPeriod);
 
         address nonPrioritySeq = (epoch % 2 == 0) ? sequencer2 : sequencer1;
+        // Setup 1 deposit for block 0 using real leaves
+        entrypoint.setupDepositsForBlock(0, 1, address(0x1234));
         (Spine.BlockData memory data1, uint256[] memory indices1) = _createBlockData(1, 1, 100);
         vm.prank(nonPrioritySeq);
         vm.expectRevert(NotAllowed.selector);
@@ -251,6 +291,8 @@ contract EntrypointTest is Test {
         (, inClosedPeriod) = entrypoint.currentEpoch();
         assertFalse(inClosedPeriod);
 
+        // Setup 1 deposit for block 0 (block 0 wasn't posted due to revert, so still at block 0)
+        // Note: deposits were already set up above for block 0
         (Spine.BlockData memory data2, uint256[] memory indices2) = _createBlockData(1, 1, 200);
         vm.prank(nonPrioritySeq);
         entrypoint.post(data2, indices2); // should not revert
@@ -286,10 +328,12 @@ contract EntrypointTest is Test {
         entrypoint.addFirstLook(sequencer1);
         vm.warp(block.timestamp + (epochLength * 7 / 10)); // open period
 
+        // Each block must use the current block number (which increments after each post)
         (Spine.BlockData memory data1, uint256[] memory indices1) = _createBlockData(0, 10, 100);
         vm.prank(sequencer1);
         entrypoint.post(data1, indices1);
 
+        // Now block 0 is posted, so this creates data for block 1
         (Spine.BlockData memory data2, uint256[] memory indices2) = _createBlockData(0, 10, 200);
         vm.prank(sequencer2);
         entrypoint.post(data2, indices2);

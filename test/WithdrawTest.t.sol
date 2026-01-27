@@ -92,6 +92,11 @@ contract WithdrawHarness is Withdraw, FakeBlobs {
         return CHALLENGE_PERIOD;
     }
 
+    // Expose getCurrentBlocknumber
+    function getBlockCount() public view returns (uint256) {
+        return getCurrentBlocknumber();
+    }
+
     receive() external payable {}
 }
 
@@ -134,7 +139,7 @@ contract WithdrawTest is Test {
             timestamp: block.timestamp,
             numTransactions: numTransactions,
             numDeposits: numDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(0, 0),
             sequencer: address(this),
             blobhashes: new bytes32[](1)
@@ -205,7 +210,7 @@ contract WithdrawTest is Test {
             timestamp: block.timestamp,
             numTransactions: 1,
             numDeposits: 0,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(0, 0),
             sequencer: address(this),
             blobhashes: new bytes32[](1)
@@ -454,7 +459,7 @@ contract WithdrawTest is Test {
             timestamp: block.timestamp,
             numTransactions: numTx,
             numDeposits: numDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(0, 0),
             sequencer: address(this),
             blobhashes: new bytes32[](1)

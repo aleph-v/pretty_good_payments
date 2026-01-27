@@ -187,12 +187,6 @@ impl ChallengeBuilder {
                 submitted_leaf,
                 ..
             } => (block_data.clone(), *deposit_nr, *submitted_leaf),
-            FraudEvidence::DepositCountMismatch { block_data, .. } => {
-                // For count mismatch, we can challenge any deposit index
-                // that would be invalid - use the first one that doesn't exist
-                let submitted_count = u256_to_u64(block_data.numDeposits, "numDeposits")?;
-                (block_data.clone(), submitted_count, [0u8; 32].into())
-            }
             FraudEvidence::DepositPaddingNotZero {
                 block_data,
                 group_index,

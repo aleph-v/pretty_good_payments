@@ -16,7 +16,8 @@ import {
     PriorRootMismatch,
     AnchorNotIncluded,
     InvalidGenesisAnchor,
-    AnchorIndexMismatch
+    AnchorIndexMismatch,
+    WrongBlockNumber
 } from "./library/Errors.sol";
 
 // The core library managing new blocks
@@ -81,7 +82,9 @@ contract Spine is BlobData {
     function addBlock(BlockData memory data, uint256[] memory blobIndices) internal {
         // Enforce the claimed data is correct
         data.timestamp = block.timestamp;
-        data.blockNr = roots.length;
+        // We enforce this with a revert, so that no accidental fraud is submitted.
+        if (data.blockNr != roots.length) revert WrongBlockNumber();
+
         for (uint256 i = 0; i < blobIndices.length; i++) {
             bytes32 hash = blobhash(blobIndices[i]);
             if (hash == 0) revert ZeroBlobHash();

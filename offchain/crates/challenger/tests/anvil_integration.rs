@@ -754,14 +754,20 @@ async fn test_full_challenge_flow() -> Result<()> {
         "Sequencer should be allowed after registration"
     );
 
-    // Verify block 0 has no deposits
+    // Create a real deposit on L1 for block 0
+    ctx.mint_and_approve_tokens(U256::from(1000u64)).await?;
+    ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x42))
+        .await?;
+
+    // Get expected deposits for block 0
     let expected_deposits_block_0 = ctx.get_deposits_for_block(U256::ZERO).await?;
-    assert!(
-        expected_deposits_block_0.is_empty(),
-        "Block 0 should have no deposits"
+    assert_eq!(
+        expected_deposits_block_0.len(),
+        1,
+        "Block 0 should have 1 deposit"
     );
 
-    // Submit block 0 with fraudulent numDeposits=1
+    // Submit block 0 with wrong deposit leaf (fraud)
     let fake_deposit_leaf = B256::repeat_byte(0xFF);
     let sidecar = ctx.build_deposit_sidecar(&[fake_deposit_leaf])?;
     let submitted = ctx
@@ -839,43 +845,34 @@ async fn test_wrong_deposit_leaf_with_kzg() -> Result<()> {
     ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x42))
         .await?;
 
-    // Verify deposit targets block 2
-    let deposits_block_2 = ctx.get_deposits_for_block(U256::from(2)).await?;
-    assert_eq!(
-        deposits_block_2.len(),
-        1,
-        "Should have 1 deposit for block 2"
-    );
-    let expected_leaf = deposits_block_2[0];
-    println!("Expected deposit leaf for block 2: {expected_leaf}");
+    // Find which block the deposit targets (when getCurrentBlocknumber() = 0,
+    // deposits target block 0 per Deposits.sol logic)
+    let deposits_block_0 = ctx.get_deposits_for_block(U256::ZERO).await?;
+    let (target_block, expected_deposits) = if !deposits_block_0.is_empty() {
+        (U256::ZERO, deposits_block_0)
+    } else {
+        // Fallback: check block 2 (in case deposit logic changed)
+        let deposits_block_2 = ctx.get_deposits_for_block(U256::from(2)).await?;
+        (U256::from(2), deposits_block_2)
+    };
 
-    // Submit blocks 0 and 1 with fake deposits
+    assert_eq!(
+        expected_deposits.len(),
+        1,
+        "Should have 1 deposit for target block"
+    );
+    let expected_leaf = expected_deposits[0];
+    println!("Expected deposit leaf for block {target_block}: {expected_leaf}");
+
     ctx.wait_for_open_period().await?;
 
-    let sidecar0 = ctx.build_deposit_sidecar(&[B256::repeat_byte(0x01)])?;
-    let _block0 = ctx
-        .submit_block(U256::ZERO, U256::from(1), U256::ZERO, sidecar0)
-        .await?;
-
-    let sidecar1 = ctx.build_deposit_sidecar(&[B256::repeat_byte(0x02)])?;
-    let block1 = ctx
-        .submit_block(U256::from(1), U256::from(1), U256::ZERO, sidecar1)
-        .await?;
-
-    // Verify sequencer still allowed
-    assert!(
-        ctx.is_sequencer_allowed().await?,
-        "Sequencer should still be allowed after blocks 0 and 1"
-    );
-
-    // Submit block 2 with WRONG deposit leaf
+    // Submit block 0 with WRONG deposit leaf (fraud)
     let wrong_leaf = B256::repeat_byte(0xFF);
-    println!("Submitting block 2 with wrong leaf: {wrong_leaf}");
+    println!("Submitting block {target_block} with wrong leaf: {wrong_leaf}");
 
-    ctx.advance_to_open_period().await?;
-    let sidecar2 = ctx.build_deposit_sidecar(&[wrong_leaf])?;
-    let block2 = ctx
-        .submit_block(U256::from(2), U256::from(1), U256::ZERO, sidecar2)
+    let sidecar = ctx.build_deposit_sidecar(&[wrong_leaf])?;
+    let block = ctx
+        .submit_block(target_block, U256::from(1), U256::ZERO, sidecar)
         .await?;
 
     // Detect the fraud
@@ -887,7 +884,7 @@ async fn test_wrong_deposit_leaf_with_kzg() -> Result<()> {
 
     let parsed = ParsedBlock::from_blobs(&[test_blob], 1, 0)?;
     let validator = DepositValidator::new();
-    let fraud = validator.validate_block(&block2.block_data, &parsed, &deposits_block_2);
+    let fraud = validator.validate_block(&block.block_data, &parsed, &expected_deposits);
 
     assert!(!fraud.is_empty(), "Should detect deposit fraud");
     match &fraud[0] {
@@ -907,11 +904,19 @@ async fn test_wrong_deposit_leaf_with_kzg() -> Result<()> {
     use pgp_challenger::challenge::ChallengeBuilder;
 
     let challenge_builder = ChallengeBuilder::new()?;
-    let challenge_params = challenge_builder.build_deposit_challenge(
-        &fraud[0],
-        &block2.as_blobs(),
-        block1.block_data.clone(),
-    )?;
+    // Use a default prior block since this is block 0
+    let prior_block = BlockData {
+        anchor: B256::ZERO,
+        timestamp: U256::ZERO,
+        numTransactions: U256::ZERO,
+        numDeposits: U256::ZERO,
+        blockNr: U256::ZERO,
+        blockIndex: TimestampAndIndex { day: 0, index: 0 },
+        sequencer: Address::ZERO,
+        blobhashes: vec![],
+    };
+    let challenge_params =
+        challenge_builder.build_deposit_challenge(&fraud[0], &block.as_blobs(), prior_block)?;
 
     assert_eq!(
         challenge_params.commitment.len(),
@@ -951,6 +956,186 @@ async fn test_wrong_deposit_leaf_with_kzg() -> Result<()> {
     Ok(())
 }
 
+/// Test multi-block deposit fraud with deposits on later blocks.
+///
+/// This test exercises:
+/// 1. Multiple blocks with real deposits
+/// 2. Deposit targeting logic (deposits go to block N when created at block < N)
+/// 3. Fraud detection on a non-zero block
+#[tokio::test]
+async fn test_multi_block_deposit_fraud() -> Result<()> {
+    let Some(ctx) = setup_test_context().await? else {
+        return Ok(());
+    };
+
+    println!("=== Multi-Block Deposit Fraud Test ===");
+
+    ctx.register_sequencer().await?;
+    ctx.advance_to_open_period().await?;
+    ctx.mint_and_approve_tokens(U256::from(5000u64)).await?;
+
+    // Helper for valid BLS field elements
+    fn field_elem(suffix: u8) -> B256 {
+        B256::from([
+            0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, suffix,
+        ])
+    }
+
+    // Create deposit for block 0
+    ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x01))
+        .await?;
+    let deposits_b0 = ctx.get_deposits_for_block(U256::ZERO).await?;
+    assert_eq!(deposits_b0.len(), 1, "Block 0 should have 1 deposit");
+    println!("✓ Created deposit for block 0");
+
+    // Submit block 0 with correct deposit
+    let sidecar0 = ctx.build_deposit_sidecar(&[deposits_b0[0]])?;
+    let block0 = ctx
+        .submit_block(U256::ZERO, U256::from(1), U256::ZERO, sidecar0)
+        .await?;
+    println!("✓ Block 0 submitted with correct deposit");
+
+    // Create 2 deposits for a later block
+    // After block 0 is submitted, getCurrentBlocknumber() = 1
+    // Deposits now go to max(highestDeposit, currentBlock + 2) = max(0, 3) = 3
+    ctx.create_deposit(U256::from(200u64), B256::repeat_byte(0x02))
+        .await?;
+    ctx.create_deposit(U256::from(300u64), B256::repeat_byte(0x03))
+        .await?;
+
+    // Find where deposits went
+    let mut target_block = U256::ZERO;
+    for block_nr in 1..=5 {
+        let deps = ctx.get_deposits_for_block(U256::from(block_nr)).await?;
+        if deps.len() == 2 {
+            target_block = U256::from(block_nr);
+            break;
+        }
+    }
+    assert!(
+        target_block > U256::ZERO,
+        "Should find 2 deposits on some block > 0"
+    );
+    let expected_deposits = ctx.get_deposits_for_block(target_block).await?;
+    println!("✓ Created 2 deposits for block {target_block}");
+
+    // Submit filler blocks 1..(target_block) with transactions (no deposits)
+    use pgp_common::types::DecodedAnchorInfo;
+
+    ctx.wait_for_open_period().await?;
+    let mut prev_block = block0.clone();
+
+    for i in 1..target_block.try_into().unwrap_or(3u64) {
+        // Check if this block has deposits
+        let block_deposits = ctx.get_deposits_for_block(U256::from(i)).await?;
+
+        let sidecar = if block_deposits.is_empty() {
+            // No deposits - submit with transaction only
+            let anchor_info = DecodedAnchorInfo {
+                block_nr: (i - 1) as u32,
+                update_nr: 0,
+                is_deposit: if i == 1 { true } else { false },
+                eth_key: Address::ZERO,
+            };
+            let mut tx_fields = vec![B256::ZERO; 15];
+            tx_fields[8] = anchor_info.encode();
+            tx_fields[9] = field_elem(0x10 + i as u8);
+            tx_fields[10] = field_elem(0x20 + i as u8);
+            tx_fields[11] = field_elem(0x30 + i as u8);
+            tx_fields[12] = field_elem(0x40 + i as u8);
+            tx_fields[13] = field_elem(0x50 + i as u8);
+            tx_fields[14] = field_elem(0x60 + i as u8);
+
+            let sidecar = create_raw_sidecar(&tx_fields)?;
+            prev_block = ctx
+                .submit_block(U256::from(i), U256::ZERO, U256::from(1), sidecar)
+                .await?;
+            continue;
+        } else {
+            // Has deposits - submit with correct deposits
+            ctx.build_deposit_sidecar(&block_deposits)?
+        };
+
+        prev_block = ctx
+            .submit_block(
+                U256::from(i),
+                U256::from(block_deposits.len()),
+                U256::ZERO,
+                sidecar,
+            )
+            .await?;
+    }
+    println!(
+        "✓ Filler blocks submitted up to block {}",
+        target_block - U256::from(1)
+    );
+
+    // Submit target block with WRONG deposit leaf (fraud)
+    ctx.wait_for_open_period().await?;
+    let wrong_leaf = B256::repeat_byte(0xFF);
+    let sidecar = ctx.build_deposit_sidecar(&[wrong_leaf, expected_deposits[1]])?;
+    let fraudulent_block = ctx
+        .submit_block(target_block, U256::from(2), U256::ZERO, sidecar)
+        .await?;
+    println!("✓ Block {target_block} submitted with wrong deposit leaf (fraudulent)");
+
+    // Detect the fraud
+    use pgp_challenger::validators::{DepositValidator, FraudEvidence};
+    use pgp_common::blob::ParsedBlock;
+
+    let mut test_blob = [B256::ZERO; 4096];
+    test_blob[0] = wrong_leaf;
+    test_blob[1] = expected_deposits[1];
+
+    let parsed = ParsedBlock::from_blobs(&[test_blob], 2, 0)?;
+    let validator = DepositValidator::new();
+    let fraud = validator.validate_block(&fraudulent_block.block_data, &parsed, &expected_deposits);
+
+    assert!(!fraud.is_empty(), "Should detect deposit fraud");
+    match &fraud[0] {
+        FraudEvidence::DepositWrongLeaf {
+            expected_leaf,
+            submitted_leaf,
+            deposit_nr,
+            ..
+        } => {
+            assert_eq!(*deposit_nr, 0, "First deposit should be wrong");
+            assert_eq!(*expected_leaf, expected_deposits[0]);
+            assert_eq!(*submitted_leaf, wrong_leaf);
+            println!("✓ Fraud detected: DepositWrongLeaf on block {target_block}");
+        }
+        _ => panic!("Expected DepositWrongLeaf fraud type"),
+    }
+
+    // Build and submit the challenge
+    use pgp_challenger::challenge::{ChallengeBuilder, ChallengeSubmitter};
+
+    let challenge_builder = ChallengeBuilder::new()?;
+    let challenge_params = challenge_builder.build_deposit_challenge(
+        &fraud[0],
+        &fraudulent_block.as_blobs(),
+        prev_block.block_data.clone(),
+    )?;
+    println!("✓ Challenge parameters built");
+
+    let submitter = ChallengeSubmitter::new(&ctx.provider, ctx.contracts.entrypoint);
+    let tx_hash = submitter
+        .submit_deposit_challenge(challenge_params)
+        .await
+        .expect("Challenge submission must succeed");
+    println!("✓ Challenge submitted! Tx hash: {tx_hash:?}");
+
+    // Verify sequencer was slashed
+    ctx.assert_sequencer_slashed().await?;
+
+    println!(
+        "\n✓ Multi-block deposit fraud test completed - fraud detected on block {target_block}!"
+    );
+
+    Ok(())
+}
+
 /// Test full blob transaction submission to the real Entrypoint contract.
 #[tokio::test]
 async fn test_anvil_blob_submission() -> Result<()> {
@@ -969,9 +1154,18 @@ async fn test_anvil_blob_submission() -> Result<()> {
     ctx.register_sequencer().await?;
     ctx.advance_to_open_period().await?;
 
-    // Submit a block with a fake deposit (contract rejects empty blocks)
-    let fake_deposit_leaf = B256::repeat_byte(0x42);
-    let sidecar = ctx.build_deposit_sidecar(&[fake_deposit_leaf])?;
+    // First create a real deposit on L1 so we have something to include
+    ctx.mint_and_approve_tokens(U256::from(1000u64)).await?;
+    ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x42))
+        .await?;
+
+    // Get the actual deposit for block 0
+    let deposits = ctx.get_deposits_for_block(U256::ZERO).await?;
+    assert_eq!(deposits.len(), 1, "Should have 1 deposit for block 0");
+    let deposit_leaf = deposits[0];
+
+    // Submit block 0 with the real deposit leaf
+    let sidecar = ctx.build_deposit_sidecar(&[deposit_leaf])?;
     let submitted = ctx
         .submit_block(U256::ZERO, U256::from(1), U256::ZERO, sidecar)
         .await?;
@@ -1182,7 +1376,8 @@ async fn test_incorrect_tree_updates() -> Result<()> {
     Ok(())
 }
 
-/// Test: Deposit fraud types (count mismatch, padding not zero, wrong leaf)
+/// Test: Deposit fraud types (padding not zero, wrong leaf)
+/// Note: Count mismatch is no longer detected - it's prevented at submission time
 #[tokio::test]
 async fn test_deposit_fraud_types() -> Result<()> {
     use pgp_challenger::validators::{DepositValidator, FraudEvidence};
@@ -1204,26 +1399,7 @@ async fn test_deposit_fraud_types() -> Result<()> {
         }
     }
 
-    // Case 1: Count mismatch (L1 has 3, block claims 1)
-    let expected = vec![
-        B256::repeat_byte(0x11),
-        B256::repeat_byte(0x22),
-        B256::repeat_byte(0x33),
-    ];
-    let mut blob = [B256::ZERO; BLOB_SIZE];
-    blob[0] = expected[0];
-    let parsed = ParsedBlock::from_blobs(&[blob], 1, 0)?;
-    let fraud = validator.validate_block(&make_block(1), &parsed, &expected);
-    assert!(matches!(
-        &fraud[0],
-        FraudEvidence::DepositCountMismatch {
-            expected_count: 3,
-            submitted_count: 1,
-            ..
-        }
-    ));
-
-    // Case 2: Padding not zero
+    // Case 1: Padding not zero
     let expected = vec![B256::repeat_byte(0x11)];
     let mut blob = [B256::ZERO; BLOB_SIZE];
     blob[0] = expected[0];
@@ -1545,59 +1721,6 @@ async fn test_deposit_wrong_leaf_comprehensive() -> Result<()> {
     Ok(())
 }
 
-/// Test: DepositCountMismatch - comprehensive with all field assertions
-#[tokio::test]
-async fn test_deposit_count_mismatch_comprehensive() -> Result<()> {
-    use pgp_challenger::validators::{DepositValidator, FraudEvidence};
-    use pgp_common::blob::ParsedBlock;
-    use pgp_common::types::constants::BLOB_SIZE;
-
-    let validator = DepositValidator::new();
-
-    // L1 has 5 deposits
-    let expected_deposits: Vec<B256> = (0..5).map(|i| B256::repeat_byte(i as u8)).collect();
-
-    // But block claims only 2
-    let mut blob = [B256::ZERO; BLOB_SIZE];
-    blob[0] = expected_deposits[0];
-    blob[1] = expected_deposits[1];
-
-    let block_data = BlockData {
-        anchor: B256::ZERO,
-        timestamp: U256::ZERO,
-        numTransactions: U256::ZERO,
-        numDeposits: U256::from(2), // Claims 2, but L1 has 5
-        blockNr: U256::from(10),
-        blockIndex: TimestampAndIndex { day: 0, index: 0 },
-        sequencer: Address::ZERO,
-        blobhashes: vec![],
-    };
-
-    let parsed = ParsedBlock::from_blobs(&[blob], 2, 0)?;
-    let fraud = validator.validate_block(&block_data, &parsed, &expected_deposits);
-
-    // Find the count mismatch fraud
-    let count_mismatch = fraud
-        .iter()
-        .find(|f| matches!(f, FraudEvidence::DepositCountMismatch { .. }));
-    assert!(count_mismatch.is_some(), "Should detect count mismatch");
-
-    match count_mismatch.unwrap() {
-        FraudEvidence::DepositCountMismatch {
-            block_data: bd,
-            expected_count,
-            submitted_count,
-        } => {
-            assert_eq!(bd.blockNr, U256::from(10), "Block number should match");
-            assert_eq!(*expected_count, 5, "Expected count should be 5");
-            assert_eq!(*submitted_count, 2, "Submitted count should be 2");
-        }
-        _ => panic!("Expected DepositCountMismatch fraud type"),
-    }
-
-    Ok(())
-}
-
 /// Test: DepositPaddingNotZero - comprehensive with all field assertions
 #[tokio::test]
 async fn test_deposit_padding_not_zero_comprehensive() -> Result<()> {
@@ -1884,13 +2007,16 @@ async fn test_full_challenge_submission_with_assertions() -> Result<()> {
     let is_allowed = ctx.is_sequencer_allowed().await?;
     assert!(is_allowed, "Sequencer should be allowed initially");
 
-    let expected_deposits = ctx.get_deposits_for_block(U256::ZERO).await?;
-    assert!(
-        expected_deposits.is_empty(),
-        "Block 0 should have no deposits"
-    );
+    // Create a real deposit on L1 first
+    ctx.mint_and_approve_tokens(U256::from(1000u64)).await?;
+    ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x42))
+        .await?;
 
-    // Submit fraudulent block
+    // Get the expected deposits for block 0
+    let expected_deposits = ctx.get_deposits_for_block(U256::ZERO).await?;
+    assert_eq!(expected_deposits.len(), 1, "Block 0 should have 1 deposit");
+
+    // Submit fraudulent block with wrong deposit leaf
     let fake_leaf = B256::repeat_byte(0xFF);
     let sidecar = ctx.build_deposit_sidecar(&[fake_leaf])?;
     let submitted = ctx
@@ -1928,15 +2054,18 @@ async fn test_full_challenge_submission_with_assertions() -> Result<()> {
 
     // Verify fraud evidence type and content
     match &fraud[0] {
-        FraudEvidence::DepositCountMismatch {
-            expected_count,
-            submitted_count,
+        FraudEvidence::DepositWrongLeaf {
+            expected_leaf,
+            submitted_leaf,
             ..
         } => {
-            assert_eq!(*expected_count, 0, "L1 has 0 deposits");
-            assert_eq!(*submitted_count, 1, "Block claims 1 deposit");
+            assert_eq!(
+                *expected_leaf, expected_deposits[0],
+                "Expected leaf from L1"
+            );
+            assert_eq!(*submitted_leaf, fake_leaf, "Submitted wrong leaf");
         }
-        _ => {} // Other fraud types are also valid
+        _ => panic!("Expected DepositWrongLeaf fraud"),
     }
 
     // Build challenge
@@ -2371,6 +2500,24 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
     ctx.advance_to_open_period().await?;
     println!("✓ Sequencer registered and in open period");
 
+    // Create 3 real deposits on L1 for block 0
+    ctx.mint_and_approve_tokens(U256::from(3000u64)).await?;
+    ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x11))
+        .await?;
+    ctx.create_deposit(U256::from(200u64), B256::repeat_byte(0x22))
+        .await?;
+    ctx.create_deposit(U256::from(300u64), B256::repeat_byte(0x33))
+        .await?;
+    println!("✓ 3 deposits created on L1");
+
+    // Verify we have 3 deposits for block 0
+    let deposits = ctx.get_deposits_for_block(U256::ZERO).await?;
+    assert_eq!(deposits.len(), 3, "Block 0 should have 3 deposits");
+    let leaf0 = deposits[0];
+    let leaf1 = deposits[1];
+    let leaf2 = deposits[2];
+    println!("✓ Deposit leaves: [{leaf0}, {leaf1}, {leaf2}]");
+
     // Helper to create valid BN254 field elements
     fn field_elem(suffix: u8) -> B256 {
         B256::from([
@@ -2379,11 +2526,7 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
         ])
     }
 
-    // Create blob data with 3 deposits and an INCORRECT tree update root
-    // Note: All values must be valid BLS field elements (< BLS modulus, so first byte < 0x73)
-    let leaf0 = field_elem(0x11);
-    let leaf1 = field_elem(0x22);
-    let leaf2 = field_elem(0x33);
+    // Create blob data with the correct deposit leaves but an INCORRECT tree update root
     // Use a valid BLS field element that's clearly wrong (not the actual computed root)
     let wrong_root = field_elem(0xAA); // This will differ from the correct merkle root
 
@@ -2512,7 +2655,6 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
     let challenge_builder = ChallengeBuilder::new()?;
 
     // For the first block, prior anchor is at genesis (no KZG proof needed)
-    // We'll use the same blob data for prior anchor since it's the first block
     let prior_block = BlockData {
         anchor: ctx.genesis_anchor,
         timestamp: U256::ZERO,
@@ -2524,12 +2666,12 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
         blobhashes: vec![],
     };
 
-    let challenge_params = challenge_builder.build_tree_update_challenge(
+    // Use the genesis-specific method since this is block 0, update 0
+    let blobs = submitted.as_blobs();
+    let challenge_params = challenge_builder.build_tree_update_challenge_genesis(
         &fraud[0],
-        &submitted.full_blob_bytes,
-        prior_anchor,
-        &submitted.full_blob_bytes, // For first block, use same blob
-        0,                          // Prior anchor field index (not used for genesis)
+        &blobs,
+        prior_anchor, // Genesis anchor
         true_anchor,
         zk_proof,
         prior_block, // Rollback to genesis
@@ -2565,194 +2707,6 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
 // Additional E2E Challenge Submission Tests
 // ============================================================================
 
-/// E2E Test: DepositCountMismatch - L1 has deposits but block claims none
-///
-/// This test:
-/// 1. Creates a deposit on L1
-/// 2. Submits a block claiming 0 deposits (fraud!)
-/// 3. Detects the count mismatch
-/// 4. Builds and submits the challenge
-/// 5. Verifies the sequencer was slashed
-#[tokio::test]
-async fn test_deposit_count_mismatch_e2e_challenge_and_slash() -> Result<()> {
-    let Some(ctx) = setup_test_context().await? else {
-        return Ok(());
-    };
-
-    println!("=== DepositCountMismatch E2E Challenge Test ===");
-
-    // Register sequencer
-    ctx.register_sequencer().await?;
-    ctx.advance_to_open_period().await?;
-
-    // Helper for valid BLS field elements
-    fn field_elem(suffix: u8) -> B256 {
-        B256::from([
-            0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, suffix,
-        ])
-    }
-
-    // Submit block 0 with a transaction (using anchor_info that references genesis)
-    // This creates block 0 which we can reference for deposits
-    use pgp_common::types::DecodedAnchorInfo;
-    let anchor_info0 = DecodedAnchorInfo {
-        block_nr: 0,
-        update_nr: 0,
-        is_deposit: true,
-        eth_key: Address::ZERO,
-    };
-
-    let mut tx_fields0 = vec![B256::ZERO; 15];
-    tx_fields0[8] = anchor_info0.encode();
-    tx_fields0[9] = field_elem(0x11);
-    tx_fields0[10] = field_elem(0x12);
-    tx_fields0[11] = field_elem(0x13);
-    tx_fields0[12] = field_elem(0x14);
-    tx_fields0[13] = field_elem(0x15);
-    tx_fields0[14] = field_elem(0x16);
-
-    let sidecar0 = create_raw_sidecar(&tx_fields0)?;
-    let _block0 = ctx
-        .submit_block(U256::ZERO, U256::ZERO, U256::from(1), sidecar0)
-        .await?;
-    println!("✓ Block 0 submitted with transaction");
-
-    // Now create 2 deposits on L1
-    ctx.mint_and_approve_tokens(U256::from(10000u64)).await?;
-    ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x42))
-        .await?;
-    ctx.create_deposit(U256::from(200u64), B256::repeat_byte(0x43))
-        .await?;
-    println!("✓ 2 deposits created on L1");
-
-    // Get the target block for these deposits (should be block 3)
-    // Since we're at block 0, deposits target max(highestDeposit+1, currentBlock+2) = block 2 or 3
-    let target_block = U256::from(3);
-    let expected_deposits = ctx.get_deposits_for_block(target_block).await?;
-
-    // If deposits target a different block, try block 2
-    let (expected_deposits, target_block) = if expected_deposits.is_empty() {
-        let deps = ctx.get_deposits_for_block(U256::from(2)).await?;
-        (deps, U256::from(2))
-    } else {
-        (expected_deposits, target_block)
-    };
-
-    assert_eq!(expected_deposits.len(), 2, "Should have 2 deposits");
-    println!(
-        "✓ Expected deposits for block {}: {} deposits",
-        target_block,
-        expected_deposits.len()
-    );
-
-    // Submit filler blocks up to target_block - 1
-    ctx.wait_for_open_period().await?;
-    let mut block1 = _block0.clone(); // Will be overwritten
-
-    for i in 1..target_block.try_into().unwrap_or(2u64) {
-        let anchor_info = DecodedAnchorInfo {
-            block_nr: (i - 1) as u32,
-            update_nr: 0,
-            is_deposit: false, // Reference prior tx
-            eth_key: Address::ZERO,
-        };
-        let mut tx_fields = vec![B256::ZERO; 15];
-        tx_fields[8] = anchor_info.encode();
-        tx_fields[9] = field_elem(0x21 + i as u8);
-        tx_fields[10] = field_elem(0x22 + i as u8);
-        tx_fields[11] = field_elem(0x23 + i as u8);
-        tx_fields[12] = field_elem(0x24 + i as u8);
-        tx_fields[13] = field_elem(0x25 + i as u8);
-        tx_fields[14] = field_elem(0x26 + i as u8);
-
-        let sidecar = create_raw_sidecar(&tx_fields)?;
-        block1 = ctx
-            .submit_block(U256::from(i), U256::ZERO, U256::from(1), sidecar)
-            .await?;
-    }
-    println!(
-        "✓ Filler blocks submitted up to block {}",
-        target_block - U256::from(1)
-    );
-
-    // Submit target block with numDeposits=1 (fraud! L1 has 2 deposits)
-    ctx.wait_for_open_period().await?;
-    let sidecar2 = ctx.build_deposit_sidecar(&[expected_deposits[0]])?;
-    let block2 = ctx
-        .submit_block(target_block, U256::from(1), U256::ZERO, sidecar2)
-        .await?;
-    println!("✓ Block {target_block} submitted with numDeposits=1 (fraudulent - L1 has 2)");
-
-    // Detect the fraud
-    use pgp_challenger::validators::{DepositValidator, FraudEvidence};
-    use pgp_common::blob::ParsedBlock;
-    use pgp_common::types::constants::BLOB_SIZE;
-
-    let mut test_blob = [B256::ZERO; BLOB_SIZE];
-    test_blob[0] = expected_deposits[0];
-    let parsed = ParsedBlock::from_blobs(&[test_blob], 1, 0)?;
-    let validator = DepositValidator::new();
-    let fraud = validator.validate_block(&block2.block_data, &parsed, &expected_deposits);
-
-    assert!(!fraud.is_empty(), "Should detect deposit count mismatch");
-
-    // Verify it's a count mismatch
-    let count_mismatch = fraud
-        .iter()
-        .find(|f| matches!(f, FraudEvidence::DepositCountMismatch { .. }));
-    assert!(
-        count_mismatch.is_some(),
-        "Should have DepositCountMismatch fraud"
-    );
-
-    match count_mismatch.unwrap() {
-        FraudEvidence::DepositCountMismatch {
-            expected_count,
-            submitted_count,
-            ..
-        } => {
-            assert_eq!(*expected_count, 2);
-            assert_eq!(*submitted_count, 1);
-            println!("✓ Fraud detected: DepositCountMismatch (expected={expected_count}, submitted={submitted_count})");
-        }
-        _ => panic!("Expected DepositCountMismatch"),
-    }
-
-    // Build and submit the challenge
-    use pgp_challenger::challenge::{ChallengeBuilder, ChallengeSubmitter};
-
-    let challenge_builder = ChallengeBuilder::new()?;
-    let challenge_params = challenge_builder.build_deposit_challenge(
-        count_mismatch.unwrap(),
-        &block2.as_blobs(),
-        block1.block_data.clone(),
-    )?;
-    println!("✓ Challenge parameters built");
-
-    let submitter = ChallengeSubmitter::new(&ctx.provider, ctx.contracts.entrypoint);
-    let tx_hash = submitter
-        .submit_deposit_challenge(challenge_params)
-        .await
-        .expect("Deposit count mismatch challenge must succeed");
-    println!("✓ Challenge submitted! Tx hash: {tx_hash:?}");
-
-    // Verify transaction succeeded
-    let receipt = ctx
-        .provider
-        .get_transaction_receipt(tx_hash)
-        .await?
-        .expect("Receipt should exist");
-    assert!(receipt.status(), "Challenge transaction must succeed");
-
-    // Verify sequencer was slashed
-    ctx.assert_sequencer_slashed().await?;
-
-    println!("\n✓ DepositCountMismatch E2E test completed - sequencer slashed!");
-
-    Ok(())
-}
-
 /// E2E Test: DepositPaddingNotZero - unused deposit slots contain non-zero values
 ///
 /// This test:
@@ -2781,82 +2735,18 @@ async fn test_deposit_padding_not_zero_e2e_challenge_and_slash() -> Result<()> {
         ])
     }
 
-    // Submit block 0 with a transaction first
-    use pgp_common::types::DecodedAnchorInfo;
-    let anchor_info0 = DecodedAnchorInfo {
-        block_nr: 0,
-        update_nr: 0,
-        is_deposit: true,
-        eth_key: Address::ZERO,
-    };
-
-    let mut tx_fields0 = vec![B256::ZERO; 15];
-    tx_fields0[8] = anchor_info0.encode();
-    tx_fields0[9] = field_elem(0x11);
-    tx_fields0[10] = field_elem(0x12);
-    tx_fields0[11] = field_elem(0x13);
-    tx_fields0[12] = field_elem(0x14);
-    tx_fields0[13] = field_elem(0x15);
-    tx_fields0[14] = field_elem(0x16);
-
-    let sidecar0 = create_raw_sidecar(&tx_fields0)?;
-    let _block0 = ctx
-        .submit_block(U256::ZERO, U256::ZERO, U256::from(1), sidecar0)
-        .await?;
-    println!("✓ Block 0 submitted with transaction");
-
-    // Create a deposit on L1
+    // Create a deposit on L1 for block 0
     ctx.mint_and_approve_tokens(U256::from(1000u64)).await?;
     ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x42))
         .await?;
     println!("✓ Deposit created on L1");
 
-    // Get the target block for this deposit
-    let target_block = U256::from(3);
-    let expected_deposits = ctx.get_deposits_for_block(target_block).await?;
+    // Verify we have 1 deposit for block 0
+    let expected_deposits = ctx.get_deposits_for_block(U256::ZERO).await?;
+    assert_eq!(expected_deposits.len(), 1, "Block 0 should have 1 deposit");
+    println!("✓ Expected deposit for block 0");
 
-    // If deposits target a different block, try block 2
-    let (expected_deposits, target_block) = if expected_deposits.is_empty() {
-        let deps = ctx.get_deposits_for_block(U256::from(2)).await?;
-        (deps, U256::from(2))
-    } else {
-        (expected_deposits, target_block)
-    };
-
-    assert_eq!(expected_deposits.len(), 1, "Should have 1 deposit");
-    println!("✓ Expected deposit for block {target_block}");
-
-    // Submit filler blocks up to target_block - 1
-    ctx.wait_for_open_period().await?;
-    let mut block1 = _block0.clone();
-
-    for i in 1..target_block.try_into().unwrap_or(2u64) {
-        let anchor_info = DecodedAnchorInfo {
-            block_nr: (i - 1) as u32,
-            update_nr: 0,
-            is_deposit: false,
-            eth_key: Address::ZERO,
-        };
-        let mut tx_fields = vec![B256::ZERO; 15];
-        tx_fields[8] = anchor_info.encode();
-        tx_fields[9] = field_elem(0x21 + i as u8);
-        tx_fields[10] = field_elem(0x22 + i as u8);
-        tx_fields[11] = field_elem(0x23 + i as u8);
-        tx_fields[12] = field_elem(0x24 + i as u8);
-        tx_fields[13] = field_elem(0x25 + i as u8);
-        tx_fields[14] = field_elem(0x26 + i as u8);
-
-        let sidecar = create_raw_sidecar(&tx_fields)?;
-        block1 = ctx
-            .submit_block(U256::from(i), U256::ZERO, U256::from(1), sidecar)
-            .await?;
-    }
-    println!(
-        "✓ Filler blocks submitted up to block {}",
-        target_block - U256::from(1)
-    );
-
-    // Submit target block with correct deposit but non-zero padding in slot 1
+    // Submit block 0 with correct deposit but non-zero padding in slot 1
     // Blob layout: [leaf0, padding1, padding2, root]
     ctx.wait_for_open_period().await?;
 
@@ -2866,11 +2756,11 @@ async fn test_deposit_padding_not_zero_e2e_challenge_and_slash() -> Result<()> {
     blob_fields[2] = B256::ZERO; // Zero padding (correct)
     blob_fields[3] = field_elem(0xAA); // Some root
 
-    let sidecar2 = create_raw_sidecar(&blob_fields)?;
-    let block2 = ctx
-        .submit_block(target_block, U256::from(1), U256::ZERO, sidecar2)
+    let sidecar = create_raw_sidecar(&blob_fields)?;
+    let block = ctx
+        .submit_block(U256::ZERO, U256::from(1), U256::ZERO, sidecar)
         .await?;
-    println!("✓ Block {target_block} submitted with non-zero padding (fraudulent)");
+    println!("✓ Block 0 submitted with non-zero padding (fraudulent)");
 
     // Detect the fraud
     use pgp_challenger::validators::{DepositValidator, FraudEvidence};
@@ -2885,7 +2775,7 @@ async fn test_deposit_padding_not_zero_e2e_challenge_and_slash() -> Result<()> {
 
     let parsed = ParsedBlock::from_blobs(&[test_blob], 1, 0)?;
     let validator = DepositValidator::new();
-    let fraud = validator.validate_block(&block2.block_data, &parsed, &expected_deposits);
+    let fraud = validator.validate_block(&block.block_data, &parsed, &expected_deposits);
 
     assert!(!fraud.is_empty(), "Should detect padding fraud");
 
@@ -2916,10 +2806,21 @@ async fn test_deposit_padding_not_zero_e2e_challenge_and_slash() -> Result<()> {
     use pgp_challenger::challenge::{ChallengeBuilder, ChallengeSubmitter};
 
     let challenge_builder = ChallengeBuilder::new()?;
+    // Use default prior block for block 0
+    let prior_block = BlockData {
+        anchor: B256::ZERO,
+        timestamp: U256::ZERO,
+        numTransactions: U256::ZERO,
+        numDeposits: U256::ZERO,
+        blockNr: U256::ZERO,
+        blockIndex: TimestampAndIndex { day: 0, index: 0 },
+        sequencer: Address::ZERO,
+        blobhashes: vec![],
+    };
     let challenge_params = challenge_builder.build_deposit_challenge(
         padding_fraud.unwrap(),
-        &block2.as_blobs(),
-        block1.block_data.clone(),
+        &block.as_blobs(),
+        prior_block,
     )?;
     println!("✓ Challenge parameters built");
 
@@ -3104,8 +3005,18 @@ async fn test_invalid_transaction_proof_e2e_challenge_and_slash() -> Result<()> 
         ])
     }
 
-    // First, submit block 0 with a deposit to create an anchor we can reference
-    let sidecar0 = ctx.build_deposit_sidecar(&[B256::repeat_byte(0x42)])?;
+    // Create a real deposit on L1 for block 0
+    ctx.mint_and_approve_tokens(U256::from(1000u64)).await?;
+    ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x42))
+        .await?;
+
+    // Get the deposit leaf for block 0
+    let deposits = ctx.get_deposits_for_block(U256::ZERO).await?;
+    assert_eq!(deposits.len(), 1, "Block 0 should have 1 deposit");
+    let deposit_leaf = deposits[0];
+
+    // Submit block 0 with the real deposit (creates anchor for reference)
+    let sidecar0 = ctx.build_deposit_sidecar(&[deposit_leaf])?;
     let block0 = ctx
         .submit_block(U256::ZERO, U256::from(1), U256::ZERO, sidecar0)
         .await?;
@@ -3227,8 +3138,18 @@ async fn test_missing_eth_key_auth_e2e_challenge_and_slash() -> Result<()> {
         ])
     }
 
-    // First, submit block 0 with a deposit to create an anchor we can reference
-    let sidecar0 = ctx.build_deposit_sidecar(&[B256::repeat_byte(0x42)])?;
+    // Create a real deposit on L1 for block 0
+    ctx.mint_and_approve_tokens(U256::from(1000u64)).await?;
+    ctx.create_deposit(U256::from(100u64), B256::repeat_byte(0x42))
+        .await?;
+
+    // Get the deposit leaf for block 0
+    let deposits = ctx.get_deposits_for_block(U256::ZERO).await?;
+    assert_eq!(deposits.len(), 1, "Block 0 should have 1 deposit");
+    let deposit_leaf = deposits[0];
+
+    // Submit block 0 with the real deposit (creates anchor for reference)
+    let sidecar0 = ctx.build_deposit_sidecar(&[deposit_leaf])?;
     let block0 = ctx
         .submit_block(U256::ZERO, U256::from(1), U256::ZERO, sidecar0)
         .await?;

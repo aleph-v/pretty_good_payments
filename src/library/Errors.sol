@@ -139,6 +139,12 @@ error StakeExceedsMaximum();
 /// @notice Epoch has not finished yet
 error EpochNotFinished();
 
+/// @notice Sequencer would get slashed for this block so we don't allow it
+error WrongNumberOfDeposits();
+
+/// @notice Sequencer will revert if they submit at the wrong block number to prevent accidental fraud
+error WrongBlockNumber();
+
 // ============================================================================
 // Yield Router Errors
 // ============================================================================

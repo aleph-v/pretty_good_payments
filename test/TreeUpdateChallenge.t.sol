@@ -240,6 +240,7 @@ contract TreeUpdateChallengeTest is Test {
     ) internal returns (Spine.BlockData memory data, bytes32[] memory blobHashes) {
         data = _createBlockData(numDeposits, numTx);
         data.sequencer = sequencer;
+        data.blockNr = harness.getBlockCount(); // Set correct block number
         (data, blobHashes) = harness.setupBlock(data, priorAnchor, blockIndex, seed, fakeZK);
 
         uint256[] memory indices = new uint256[](blobHashes.length);

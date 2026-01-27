@@ -212,7 +212,7 @@ pub async fn try_build_and_submit_block<P: Provider + Clone>(
 
     let next_block_nr = match state.get_latest_block_nr() {
         Ok(Some(latest)) => latest + 1,
-        Ok(None) => 1, // First block
+        Ok(None) => 0, // First block is block 0
         Err(e) => return BlockBuildResult::Error(SequencerError::ContractError(e.to_string())),
     };
 

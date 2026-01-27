@@ -519,7 +519,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     ) internal {
         _warpToBlock(startTime, i);
         _setBlobHashSingle(i);
-        Spine.BlockData memory blockData = _createBlockData(data, i);
+        Spine.BlockData memory blockData = _createBlockData(harness, data, i);
         _addBlockSingle(harness, blockData);
     }
 
@@ -533,7 +533,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         vm.blobhashes(blobHashes);
     }
 
-    function _createBlockData(MultiBlockTestData storage data, uint256 i)
+    function _createBlockData(TreeUpdateChallengeRealHarness harness, MultiBlockTestData storage data, uint256 i)
         internal
         view
         returns (Spine.BlockData memory blockData)
@@ -545,7 +545,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             timestamp: 0,
             numTransactions: 1,
             numDeposits: 12,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(i / 5), uint16(i % 5)),
             sequencer: sequencer,
             blobhashes: blobHashes
@@ -587,7 +587,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             timestamp: 0,
             numTransactions: testData.targetNumTx,
             numDeposits: testData.targetNumDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(testData.targetDay), uint16(testData.targetBlockIdx)),
             sequencer: sequencer,
             blobhashes: realBlobHashes
@@ -714,7 +714,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             timestamp: 0,
             numTransactions: 1,
             numDeposits: 12,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(i / 5), uint16(i % 5)),
             sequencer: sequencer,
             blobhashes: h
@@ -733,7 +733,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     ) internal returns (Spine.BlockData memory targetBlockData) {
         vm.warp(startTime + data.targetDay * SECONDS_PER_DAY + data.targetBlockIdx * 100);
         _setBlobHashFromData(data.kzgBlobHash);
-        targetBlockData = _createTargetBlockData(data);
+        targetBlockData = _createTargetBlockData(harness, data);
         targetBlockData = _addBlockSingle(harness, targetBlockData);
     }
 
@@ -743,7 +743,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         vm.blobhashes(blobHashes);
     }
 
-    function _createTargetBlockData(MultiBlockTestData storage data)
+    function _createTargetBlockData(TreeUpdateChallengeRealHarness harness, MultiBlockTestData storage data)
         internal
         view
         returns (Spine.BlockData memory targetBlockData)
@@ -755,7 +755,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             timestamp: 0,
             numTransactions: data.targetNumTx,
             numDeposits: data.targetNumDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(data.targetDay), uint16(data.targetBlockIdx)),
             sequencer: sequencer,
             blobhashes: blobHashes
@@ -855,7 +855,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             timestamp: 0,
             numTransactions: data.targetNumTx,
             numDeposits: data.targetNumDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(i / 5), uint16(i % 5)),
             sequencer: sequencer,
             blobhashes: h
@@ -886,7 +886,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     ) internal returns (Spine.BlockData memory targetBlockData) {
         vm.warp(startTime + data.targetDay * SECONDS_PER_DAY + data.targetBlockIdx * 100);
         _setBlobHashDoubleFromData(data.kzgBlobHash, data.extensionKzgBlobHash);
-        targetBlockData = _createTargetBlockDataCrossblob(data);
+        targetBlockData = _createTargetBlockDataCrossblob(harness, data);
         targetBlockData = _addBlockDouble(harness, targetBlockData);
     }
 
@@ -897,7 +897,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
         vm.blobhashes(blobHashes);
     }
 
-    function _createTargetBlockDataCrossblob(MultiBlockTestData storage data)
+    function _createTargetBlockDataCrossblob(TreeUpdateChallengeRealHarness harness, MultiBlockTestData storage data)
         internal
         view
         returns (Spine.BlockData memory targetBlockData)
@@ -910,7 +910,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
             timestamp: 0,
             numTransactions: data.targetNumTx,
             numDeposits: data.targetNumDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(data.targetDay), uint16(data.targetBlockIdx)),
             sequencer: sequencer,
             blobhashes: blobHashes
@@ -1461,5 +1461,9 @@ contract TreeUpdateChallengeRealHarness is TreeUpdateChallenge {
     function fundSequencer(address who) public payable {
         sequencers[who].isActive = true;
         sequencers[who].stakeAmount += uint64(msg.value / (10 ** 14));
+    }
+
+    function getBlockCount() public view returns (uint256) {
+        return getCurrentBlocknumber();
     }
 }

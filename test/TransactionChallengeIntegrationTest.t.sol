@@ -489,7 +489,7 @@ contract TransactionChallengeIntegrationTest is Test {
             ? data.priorAnchorBlobHash
             : keccak256(abi.encodePacked("fake_blob_", i));
         vm.blobhashes(h);
-        storedBlock = _createBlockDataTx(data, i, h);
+        storedBlock = _createBlockDataTx(harness, data, i, h);
         uint256[] memory idx = new uint256[](1);
         idx[0] = 0;
         vm.prank(sequencer);
@@ -506,7 +506,7 @@ contract TransactionChallengeIntegrationTest is Test {
             : keccak256(abi.encodePacked("fake_blob_", i, "_1"));
         h[1] = keccak256(abi.encodePacked("fake_blob_", i, "_2"));
         vm.blobhashes(h);
-        storedBlock = _createBlockDataTx(data, i, h);
+        storedBlock = _createBlockDataTx(harness, data, i, h);
         uint256[] memory idx = new uint256[](2);
         idx[0] = 0;
         idx[1] = 1;
@@ -514,17 +514,18 @@ contract TransactionChallengeIntegrationTest is Test {
         storedBlock = harness.addBlockTest(storedBlock, idx);
     }
 
-    function _createBlockDataTx(TxChallengeTestData storage data, uint256 i, bytes32[] memory blobHashes)
-        internal
-        view
-        returns (Spine.BlockData memory blockData)
-    {
+    function _createBlockDataTx(
+        TransactionChallengeRealHarness harness,
+        TxChallengeTestData storage data,
+        uint256 i,
+        bytes32[] memory blobHashes
+    ) internal view returns (Spine.BlockData memory blockData) {
         blockData = Spine.BlockData({
             anchor: data.blockAnchors[i],
             timestamp: 0,
             numTransactions: data.targetNumTx,
             numDeposits: data.targetNumDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(i / 5), uint16(i % 5)),
             sequencer: sequencer,
             blobhashes: blobHashes
@@ -548,7 +549,7 @@ contract TransactionChallengeIntegrationTest is Test {
             timestamp: 0,
             numTransactions: data.targetNumTx,
             numDeposits: data.targetNumDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(data.targetDay), uint16(data.targetBlockIdx)),
             sequencer: sequencer,
             blobhashes: realBlobHashes
@@ -656,7 +657,7 @@ contract TransactionChallengeIntegrationTest is Test {
             timestamp: 0,
             numTransactions: data.targetNumTx,
             numDeposits: data.targetNumDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(),
             blockIndex: Spine.TimestampAndIndex(uint16(data.targetDay), uint16(data.targetBlockIdx)),
             sequencer: sequencer,
             blobhashes: realBlobHashes
@@ -1293,5 +1294,9 @@ contract TransactionChallengeRealHarness is TransactionChallenge {
     function fundSequencer(address who) public payable {
         sequencers[who].isActive = true;
         sequencers[who].stakeAmount += uint64(msg.value / (10 ** 14));
+    }
+
+    function getBlockCount() public view returns (uint256) {
+        return getCurrentBlocknumber();
     }
 }

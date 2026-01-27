@@ -17,10 +17,10 @@ contract Deposits is Spine {
     using SafeERC20 for IERC20;
 
     // A preset constant blinding factor set less than the BLS modulus
-    bytes32 constant BLINDING = bytes32(
+    bytes32 public constant BLINDING = bytes32(
         uint256(keccak256("0x")) % 21888242871839275222246405745257275088548364400416034343698204186575808495617
     );
-    uint256 highestDeposit;
+    uint256 public highestDeposit;
     //Records the required deposits in each block
     mapping(uint256 => bytes32[]) public perBlockDeposits;
 
@@ -49,9 +49,16 @@ contract Deposits is Spine {
         bytes32 leafHash = leaf.hash();
 
         // The plus two here is to give sequencers a window in the happy path so that deposit tx do not break their submission flow
-        uint256 blockPlusTwo = getCurrentBlocknumber() + 2;
+        uint256 blockNumber = getCurrentBlocknumber();
+        uint256 blockToDepositIn = blockNumber;
+        // This fixes a cold start problem where if the genesis root is empty then no non fraud blocks can be issued for the first or
+        // second block as we do not allow empty blocks and the first and second blocks cannot have transactions or deposits.
         uint256 highestDepositCache = highestDeposit;
-        uint256 blockToDepositIn = highestDepositCache >= blockPlusTwo ? highestDepositCache : blockPlusTwo;
+        if (blockNumber > 2) {
+            uint256 blockPlusTwo = blockNumber + 2;
+            blockToDepositIn = highestDepositCache >= blockPlusTwo ? highestDepositCache : blockPlusTwo;
+        }
+
         if (perBlockDeposits[blockToDepositIn].length >= MAX_DEPOSITS) {
             blockToDepositIn++;
         }

@@ -62,12 +62,6 @@ pub enum FraudEvidence {
         expected_leaf: B256,
         submitted_leaf: B256,
     },
-    /// Deposit count mismatch - BlockData claims different number of deposits than expected
-    DepositCountMismatch {
-        block_data: BlockData,
-        expected_count: u64,
-        submitted_count: u64,
-    },
     /// Deposit padding not zero - unused slots in deposit group must be zero
     DepositPaddingNotZero {
         block_data: BlockData,

@@ -179,9 +179,38 @@ contract DepositsTest is Test {
         deposits.deposit(leaf);
         vm.stopPrank();
 
-        // Deposit should go to block 0 + 2 = 2
-        assertEq(deposits.exposed_highestDeposit(), 2, "Deposit should go to block 2");
-        assertEq(deposits.exposed_perBlockDepositsLength(2), 1, "Block 2 should have 1 deposit");
+        // For blocks 0-2, deposit goes to current block (no +2 indexing)
+        // This is a cold start fix: blocks 0, 1, 2 need deposits to bootstrap
+        assertEq(deposits.exposed_highestDeposit(), 0, "Deposit should go to block 0 (cold start behavior)");
+        assertEq(deposits.exposed_perBlockDepositsLength(0), 1, "Block 0 should have 1 deposit");
+    }
+
+    function test_deposit_goesToBlockPlusTwo_afterColdStart() public {
+        address user = address(0x1234);
+        uint256 amount = 100 ether;
+
+        // Push 3 roots to get past cold start (blocks 0, 1, 2)
+        deposits.pushRootForTest(keccak256("root0"));
+        deposits.pushRootForTest(keccak256("root1"));
+        deposits.pushRootForTest(keccak256("root2"));
+
+        // Now at block 3
+        assertEq(deposits.exposed_getCurrentBlocknumber(), 3);
+
+        token.mint(user, amount);
+
+        vm.startPrank(user);
+        token.approve(address(deposits), amount);
+
+        Leaf memory leaf =
+            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
+
+        deposits.deposit(leaf);
+        vm.stopPrank();
+
+        // For blocks > 2, deposit goes to block + 2 = 5
+        assertEq(deposits.exposed_highestDeposit(), 5, "Deposit should go to block 5 (currentBlock + 2)");
+        assertEq(deposits.exposed_perBlockDepositsLength(5), 1, "Block 5 should have 1 deposit");
     }
 
     function test_deposit_usesHighestDepositIfHigher() public {
@@ -189,6 +218,11 @@ contract DepositsTest is Test {
         uint256 amount = 100 ether;
 
         token.mint(user, amount * 2);
+
+        // Push 3 roots to get past cold start
+        deposits.pushRootForTest(keccak256("root0"));
+        deposits.pushRootForTest(keccak256("root1"));
+        deposits.pushRootForTest(keccak256("root2"));
 
         // Set highestDeposit to a high value
         deposits.setHighestDepositForTest(100);
@@ -202,7 +236,7 @@ contract DepositsTest is Test {
         deposits.deposit(leaf);
         vm.stopPrank();
 
-        // Current block is 0, so block+2 = 2
+        // Current block is 3, so block+2 = 5
         // But highestDeposit is 100, which is higher, so deposit goes to 100
         assertEq(deposits.exposed_highestDeposit(), 100, "Should use highestDeposit");
         assertEq(deposits.exposed_perBlockDepositsLength(100), 1, "Block 100 should have 1 deposit");
@@ -215,8 +249,14 @@ contract DepositsTest is Test {
         address user = address(0x1234);
         uint256 amount = 100 ether;
 
-        // Fill block 2 to MAX_DEPOSITS
-        deposits.fillBlockDepositsForTest(2, deposits.exposed_MAX_DEPOSITS());
+        // Push 3 roots to get past cold start
+        deposits.pushRootForTest(keccak256("root0"));
+        deposits.pushRootForTest(keccak256("root1"));
+        deposits.pushRootForTest(keccak256("root2"));
+
+        // Now at block 3, deposits go to block 5 (3 + 2)
+        // Fill block 5 to MAX_DEPOSITS
+        deposits.fillBlockDepositsForTest(5, deposits.exposed_MAX_DEPOSITS());
 
         token.mint(user, amount);
 
@@ -229,48 +269,28 @@ contract DepositsTest is Test {
         deposits.deposit(leaf);
         vm.stopPrank();
 
-        // Should go to block 3 since block 2 is full
-        assertEq(deposits.exposed_highestDeposit(), 3, "Should go to block 3");
-        assertEq(deposits.exposed_perBlockDepositsLength(3), 1, "Block 3 should have 1 deposit");
+        // Should go to block 6 since block 5 is full
+        assertEq(deposits.exposed_highestDeposit(), 6, "Should go to block 6");
+        assertEq(deposits.exposed_perBlockDepositsLength(6), 1, "Block 6 should have 1 deposit");
     }
 
-    /// @notice POTENTIAL BUG: What happens if multiple consecutive blocks are full?
-    /// The current logic only increments once, so if block+1 is also full, assert will fail
-    function test_deposit_multipleFullBlocks_POTENTIAL_BUG() public {
-        address user = address(0x1234);
-        uint256 amount = 100 ether;
-
-        // Fill both block 2 and block 3 to MAX_DEPOSITS
-        deposits.fillBlockDepositsForTest(2, deposits.exposed_MAX_DEPOSITS());
-        deposits.fillBlockDepositsForTest(3, deposits.exposed_MAX_DEPOSITS());
-
-        token.mint(user, amount);
-
-        vm.startPrank(user);
-        token.approve(address(deposits), amount);
-
-        Leaf memory leaf =
-            Leaf({asset: address(token), amount: amount, blinding: bytes32(0), publicKey: bytes32(uint256(456))});
-
-        // This should fail because block 3 is also full
-        // The contract only increments once, then reverts
-        vm.expectRevert(MaxDepositsExceeded.selector);
-        deposits.deposit(leaf);
-        vm.stopPrank();
-    }
-
-    /// @notice POTENTIAL BUG: highestDeposit might not update correctly
     /// When blockToDepositIn is incremented due to MAX_DEPOSITS being hit,
     /// the comparison is strictly greater than, which should work correctly
     function test_deposit_highestDepositUpdatesAfterIncrement() public {
         address user = address(0x1234);
         uint256 amount = 100 ether;
 
-        // Set highestDeposit to 2
-        deposits.setHighestDepositForTest(2);
+        // Push 3 roots to get past cold start
+        deposits.pushRootForTest(keccak256("root0"));
+        deposits.pushRootForTest(keccak256("root1"));
+        deposits.pushRootForTest(keccak256("root2"));
 
-        // Fill block 2 to MAX_DEPOSITS
-        deposits.fillBlockDepositsForTest(2, deposits.exposed_MAX_DEPOSITS());
+        // Now at block 3, deposits go to block 5 (3 + 2)
+        // Set highestDeposit to 5
+        deposits.setHighestDepositForTest(5);
+
+        // Fill block 5 to MAX_DEPOSITS
+        deposits.fillBlockDepositsForTest(5, deposits.exposed_MAX_DEPOSITS());
 
         token.mint(user, amount);
 
@@ -283,9 +303,9 @@ contract DepositsTest is Test {
         deposits.deposit(leaf);
         vm.stopPrank();
 
-        // Block 2 is full, so it increments to 3
-        // 3 > 2 (highestDepositCache), so highestDeposit should update to 3
-        assertEq(deposits.exposed_highestDeposit(), 3, "highestDeposit should update to 3");
+        // Block 5 is full, so it increments to 6
+        // 6 > 5 (highestDepositCache), so highestDeposit should update to 6
+        assertEq(deposits.exposed_highestDeposit(), 6, "highestDeposit should update to 6");
     }
 
     // ========== Event Tests ==========
@@ -310,10 +330,10 @@ contract DepositsTest is Test {
 
         // Expect event with:
         // - leafHash (indexed)
-        // - block = 2 (getCurrentBlocknumber() + 2 = 0 + 2)
+        // - block = 0 (cold start: for blocks 0-2, deposits go to current block)
         // - number = 0 (length - 1 AFTER push, so 0-indexed)
         vm.expectEmit(true, false, false, true);
-        emit Deposits.Deposit(expectedHash, 2, 0);
+        emit Deposits.Deposit(expectedHash, 0, 0);
 
         deposits.deposit(leaf);
         vm.stopPrank();
@@ -341,8 +361,8 @@ contract DepositsTest is Test {
 
         vm.stopPrank();
 
-        // Verify lengths
-        assertEq(deposits.exposed_perBlockDepositsLength(2), 2, "Should have 2 deposits in block 2");
+        // During cold start (blocks 0-2), deposits go to current block (0)
+        assertEq(deposits.exposed_perBlockDepositsLength(0), 2, "Should have 2 deposits in block 0");
 
         // The event numbers were 0 and 1 (0-indexed), matching array indices
     }
@@ -396,17 +416,26 @@ contract DepositsTest is Test {
         deposits.deposit(leaf);
         vm.stopPrank();
 
-        uint256 blockPlusTwo = currentBlockCount + 2;
-        uint256 expectedBlock = existingHighestDeposit >= blockPlusTwo ? existingHighestDeposit : blockPlusTwo;
+        // Calculate expected block based on new cold start logic
+        uint256 expectedBlock;
+        if (currentBlockCount <= 2) {
+            // Cold start: for blocks 0-2, deposits ALWAYS go to current block
+            // The highestDeposit variable is NOT used to compute target during cold start
+            expectedBlock = currentBlockCount;
+        } else {
+            // Normal: for blocks > 2, deposits go to max(highestDeposit, blockNumber + 2)
+            uint256 blockPlusTwo = currentBlockCount + 2;
+            expectedBlock = existingHighestDeposit >= blockPlusTwo ? existingHighestDeposit : blockPlusTwo;
+        }
 
-        // highestDeposit should be at least expectedBlock
-        assertTrue(deposits.exposed_highestDeposit() >= expectedBlock, "highestDeposit should be >= expected block");
-
-        // There should be at least 1 deposit in the target block
+        // There should be at least 1 deposit in the expected target block
         assertTrue(
-            deposits.exposed_perBlockDepositsLength(deposits.exposed_highestDeposit()) >= 1,
-            "Should have at least 1 deposit"
+            deposits.exposed_perBlockDepositsLength(expectedBlock) >= 1,
+            "Should have at least 1 deposit in expected block"
         );
+
+        // highestDeposit should be updated if the deposit went to a higher block
+        assertTrue(deposits.exposed_highestDeposit() >= expectedBlock, "highestDeposit should be >= expected block");
     }
 
     function testFuzz_deposit_multipleDeposits(uint8 depositCount) public {
@@ -433,7 +462,9 @@ contract DepositsTest is Test {
         }
         vm.stopPrank();
 
-        // All deposits should be in block 2 (assuming none hit MAX_DEPOSITS)
-        assertEq(deposits.exposed_perBlockDepositsLength(2), depositCount, "All deposits should be in block 2");
+        // During cold start (block 0), all deposits go to block 0
+        assertEq(
+            deposits.exposed_perBlockDepositsLength(0), depositCount, "All deposits should be in block 0 (cold start)"
+        );
     }
 }

@@ -105,7 +105,9 @@ async fn main() -> Result<()> {
 
     // Validate private key requirement for block submission
     if !args.dry_run && config.keys.sequencer_private_key.is_none() {
-        return Err(eyre::eyre!("sequencer_private_key required for block submission"));
+        return Err(eyre::eyre!(
+            "sequencer_private_key required for block submission"
+        ));
     }
 
     // Initialize state manager for challenger

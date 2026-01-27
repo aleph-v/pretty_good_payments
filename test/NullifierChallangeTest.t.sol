@@ -178,9 +178,20 @@ contract NullifierChallengeTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
 
-        // Add two blocks with same data
+        // Add two blocks with same data but incrementing blockNr
         block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
+        // For block2, we need to update blockNr to match the current block count
+        Spine.BlockData memory block2 = Spine.BlockData({
+            anchor: anchor,
+            timestamp: block.timestamp,
+            numTransactions: 1,
+            numDeposits: 0,
+            blockNr: harness.getBlockCount(),
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: address(this),
+            blobhashes: blobhashes
+        });
+        block2 = harness.addBlockTest(block2, indices);
 
         bytes32 nullifier = harness.access(blobhashes[0], 9);
 
@@ -232,7 +243,18 @@ contract NullifierChallengeTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
         block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
+        // For block2, update blockNr to match current block count
+        Spine.BlockData memory block2 = Spine.BlockData({
+            anchor: anchor,
+            timestamp: block.timestamp,
+            numTransactions: 1,
+            numDeposits: 0,
+            blockNr: harness.getBlockCount(),
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: address(this),
+            blobhashes: blobhashes
+        });
+        block2 = harness.addBlockTest(block2, indices);
 
         // Create loader with txNr = 1, but numTransactions = 1
         // Valid txNr should be 0 only (0-indexed), so txNr=1 is out of bounds
@@ -297,7 +319,18 @@ contract NullifierChallengeTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
         block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
+        // For block2, update blockNr to match current block count
+        Spine.BlockData memory block2 = Spine.BlockData({
+            anchor: anchor,
+            timestamp: block.timestamp,
+            numTransactions: 1,
+            numDeposits: 0,
+            blockNr: harness.getBlockCount(),
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: sequencer,
+            blobhashes: blobhashes
+        });
+        block2 = harness.addBlockTest(block2, indices);
 
         bytes32 nullifier = harness.access(blobhashes[0], 9);
 
@@ -403,7 +436,18 @@ contract NullifierChallengeTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
         block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
+        // For block2, update blockNr to match current block count
+        Spine.BlockData memory block2 = Spine.BlockData({
+            anchor: anchor,
+            timestamp: block.timestamp,
+            numTransactions: 1,
+            numDeposits: 4,
+            blockNr: harness.getBlockCount(),
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: address(this),
+            blobhashes: ret
+        });
+        block2 = harness.addBlockTest(block2, indices);
 
         bytes32 nullifier = harness.access(ret[0], expectedPos4);
 
@@ -439,7 +483,18 @@ contract NullifierChallengeTest is Test {
         uint256[] memory indices = new uint256[](1);
         indices[0] = 0;
         block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
+        // For block2, update blockNr to match current block count
+        Spine.BlockData memory block2 = Spine.BlockData({
+            anchor: anchor,
+            timestamp: block.timestamp,
+            numTransactions: 1,
+            numDeposits: 0,
+            blockNr: harness.getBlockCount(),
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: address(this),
+            blobhashes: blobhashes
+        });
+        block2 = harness.addBlockTest(block2, indices);
 
         NullifierChallenge.NullifierLoader memory loader1 = NullifierChallenge.NullifierLoader({
             data: block1,
@@ -540,7 +595,18 @@ contract NullifierChallengeTest is Test {
         indices[1] = 1;
 
         block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
+        // For block2, update blockNr to match current block count
+        Spine.BlockData memory block2 = Spine.BlockData({
+            anchor: anchor,
+            timestamp: block.timestamp,
+            numTransactions: 300,
+            numDeposits: 0,
+            blockNr: harness.getBlockCount(),
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: address(this),
+            blobhashes: blobhashes
+        });
+        block2 = harness.addBlockTest(block2, indices);
 
         // Test 1: Access nullifier in first blob (tx 0, position 9)
         bytes32 nullifier = harness.access(blobhashes[0], 9);
@@ -554,10 +620,12 @@ contract NullifierChallengeTest is Test {
 
         // Test 2: Access nullifier in second blob (tx 280)
         // tx 280's nullifier 0: 280*15 + 9 = 4209, blob 1 position 4209 % 4096 = 113
-        // Need to add blocks again after rollback
-        block1.blockNr = 0;
+        // Need to add blocks again after rollback (rollback resets block count)
+        block1.blockNr = harness.getBlockCount();
         block1 = harness.addBlockTest(block1, indices);
-        block2 = harness.addBlockTest(block1, indices);
+        // Update block2 for new block number
+        block2.blockNr = harness.getBlockCount();
+        block2 = harness.addBlockTest(block2, indices);
 
         uint256 expectedPos = harness.getNullifierMemoryAddress(280, 0, 0);
         uint256 blobIndex = expectedPos / 4096;
@@ -596,7 +664,7 @@ contract NullifierChallengeTest is Test {
             timestamp: block.timestamp,
             numTransactions: 100,
             numDeposits: 250,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(), // Use current block count
             blockIndex: Spine.TimestampAndIndex(0, 0),
             sequencer: address(this),
             blobhashes: new bytes32[](1)
@@ -694,7 +762,18 @@ contract NullifierChallengeTest is Test {
         vm.blobhashes(blobhashes);
 
         // Add second block with same blob data as block1 (creates duplicate nullifiers)
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
+        // Update blockNr to match current block count
+        Spine.BlockData memory block2 = Spine.BlockData({
+            anchor: anchor,
+            timestamp: block.timestamp,
+            numTransactions: boundedTransactions,
+            numDeposits: boundedDeposits,
+            blockNr: harness.getBlockCount(),
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: address(this),
+            blobhashes: blobhashes
+        });
+        block2 = harness.addBlockTest(block2, indices);
 
         // Calculate nullifier position using first loader's index
         uint256 nullifierPos = harness.getNullifierMemoryAddress(boundedTxNr, boundedDeposits, boundedWhich1);
@@ -765,7 +844,18 @@ contract NullifierChallengeTest is Test {
         indices[0] = 0;
 
         block1 = harness.addBlockTest(block1, indices);
-        Spine.BlockData memory block2 = harness.addBlockTest(block1, indices);
+        // For block2, update blockNr to match current block count
+        Spine.BlockData memory block2 = Spine.BlockData({
+            anchor: anchor,
+            timestamp: block.timestamp,
+            numTransactions: boundedTx,
+            numDeposits: 0,
+            blockNr: harness.getBlockCount(),
+            blockIndex: Spine.TimestampAndIndex(0, 0),
+            sequencer: address(this),
+            blobhashes: blobhashes
+        });
+        block2 = harness.addBlockTest(block2, indices);
 
         // Generate a fake nullifier that won't match actual data
         bytes32 fakeNullifier = keccak256(abi.encodePacked("fake", fakeNullifierSeed));

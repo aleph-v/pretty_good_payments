@@ -156,13 +156,13 @@ contract TransactionChallengeTest is Test {
     // Helper functions
     // ============================================================================
 
-    function _createBlockData(uint256 numDeposits, uint256 numTx) internal pure returns (Spine.BlockData memory) {
+    function _createBlockData(uint256 numDeposits, uint256 numTx) internal view returns (Spine.BlockData memory) {
         return Spine.BlockData({
             anchor: bytes32(0),
             timestamp: 0,
             numTransactions: numTx,
             numDeposits: numDeposits,
-            blockNr: 0,
+            blockNr: harness.getBlockCount(), // Use current block number
             blockIndex: Spine.TimestampAndIndex(0, 0),
             sequencer: address(0),
             blobhashes: new bytes32[](0)
@@ -256,6 +256,8 @@ contract TransactionChallengeTest is Test {
     }
 
     /// @notice Creates two blocks for multi-block tests
+    /// @dev This test bypasses Entrypoint.post() by calling addBlock directly,
+    ///      so deposit count validation is skipped. The harness doesn't inherit Deposits.
     function _createTwoBlocks()
         internal
         returns (
@@ -295,6 +297,8 @@ contract TransactionChallengeTest is Test {
     }
 
     /// @notice Creates and adds a single block to the chain
+    /// @dev This test bypasses Entrypoint.post() by calling addBlock directly,
+    ///      so deposit count validation is skipped. The harness doesn't inherit Deposits.
     function _createAndAddSingleBlock(uint256 numDeposits, uint256 numTx, uint256 seed, bytes32 anchor)
         internal
         returns (Spine.BlockData memory data, bytes32[] memory blobHashes)

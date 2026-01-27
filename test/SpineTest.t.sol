@@ -379,6 +379,7 @@ contract SpineTest is Test {
     }
 
     // Helper to create block data with blob array
+    // blockNr must match spine.getCurrentBlocknumber() at time of submission
     function createBlockDataForAdd(bytes32 anchor, uint256 numTx, uint256 numDeposits, uint256 numBlobs)
         internal
         view
@@ -390,7 +391,7 @@ contract SpineTest is Test {
             timestamp: 0, // Will be set by addBlock
             numTransactions: numTx,
             numDeposits: numDeposits,
-            blockNr: 0, // Will be set by addBlock
+            blockNr: spine.getCurrentBlocknumber(), // Must match current block number
             blockIndex: Spine.TimestampAndIndex(0, 0), // Will be set by addBlock
             sequencer: address(this),
             blobhashes: blobhashes

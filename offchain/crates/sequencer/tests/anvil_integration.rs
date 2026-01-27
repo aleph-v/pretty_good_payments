@@ -142,8 +142,16 @@ impl<P: Provider + Clone> TestContext<P> {
     where
         P: AnvilApi<Ethereum>,
     {
-        self.provider.anvil_increase_time(6).await?;
-        self.provider.anvil_mine(Some(1), None).await?;
+        // Loop until we're in an open period
+        let registry = self.registry();
+        loop {
+            let epoch_result = registry.currentEpoch().call().await?;
+            if !epoch_result.isClosed {
+                break;
+            }
+            self.provider.anvil_increase_time(1).await?;
+            self.provider.anvil_mine(Some(1), None).await?;
+        }
         println!("Advanced time to open period");
         Ok(())
     }
@@ -362,14 +370,22 @@ async fn test_submit_single_deposit_block() -> Result<()> {
     let amount = U256::from(1000);
     let public_key = B256::repeat_byte(0x42);
     ctx.mint_and_approve_tokens(amount).await?;
-    let target_block = ctx.create_deposit(amount, public_key).await?;
-    println!("Deposit targets block: {target_block}");
+    ctx.create_deposit(amount, public_key).await?;
 
     // Wait for open period
     ctx.advance_to_open_period().await?;
 
-    // Get deposits
-    let deposits = ctx.get_deposits_for_block(target_block).await?;
+    // Find where the deposit went (cold start: when blockNumber <= 2, deposits go to blockNumber)
+    // Check block 0 first, then fall back to block 2
+    let deposits_block_0 = ctx.get_deposits_for_block(U256::ZERO).await?;
+    let (target_block, deposits) = if !deposits_block_0.is_empty() {
+        (U256::ZERO, deposits_block_0)
+    } else {
+        let deposits_block_2 = ctx.get_deposits_for_block(U256::from(2)).await?;
+        (U256::from(2), deposits_block_2)
+    };
+    println!("Deposit targets block: {target_block}");
+
     assert!(
         !deposits.is_empty(),
         "Should have deposits for target block"
@@ -490,15 +506,24 @@ async fn test_submit_multiple_deposits_block() -> Result<()> {
     let amount = U256::from(1000);
     ctx.mint_and_approve_tokens(amount * U256::from(6)).await?;
 
-    let mut target_block = U256::ZERO;
     for i in 0..6 {
         let public_key = B256::from([i as u8 + 1; 32]);
-        target_block = ctx.create_deposit(amount, public_key).await?;
+        ctx.create_deposit(amount, public_key).await?;
     }
 
     ctx.advance_to_open_period().await?;
 
-    let deposits = ctx.get_deposits_for_block(target_block).await?;
+    // Find where the deposits went (cold start: when blockNumber <= 2, deposits go to blockNumber)
+    // Check block 0 first, then fall back to block 2
+    let deposits_block_0 = ctx.get_deposits_for_block(U256::ZERO).await?;
+    let (target_block, deposits) = if deposits_block_0.len() == 6 {
+        (U256::ZERO, deposits_block_0)
+    } else {
+        let deposits_block_2 = ctx.get_deposits_for_block(U256::from(2)).await?;
+        (U256::from(2), deposits_block_2)
+    };
+    println!("Deposits target block: {target_block}");
+
     assert_eq!(deposits.len(), 6, "Should have 6 deposits");
 
     // Build and verify (block_index=0, zero root_path for first block)
