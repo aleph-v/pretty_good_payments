@@ -5,11 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {DepositChallenge} from "../src/DepositChallenge.sol";
 import {Spine} from "../src/Spine.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
-import {
-    NoFraud,
-    NotPartialDepositGroup,
-    DepositPaddingIndexOutOfBounds
-} from "../src/library/Errors.sol";
+import {NoFraud, NotPartialDepositGroup, DepositPaddingIndexOutOfBounds} from "../src/library/Errors.sol";
 import {LibBit} from "solady/utils/LibBit.sol";
 
 contract DepositChallengeHarness is DepositChallenge, FakeBlobs {

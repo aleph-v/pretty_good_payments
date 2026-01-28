@@ -5,12 +5,7 @@ import {Deposits} from "./Deposits.sol";
 import {SequencerRegistry} from "./SequencerRegistry.sol";
 import {PredictableMerkleLib} from "./library/PredictableMerkleLib.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
-import {
-    BlockNotIncluded,
-    NoFraud,
-    NotPartialDepositGroup,
-    DepositPaddingIndexOutOfBounds
-} from "./library/Errors.sol";
+import {BlockNotIncluded, NoFraud, NotPartialDepositGroup, DepositPaddingIndexOutOfBounds} from "./library/Errors.sol";
 
 /// @title DepositChallenge
 /// @notice Fraud proof contract for challenging incorrect deposit leaves in L2 blocks
