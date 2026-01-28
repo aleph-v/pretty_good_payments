@@ -141,10 +141,10 @@ This dedicated L1 authorization flow can be used to make L2 payments programmabl
 
 ## Getting Started
 
-- [Quick Start Guide](quick-start.md) - Set up a local development environment
-- [User Guide](guides/user-guide.md) - How to deposit, transact, and withdraw
-- [Sequencer Guide](guides/sequencer.md) - Run your own sequencer node
-- [Architecture Overview](architecture/overview.md) - Deep dive into system design
+- [Quick Start Guide](docs/quick-start.md) - Set up a local development environment
+- [User Guide](docs/guides/user-guide.md) - How to deposit, transact, and withdraw
+- [Sequencer Guide](docs/guides/sequencer.md) - Run your own sequencer node
+- [Architecture Overview](docs/architecture/overview.md) - Deep dive into system design
 
 ## Repository Structure
 

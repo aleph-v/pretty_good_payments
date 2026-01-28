@@ -143,15 +143,6 @@ Costs include:
 
 The system is designed to be profitable at scale with consistent transaction volume.
 
-### Break-Even Analysis
-
-A sequencer breaks even when yield earned exceeds costs. Rough calculation:
-
-- Per-block cost: ~$5 (at moderate gas prices)
-- Per-epoch yield: TVL × APY / 365 / epochs_per_day / num_sequencers
-- Break-even: need enough TVL and transaction volume
-
-The exact numbers depend heavily on network conditions, vault yields, and sequencer competition.
 
 ## Integration with Sequencing
 
