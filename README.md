@@ -45,19 +45,6 @@ User Deposits          Sequencer Batches          L1 Settlement
 
 5. **Withdraw**: Users create a special note with `publicKey = 0` and `blinding = destinationAddress`. After the challenge period, they prove this note exists using a KZG opening proof and receive their tokens on L1.
 
-### Data Availability
-
-Transaction data is stored in EIP-4844 blobs, not in calldata. Each blob contains 4096 field elements organized as:
-
-```
-[Deposit Groups][Transactions]
-
-Deposit Group (4 fields): [leaf0, leaf1, leaf2, newRoot]
-Transaction (15 fields):  [zkProof(8), anchorInfo, null0, null1, out0, out1, out2, newRoot]
-```
-
-Transactions can span blob boundaries - if a transaction starts at the end of one blob, it continues at the beginning of the next. The challenge contracts handle this seamlessly.
-
 ### Yield-Based Economics
 
 Unlike traditional L2s that charge transaction fees, PGP uses yield to pay sequencers:
@@ -117,7 +104,7 @@ Users prove they own notes by demonstrating knowledge of the private key that ha
 
 ### Ethereum-Owned Programmable Accounts
 
-PGP supports a powerful feature called **Ethereum-owned accounts** that enables L1-programmable privacy:
+PGP supports a feature called **Ethereum-owned accounts** that enables L1-programmable privacy:
 
 #### How It Works
 
@@ -140,22 +127,7 @@ When spending an Ethereum-owned note, the ZK circuit outputs the `ethKey` as a p
 4. Challenge contract verifies registry approval exists
 ```
 
-#### Use Cases
-
-**Smart Contract Wallets**: Multisig wallets, social recovery, and other smart contract wallets can control L2 notes. The smart contract approves transactions on L1, enabling complex authorization logic.
-
-**Programmable Payments**: Build L1 contracts that conditionally approve L2 transfers:
-- Time-locked releases
-- Oracle-gated payments
-- Escrow with dispute resolution
-- Subscription payments with cancellation
-
-**Delegated Note Management**: A semi-trusted service can consolidate many small payments into larger notes without L1 transactions for each operation:
-- Receive many payments to an Ethereum address
-- Consolidate into fewer notes (merge/split allowed without L1 auth)
-- Transfer to L1 or private notes when ready
-
-**Cross-Chain Bridges**: Bridge contracts can hold L2 notes and release them based on L1 events or cross-chain messages.
+This dedicated L1 authorization flow can be used to make L2 payments programmable enabling multisig ownership, trustless swaps, escrows and other features which require resolution logic while at the same time giving destination, amount amd token type privacy for the users.
 
 #### Privacy Trade-offs
 
