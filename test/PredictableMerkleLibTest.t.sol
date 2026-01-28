@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {PredictableMerkleLib, Leaf, Bytes32Poseidon, Proof} from "../src/library/PredictableMerkleLib.sol";
 import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
-import {Groth16Verifier} from "../circuits/verifiers/predictableUpdateVerifier.sol";
+import {UpdateVerifier} from "../circuits/verifiers/predictableUpdateVerifier.sol";
 
 /// @notice Test contract for PredictableMerkleLib
 /// @dev Tests the hash function using FFI with circomlibjs Poseidon
@@ -15,7 +15,7 @@ contract PredictableMerkleLibTest is Test {
     using Bytes32Poseidon for bytes32[4];
 
     // Real Groth16 verifier
-    Groth16Verifier realVerifier;
+    UpdateVerifier realVerifier;
 
     // Cached proof data (generated once in setUp to avoid repeated slow FFI calls)
     Proof cachedProof;
@@ -23,7 +23,7 @@ contract PredictableMerkleLibTest is Test {
     bool proofGenerated;
 
     function setUp() public {
-        realVerifier = new Groth16Verifier();
+        realVerifier = new UpdateVerifier();
 
         // Generate proof once via FFI and cache it
         _generateAndCacheProof();

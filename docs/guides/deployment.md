@@ -52,12 +52,12 @@ Deploy the Groth16 verifier contracts:
 
 ```bash
 # Transfer circuit verifier
-forge create src/integrations/TransferVerifier.sol:Groth16Verifier \
+forge create circuits/verifiers/transferVerifier.sol:TransferVerifier \
   --rpc-url $RPC_URL \
   --private-key $DEPLOYER_PRIVATE_KEY
 
 # Update circuit verifier
-forge create src/integrations/UpdateVerifier.sol:Groth16Verifier \
+forge create circuits/verifiers/predictableUpdateVerifier.sol:UpdateVerifier \
   --rpc-url $RPC_URL \
   --private-key $DEPLOYER_PRIVATE_KEY
 ```

@@ -5,7 +5,7 @@ import {Deploy} from "./Deploy.s.sol";
 import {FakeZK} from "../../test/mocks/FakeZk.sol";
 import {MockYieldRouter} from "../../test/mocks/MockYieldRouter.sol";
 import {FakeERC20} from "../../test/mocks/FakeErc20.sol";
-import {Groth16Verifier} from "../../circuits/verifiers/predictableUpdateVerifier.sol";
+import {UpdateVerifier} from "../../circuits/verifiers/predictableUpdateVerifier.sol";
 
 /// @title DeployRealZk
 /// @notice Local deployment using real Groth16 verifier for predictableUpdate
@@ -21,7 +21,7 @@ contract DeployRealZk is Deploy {
 
     /// @notice Deploy the real Groth16 verifier for predictableUpdate circuit
     function deployUpdateVerifier() internal override returns (address) {
-        Groth16Verifier verifier = new Groth16Verifier();
+        UpdateVerifier verifier = new UpdateVerifier();
         return address(verifier);
     }
 

@@ -5,7 +5,7 @@ import {Test, console} from "forge-std/Test.sol";
 import {TransactionChallenge} from "../src/TransactionChallenge.sol";
 import {Spine} from "../src/Spine.sol";
 import {BlobData} from "../src/library/BlobData.sol";
-import {Groth16Verifier} from "../circuits/verifiers/transferVerifier.sol";
+import {TransferVerifier} from "../circuits/verifiers/transferVerifier.sol";
 import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
 import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
@@ -26,7 +26,7 @@ import {NoFraud, ZeroEthKey} from "../src/library/Errors.sol";
 ///      forge test --match-contract TransactionChallengeIntegrationTest --jobs 1
 contract TransactionChallengeIntegrationTest is Test {
     // Real Groth16 verifier for transfer circuit
-    Groth16Verifier realTransferVerifier;
+    TransferVerifier realTransferVerifier;
 
     // Fake verifier for predictable update (not tested in TransactionChallenge)
     FakeZK fakeUpdateVerifier;
@@ -140,7 +140,7 @@ contract TransactionChallengeIntegrationTest is Test {
     uint256 internal constant SECONDS_PER_DAY = 86400;
 
     function setUp() public {
-        realTransferVerifier = new Groth16Verifier();
+        realTransferVerifier = new TransferVerifier();
         fakeUpdateVerifier = new FakeZK();
         yieldRouter = new MockYieldRouter();
         txRegistry = new ConfigurableTxRegistry();

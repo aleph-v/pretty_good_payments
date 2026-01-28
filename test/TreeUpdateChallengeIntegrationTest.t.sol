@@ -6,7 +6,7 @@ import {TreeUpdateChallenge} from "../src/TreeUpdateChallenge.sol";
 import {Spine} from "../src/Spine.sol";
 import {PredictableMerkleLib, Proof} from "../src/library/PredictableMerkleLib.sol";
 import {BlobData} from "../src/library/BlobData.sol";
-import {Groth16Verifier} from "../circuits/verifiers/predictableUpdateVerifier.sol";
+import {UpdateVerifier} from "../circuits/verifiers/predictableUpdateVerifier.sol";
 import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
 import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";
@@ -31,7 +31,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     using PredictableMerkleLib for IUpdateVerifier;
 
     // Real Groth16 verifier for predictableUpdate circuit
-    Groth16Verifier realZkVerifier;
+    UpdateVerifier realZkVerifier;
 
     // Mock verifier for transfer proofs (not tested here)
     FakeZK fakeTransferVerifier;
@@ -151,7 +151,7 @@ contract TreeUpdateChallengeIntegrationTest is Test {
     bool testDataGenerated;
 
     function setUp() public {
-        realZkVerifier = new Groth16Verifier();
+        realZkVerifier = new UpdateVerifier();
         fakeTransferVerifier = new FakeZK();
         yieldRouter = new MockYieldRouter();
         txRegistry = new MockTransactionRegistry();

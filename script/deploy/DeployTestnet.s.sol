@@ -9,7 +9,8 @@ import {IYieldRouter} from "../../src/interfaces/IYieldRouter.sol";
 import {IUpdateVerifier} from "../../src/interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "../../src/interfaces/ITransferVerifier.sol";
 import {ZeroTree} from "../../src/library/ZeroTree.sol";
-import {FakeZK} from "../../test/mocks/FakeZk.sol";
+import {TransferVerifier} from "../../circuits/verifiers/transferVerifier.sol";
+import {UpdateVerifier} from "../../circuits/verifiers/predictableUpdateVerifier.sol";
 import {TestnetERC20} from "../../test/mocks/TestnetERC20.sol";
 import {TestnetERC4626} from "../../test/mocks/TestnetERC4626.sol";
 
@@ -66,11 +67,11 @@ contract DeployTestnet is Script {
         TestnetERC4626 vault = new TestnetERC4626(token, "PGP Testnet Vault", "vtPGP");
         console.log("Vault (TestnetERC4626):", address(vault));
 
-        // 3. Deploy verifiers (FakeZK for testnet)
-        FakeZK transferVerifier = new FakeZK();
+        // 3. Deploy real ZK verifiers (Groth16)
+        TransferVerifier transferVerifier = new TransferVerifier();
         console.log("Transfer Verifier:", address(transferVerifier));
 
-        FakeZK updateVerifier = new FakeZK();
+        UpdateVerifier updateVerifier = new UpdateVerifier();
         console.log("Update Verifier:", address(updateVerifier));
 
         // 4. Deploy transaction registry
@@ -385,29 +386,29 @@ contract DeployTestnet is Script {
             "  --watch\n\n"
         );
 
-        // FakeZK (transferVerifier): no constructor args
+        // TransferVerifier (Groth16): no constructor args
         script = string.concat(
             script,
-            "echo \"Verifying FakeZK (Transfer Verifier)...\"\n",
+            "echo \"Verifying TransferVerifier...\"\n",
             "forge verify-contract \\\n",
             "  ",
             vm.toString(transferVerifier),
             " \\\n",
-            "  test/mocks/FakeZk.sol:FakeZK \\\n",
+            "  circuits/verifiers/transferVerifier.sol:TransferVerifier \\\n",
             "  --chain-id $CHAIN_ID \\\n",
             "  --etherscan-api-key $ETHERSCAN_API_KEY \\\n",
             "  --watch\n\n"
         );
 
-        // FakeZK (updateVerifier): no constructor args
+        // UpdateVerifier (Groth16): no constructor args
         script = string.concat(
             script,
-            "echo \"Verifying FakeZK (Update Verifier)...\"\n",
+            "echo \"Verifying UpdateVerifier...\"\n",
             "forge verify-contract \\\n",
             "  ",
             vm.toString(updateVerifier),
             " \\\n",
-            "  test/mocks/FakeZk.sol:FakeZK \\\n",
+            "  circuits/verifiers/predictableUpdateVerifier.sol:UpdateVerifier \\\n",
             "  --chain-id $CHAIN_ID \\\n",
             "  --etherscan-api-key $ETHERSCAN_API_KEY \\\n",
             "  --watch\n\n"
@@ -528,24 +529,24 @@ contract DeployTestnet is Script {
         );
 
         console.log("");
-        console.log("# 3. FakeZK (Transfer Verifier)");
+        console.log("# 3. TransferVerifier");
         console.log(
             string.concat(
                 "forge verify-contract ",
                 vm.toString(transferVerifier),
-                " test/mocks/FakeZk.sol:FakeZK --chain-id ",
+                " circuits/verifiers/transferVerifier.sol:TransferVerifier --chain-id ",
                 cid,
                 " --etherscan-api-key $ETHERSCAN_API_KEY"
             )
         );
 
         console.log("");
-        console.log("# 4. FakeZK (Update Verifier)");
+        console.log("# 4. UpdateVerifier");
         console.log(
             string.concat(
                 "forge verify-contract ",
                 vm.toString(updateVerifier),
-                " test/mocks/FakeZk.sol:FakeZK --chain-id ",
+                " circuits/verifiers/predictableUpdateVerifier.sol:UpdateVerifier --chain-id ",
                 cid,
                 " --etherscan-api-key $ETHERSCAN_API_KEY"
             )
