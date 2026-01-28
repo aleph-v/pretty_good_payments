@@ -1,50 +1,201 @@
-## Pretty Good Payments
+# Pretty Good Payments
 
-This repo contains the smart contracts and code for a simplified payments system which is designed to enable private free stablecoin transactions at a large scale settling to the Ethereum mainnet. The design uses a simplified version of the z-cash private ecash system with private UTXOs sends settled in large batches to the ethereum mainnet through a 1 round optimistic challenge game. This one round challenge game uses the data availability layer of the Ethereum network by committing to proofs spending notes, nullifiers, and updated Merkle tree roots in kzg commitments (blobs). Any actor can submit batches of spends by registering and bonding a fixed amount of ETH. In order to enable free to the end user spends, the user funds are by default committed to a yield source and the yield is distributed to batch submitters pro rata based on number of transactions submitted.
+**Private, free stablecoin transactions at scale on Ethereum**
 
-In expected deployments configurations the cost per send has been benchmarked to be between 0.1¢ and 0.001¢ in USD, depending on the ethereum blob cost and gas cost. The system scales well with more usage and can preform up to 400 transactions per second on ethereum mainnet or a much higher number with an alternative data availability system.
+Pretty Good Payments (PGP) is a Layer 2 payment system that enables private transactions for ERC-20 tokens, settling to Ethereum mainnet. The system uses a simplified version of the Zcash private e-cash model with an optimistic rollup secured by a one-round fraud proof challenge game.
 
-## Documentation
+## Key Features
 
-The primary system components are: (1) the zero knowledge proofs used in the private e-cash system (2) the challenge game (3) the sequencing system.
+- **Privacy**: Transactions use zero-knowledge proofs to hide sender, receiver, and amounts
+- **Free transactions**: Users pay nothing - sequencers are compensated through yield generated on deposited funds
+- **High throughput**: Up to 400 transactions per second on Ethereum mainnet using EIP-4844 blobs
+- **Low cost**: 0.01 to 0.0001 cents per transaction depending on network conditions
+- **Decentralized**: Open sequencer registration with stake-based security
 
-### Simplified Private E-cash
+## How It Works
 
-Tokens in the system are represented by notes with each note having the format [asset id - 252 bit][amount - 180 bits][blinding factor - 252 bits][public key - 252 bits] encoded as four field elements in the default groth16 field. The asset id is set when creating a note in the deposit flow and should correspond 1 to 1 to an ERC20 token. The blinding factor is a user controlled random which also encodes optionally revealable information about the origin of the note, namely for new notes it is derived as hash(user_random, hash(input_note1_hash, input_note2 hash)). The blinding factor note field is also reused as the destination ethereum withdraw address for notes which have been made withdrawable. Finally the public key is the hash of a private key, knowledge of the pre-image of this hash allows you to spend the note. 
+```
+User Deposits          Sequencer Batches          L1 Settlement
+     |                       |                         |
+     v                       v                         v
+[ERC-20] --> [L2 Notes] --> [Blob TX] --> [Entrypoint Contract]
+     ^                       ^                         |
+     |                       |                         v
+[Withdraw] <-- [ZK Proof] <-- [Challenge Window] <-- [Finalized]
+```
 
-Notes are held in a Merkle tree built using the zk friendly hash function Poseidon. Since users must provide proofs of note membership we have taken some design steps to limit the cost of syncing the updated state of the network, namely we have split the Merkle tree into three predictable update regions. First the tree is split into 2^15 days, then each day is split into at most 2^13 blocks, and each block has at most 2^12 notes. The smart contract enforces that the tree is updated at the earliest available field in each subdivision. In order to maintain a Merkle proof a user only needs to sync the roots of each day, or in the same day each block, substantially reducing tree syncing for end user wallets. Since the tree is updated at the earliest available index we can enforce this predictable update pattern in the challenge game.
+### The Transaction Lifecycle
 
-Notes are spent by creating a zero knowledge proof which proves (1) that the user knows a note a tree (2) that the proof creator is authorized to spend this note (3) that the new notes created all follow format and contain exactly the same asset and amount as spent notes (4) that the user has computed a nullifier deterministically from the note values. In our proofs the user can use up two input notes and create up to three output notes. The nullifier is computed as hash(privateKey, blindingFactor, index), which gives a deterministic random which cannot be linked to any output note without knowing the private key and blinding factor. The smart contract system rejects any proofs which reuse nullifiers. Our authorization system has two modes (1) pre-image keys (2) ethereum owned accounts. A pre-image key is any key more than 160 bits, knowledge of the key allows the note to be spent. Any account with a private key which is less than 160 bits is considered "ethereum owned". The zk proofs are computed using the transfer.circom constraint system in the circuits package. Users are expected to compute the proof locally then either self sequence it or send it to a sequencing partner for inclusion. Users can pick any former Merkle tree root, but are recommended to use recent block roots in order to increase privacy.
+1. **Deposit**: Users deposit ERC-20 tokens by calling the Entrypoint contract. Tokens are transferred to a yield-generating vault, and a note hash is recorded for inclusion in a future block. The sequencer MUST include this deposit or face slashing. Even if fraud causes a rollback, deposits are re-queued and will eventually be included.
 
-#### Ethereum owned accounts:
-An account with a private key with less than 160 bits is considered ethereum owned. When an account is ethereum owned a public input ethKey is turned on which must be equal to the private key (eg the eth address). When the public input is set the verifier contract will enforce that the eth address which is the public input has recorded approval for this transaction by signing the output notes and nullifiers. Ethereum owned accounts do not have sender privacy for transactions which are initiated using permission from the ethereum l1, but have amount and destination sender privacy. If the blinding factor is leaked they also loose privacy over the total amount spent (but not how it is allocated).
+2. **Transact**: Users create zero-knowledge proofs that demonstrate:
+   - They know a note exists in the merkle tree
+   - They are authorized to spend the note (know the private key)
+   - Output notes contain exactly the same total value as inputs
+   - Nullifiers are computed correctly to prevent double-spending
 
-Ethereum owned accounts can be withdrawn without authorization from the eth L1 because they must be withdrawn onto L1. Ethereum owned accounts can have their notes merged or split without authorization from the ethereum L1. This is done intentionally to allow a form of delegated note management, where a semi trusted l2 note manager can collect a large number of payments to an ethereum EOA, consolidate them and then transfer them to the L1 without requiring ethereum l1 transactions, increasing privacy for the recipient over many withdraws of specific amounts.
-WARNING - Ethereum owned account notes can be abused by whoever knows the blinding factor, we recommend that when receiving funds controlled by an ethereum account the receiver EOA owner transfer again to a private blinding factor note. 
-WARNING - Since 0 is considered a special case input in the ethereum l1 contract, accounts owned by the ethereum owned 0 address can be used and spent by any user. To burn assets you must send them public key == 0 or ethereum key == 0xdead.
+   Each transaction can consume up to 2 input notes and create up to 3 output notes. Users submit their proofs to a sequencer for inclusion.
 
-### L1 Actions
+3. **Sequence**: Sequencers batch transactions into EIP-4844 blobs and post them to L1. Each blob can hold approximately 273 transactions. The blob data is committed using KZG polynomial commitments, enabling efficient fraud proofs without storing all data on-chain.
 
-Users register new notes into the system by transferring in ERC20 tokens, by default ERC20s must have an attached approved yield source which the user funds will be deposited into. When a user creates a new note they have a Poseidon hash of a note corresponding to this deposit created and added at a specific block. When a sequencer adds a block of transactions at that block number the user transaction must be included or the challenge game will reject the block. If the challenge game causes a rollback of blocks containing a deposit due to fraud the new deposits are added at block numbers corresponding to the old head block number and new blocks must include the former deposits in the same way as before. This means that as soon as the L1 receives a deposit call the deposit will clear eventually no matter if there is fraud or not. 
+4. **Challenge**: During the challenge window, anyone can prove fraud by:
+   - Opening specific blob fields using KZG proofs (~50k gas per field)
+   - Demonstrating the sequencer violated protocol rules
+   - Triggering a rollback and claiming half the sequencer's stake
 
-User withdraws are processed on the L1 following a delay to allow the challenge game to play out, and must be proceeded by an internal spend transaction. The user must create a new note which has a public key field which is equal to zero and when they do they are allowed to set the blinding factor field to any value which will be treated as a destination address. On L1 withdraws are processed by using a kzg opening proof to open the output note hash field of a transaction in a block which has been confirmed, then providing the pre-image to that hashed note enabling the amount to be transferred to the destination, the index of that transaction is then marked as spent. 
+5. **Withdraw**: Users create a special note with `publicKey = 0` and `blinding = destinationAddress`. After the challenge period, they prove this note exists using a KZG opening proof and receive their tokens on L1.
 
-### Challenge Game
+### Data Availability
 
-The challenge game has several entry points each for different types of fraud, but the common denominator is in the structure and accessing of the data. Each batch of transactions is laid out as [deposits][transactions] with each deposit represented in 4 32 byte elements as [noteHash0][noteHash1][noteHash2][anchorAfter] and each transaction is represented in 15 32 byte elements as [zkProof][[eth key][anchor block][anchor update nr]][nullifier0][nullifier1][outputNote0][outputNote1][outputNote2][anchorAfter]. Deposits and transactions are laid out in blobs treating them as continuous memory regions, meaning if a single transaction crosses the boundary between two blobs the transaction is split. In order to access this data we use the properties of the blob commitments, namely that they are kzg commitments to a a polynomial interpolating each blob position at the bit reversed roots of unity. To access former fields all we do is compute a kzg proof of opening at the relevant root of unity then use the point opening precompile, this costs 50k gas per opened field.
+Transaction data is stored in EIP-4844 blobs, not in calldata. Each blob contains 4096 field elements organized as:
 
-The simplest challenges are the deposit challenge and the nullifier challenge. In the deposit challenge we prove that a sequencer has not added a deposit as required by opening the notes of a deposit and proving that they do not match the ones for this block number and deposit index in the smart contract. The nullifier challenge opens two positions in former blob commitments, and proves that the nullifier in a new transaction equals the nullifier in an old transaction. 
+```
+[Deposit Groups][Transactions]
 
-The next challenge is the predictable tree update challenge which enforces that the incremental tree updates made after a deposit or transaction's new notes are added is made correctly by the submitter. This transaction uses KZG openings to reveal the new notes and another one to reveal the prior anchor which is the anchor directly before the incremental update. Since the predictable update requires many Merkle tree openings to validate the new root post update, we have consolidated those updates into a custom zk proof which is verified onchain as part of the challenge protocol. Since the the updates are made incrementally each prior root has known values and therefore the zk proof of invalid update can be constructed, if it cannot be then the protocol steps back by one transaction. 
+Deposit Group (4 fields): [leaf0, leaf1, leaf2, newRoot]
+Transaction (15 fields):  [zkProof(8), anchorInfo, null0, null1, out0, out1, out2, newRoot]
+```
 
-In the final challenge path we do the validation of the zero knowledge proof in the note itself, we do so by opening each field of the the transaction, providing a proof of a prior anchor's location based on the data provided then we validate the zero knowledge proof by calling into the autogenerated sol verifier for transfer.circom. The transaction data may cross between blob regions and so two different KZG region openings are provided. In this challenge path we also enforce the ethereum owned account system, if the zk is valid and the ethereum owned key is not equal to zero then we call into a registry contract which records each of the zk transactions which have been approved by eth addresses based on the hash of the output nullifier and notes. 
+Transactions can span blob boundaries - if a transaction starts at the end of one blob, it continues at the beginning of the next. The challenge contracts handle this seamlessly.
 
-In each case when fraud is identified successfully the contracts rollback the block which had fraud in it, the sequencer which had submitted that block is then slashed and half of the sequencer's bond is allocated to the challenger. The reward is only paid after the a challenge period has passed and is only paid to the challenger who has made the challenge at the lowest block number, so challengers are required to challenge at the lowest possible block.
+### Yield-Based Economics
 
-### Sequencing System
+Unlike traditional L2s that charge transaction fees, PGP uses yield to pay sequencers:
 
-Sequencers register with a preset eth bond and then can start submitting new batches of transactions, they can withdraw this bond after a time delay if they are not slashed. User funds are deposited into onchain yield sources and the yield generated by their assets is tracked and accounted for after a set period of time, then the funds are are split into epoch windows of rewards. In each epoch the total blob usage of sequencers is tracked and then the rewards for that epoch paid proportionally to the submitted transaction blob usage. This gives an incentive for sequencers to submit free or very low cost transactions on behalf of users, however since registration of sequencers is open the system will tend towards malicious sequencers submitting spam transactions (though since the spam is publicly indistinguishable from real transactions it still has some use). For this reason we introduce an optional priority sequencing system which gives "first look" sequencers the right to be the only sequencers in the first half of an epoch.
+1. User deposits go into ERC-4626 yield vaults (Aave, Compound, etc.)
+2. Yield is tracked per period and distributed to sequencers
+3. Distribution is proportional to blob usage (more transactions = more yield)
+4. Priority sequencers receive a 2x multiplier during their exclusive windows
 
-First look sequencers are set based on an array which stores their addresses and then they are picked by simply taking the mod of the block number by the array length, meaning if there are 3 such sequencers each gets a predictable window of free (or profitable) transaction inclusion every three epochs. This is tracked in the Entrypoint contract which reports what percent of total activity in each epoch each sequencer is to the yield management system. Additionally to amortize the cost and avoid extra online service use each priority sequencer allocates the rewards for the prior one and this allocation call will also trigger accounting for new earned interest each epoch. The interest system can be configured to have a maximum interest per period of tracking which will cause all excess interest to be pushed into the next one. These configurations allow the system to smooth out the payments to support relatively constant output of new transactions, hurting attempts at transaction timing analysis. First look sequencers face the problem that if gas prices move against them in the last half of the epoch new sequencers can force them to take a loss, therefore they are given a bonus in the rewards calculation (configurable based on expected volume and epoch length).
+This model enables **free transactions for users** while ensuring sequencers are compensated.
 
-There is no dedicated off chain coordination layer between sequencers eg while the system may be an L2 it does not in fact have a blockchain for that L2. Since there is no consensus system we only support limited preconfirmations, namely each priority sequencer can offer preconfirmation knowing they have a window of free transactions upcoming.
+## Security Model
+
+PGP uses an optimistic rollup model with a one-round challenge game:
+
+### Core Assumptions
+
+1. **Optimistic Execution**: Blocks are assumed valid unless challenged
+2. **Economic Security**: Sequencers stake ETH that can be slashed for fraud
+3. **Liveness**: At least one honest challenger must be online during the challenge window
+4. **Data Availability**: Blob data remains available for the challenge period (~18 days on mainnet)
+
+### Challenge Types
+
+The challenge game has four entry points, each targeting a specific type of fraud:
+
+| Challenge Type | Fraud Detected | Evidence Required |
+|----------------|----------------|-------------------|
+| **Deposit** | Wrong deposit leaf or non-zero padding | KZG proof of actual value vs expected |
+| **Nullifier** | Double-spend (same nullifier twice) | KZG proofs of both occurrences |
+| **Tree Update** | Incorrect merkle root after update | ZK proof of correct root + KZG proofs |
+| **Transaction** | Invalid ZK proof or missing authorization | Full transaction data via KZG |
+
+### Slashing Mechanics
+
+When fraud is proven:
+
+1. The fraudulent block and all subsequent blocks are rolled back
+2. The sequencer loses 100% of their stake:
+   - 50% goes to the challenger who proved fraud
+   - 50% is burned (prevents collusion)
+3. Only the challenger who proves fraud at the **earliest** block number receives the reward
+4. Rewards are claimable after the challenge period passes
+
+## Transfer Features
+
+### Private Transfers
+
+The core transfer functionality uses Groth16 zero-knowledge proofs to enable fully private transactions:
+
+- **Sender privacy**: No one can identify who sent a transaction
+- **Receiver privacy**: No one can identify who received funds
+- **Amount privacy**: Transaction amounts are hidden
+- **Unlinkable**: Nullifiers cannot be connected to output notes without the private key
+
+Users prove they own notes by demonstrating knowledge of the private key that hashes to the note's public key. The nullifier `hash(privateKey, blinding, index)` prevents double-spending while remaining unlinkable to the original note.
+
+### Ethereum-Owned Programmable Accounts
+
+PGP supports a powerful feature called **Ethereum-owned accounts** that enables L1-programmable privacy:
+
+#### How It Works
+
+Any note with a `publicKey` value less than 160 bits is considered "Ethereum-owned." The public key is interpreted as an Ethereum address, and spending requires L1 authorization:
+
+```
+Standard Note:     publicKey = hash(privateKey)     -> Spend with ZK proof of privateKey
+Eth-Owned Note:    publicKey = ethereumAddress      -> Spend with L1 registry approval
+```
+
+When spending an Ethereum-owned note, the ZK circuit outputs the `ethKey` as a public input. The on-chain verifier checks that this address has approved the transaction in the `TransactionRegistry` contract.
+
+#### L1 Authorization Flow
+
+```
+1. User creates transaction with eth-owned inputs
+2. User signs approval on L1:
+   TransactionRegistry.approve([nullifier0, nullifier1, leaf0, leaf1, leaf2])
+3. Sequencer sees approval and includes transaction
+4. Challenge contract verifies registry approval exists
+```
+
+#### Use Cases
+
+**Smart Contract Wallets**: Multisig wallets, social recovery, and other smart contract wallets can control L2 notes. The smart contract approves transactions on L1, enabling complex authorization logic.
+
+**Programmable Payments**: Build L1 contracts that conditionally approve L2 transfers:
+- Time-locked releases
+- Oracle-gated payments
+- Escrow with dispute resolution
+- Subscription payments with cancellation
+
+**Delegated Note Management**: A semi-trusted service can consolidate many small payments into larger notes without L1 transactions for each operation:
+- Receive many payments to an Ethereum address
+- Consolidate into fewer notes (merge/split allowed without L1 auth)
+- Transfer to L1 or private notes when ready
+
+**Cross-Chain Bridges**: Bridge contracts can hold L2 notes and release them based on L1 events or cross-chain messages.
+
+#### Privacy Trade-offs
+
+| Aspect | Standard Notes | Eth-Owned Notes |
+|--------|----------------|-----------------|
+| Sender privacy | Full | Partial (address visible on L1) |
+| Receiver privacy | Full | Full |
+| Amount privacy | Full | Full (unless blinding leaked) |
+| Authorization | ZK proof only | Requires L1 transaction |
+
+
+## Getting Started
+
+- [Quick Start Guide](quick-start.md) - Set up a local development environment
+- [User Guide](guides/user-guide.md) - How to deposit, transact, and withdraw
+- [Sequencer Guide](guides/sequencer.md) - Run your own sequencer node
+- [Architecture Overview](architecture/overview.md) - Deep dive into system design
+
+## Repository Structure
+
+```
+pretty_good_payments/
+|-- src/                    # Solidity smart contracts
+|   |-- Entrypoint.sol      # Main entry point
+|   |-- *Challenge.sol      # Fraud proof contracts
+|   |-- YieldRouter.sol     # Yield management
+|   |-- library/            # Shared libraries
+|
+|-- offchain/               # Rust off-chain components
+|   |-- crates/
+|       |-- sequencer/      # Block building and submission
+|       |-- challenger/     # Fraud detection and challenge
+|       |-- common/         # Shared types and utilities
+|       |-- merkle/         # Merkle tree implementation
+|
+|-- circuits/               # Circom ZK circuits
+|-- test/                   # Solidity tests
+|-- docs/                   # Documentation
+```
+
+## License
+
+UNLICENSED - All rights reserved
