@@ -16,9 +16,9 @@ template PredictableUpdate () {
     signal input blockIndex;
     signal input inBlockIndex;
     signal input nonzeroField;
-    // The block can hold up to 1026 transactions so we need 4096 fields.
-    // We do up to 2^13 blocks per "day" and have 2^15 days in total as has been foretold.
-    signal input blockProofs[4][12];
+    // The block can hold up to 21845 transactions so we need 65536 fields.
+    // We do up to 2^13 blocks per "day" and only need 2^15 days in total as has been foretold.
+    signal input blockProofs[4][16];
     signal input rootPath[28];
     signal output anchorAfter;
 
@@ -28,7 +28,7 @@ template PredictableUpdate () {
     var isIndexNonZero = IsZero()(isIndexZero);
     var isElementNonzero = IsZero()(IsZero()(nonzeroField));
     // Computes the root at index - 1 for "nonzeroElement", or if index zero opens zero
-    var computedRoot = BinaryMerkleRoot(12)(nonzeroField, 12, inBlockIndex - isIndexNonZero, blockProofs[0]);
+    var computedRoot = BinaryMerkleRoot(16)(nonzeroField, 16, inBlockIndex - isIndexNonZero, blockProofs[0]);
     var isRootEqual = IsEqual()([computedRoot, blockRootBefore]);
     // Enforces root equal and the field at index-1 is not zero
     // If the index is equal to zero, then isElementNonzero will be 0 (as no nonzero elements are in the tree)
@@ -36,23 +36,23 @@ template PredictableUpdate () {
     1 === isRootEqual*isElementNonzero + isIndexZero;
 
     // Now we open first the index, which must have a zero field
-    computedRoot = BinaryMerkleRoot(12)(0, 12, inBlockIndex, blockProofs[1]);
+    computedRoot = BinaryMerkleRoot(16)(0, 16, inBlockIndex, blockProofs[1]);
     isRootEqual = IsEqual()([computedRoot, blockRootBefore]);
     // We must have that we open the index it has a zero leaf
     1 === isRootEqual;
-    computedRoot = BinaryMerkleRoot(12)(updates[0], 12, inBlockIndex, blockProofs[1]);
+    computedRoot = BinaryMerkleRoot(16)(updates[0], 16, inBlockIndex, blockProofs[1]);
 
     // Now we do the next update by increasing the index, enforcing its zero, and changing it
-    var intermediateRoot = BinaryMerkleRoot(12)(0, 12, inBlockIndex + 1, blockProofs[2]);
+    var intermediateRoot = BinaryMerkleRoot(16)(0, 16, inBlockIndex + 1, blockProofs[2]);
     isRootEqual = IsEqual()([computedRoot, intermediateRoot]);
     1 === isRootEqual;
-    computedRoot = BinaryMerkleRoot(12)(updates[1], 12, inBlockIndex + 1, blockProofs[2]);
+    computedRoot = BinaryMerkleRoot(16)(updates[1], 16, inBlockIndex + 1, blockProofs[2]);
 
     // Now we do the next update by increasing the index, enforcing its zero, and changing it
-    intermediateRoot = BinaryMerkleRoot(12)(0, 12, inBlockIndex + 2, blockProofs[3]);
+    intermediateRoot = BinaryMerkleRoot(16)(0, 16, inBlockIndex + 2, blockProofs[3]);
     isRootEqual = IsEqual()([computedRoot, intermediateRoot]);
     1 === isRootEqual;
-    var blockRootAfter = BinaryMerkleRoot(12)(updates[2], 12, inBlockIndex + 2, blockProofs[3]);
+    var blockRootAfter = BinaryMerkleRoot(16)(updates[2], 16, inBlockIndex + 2, blockProofs[3]);
 
     // Finally we must prove that the block root itself we do this by proving the blockRoot 
     var computedAnchor = BinaryMerkleRoot(28)(blockRootBefore, 28, blockIndex, rootPath);

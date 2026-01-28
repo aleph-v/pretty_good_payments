@@ -13,17 +13,17 @@ pub mod constants {
     pub const BN254_SCALAR_FIELD: &str =
         "21888242871839275222246405745257275088548364400416034343698204186575808495617";
 
-    /// Maximum transactions per block
-    pub const MAX_TX: usize = 4096;
-
     /// Maximum deposits per block
     pub const MAX_DEPOSITS: usize = 3072;
 
+    /// Maximum leaves per block (2^16 = 65536, matching BLOCK_DEPTH of 16)
+    pub const MAX_LEAVES: usize = 65536;
+
     /// Merkle tree total depth
-    pub const TREE_DEPTH: usize = 40;
+    pub const TREE_DEPTH: usize = 44;
 
     /// Block tree depth (within a single block)
-    pub const BLOCK_DEPTH: usize = 12;
+    pub const BLOCK_DEPTH: usize = 16;
 
     /// Root tree depth (across blocks)
     pub const ROOT_DEPTH: usize = 28;

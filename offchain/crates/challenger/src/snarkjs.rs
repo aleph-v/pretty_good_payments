@@ -51,7 +51,7 @@ impl SnarkjsProver {
     /// * `block_index` - Block index in root tree
     /// * `in_block_index` - Starting index within block tree
     /// * `nonzero_field` - Previous non-zero field (for bounds check)
-    /// * `block_proofs` - Merkle proofs for block tree (4 proofs of 12 elements each)
+    /// * `block_proofs` - Merkle proofs for block tree (4 proofs of 16 elements each)
     /// * `root_path` - Merkle proof for root tree (28 elements)
     ///
     /// # Returns
@@ -64,7 +64,7 @@ impl SnarkjsProver {
         block_index: u64,
         in_block_index: u64,
         nonzero_field: B256,
-        block_proofs: [[B256; 12]; 4],
+        block_proofs: [[B256; 16]; 4],
         root_path: [B256; 28],
     ) -> Result<(B256, Proof)> {
         // Create temp directory for snarkjs files
@@ -326,7 +326,7 @@ fn decimal_to_u256(s: &str) -> Result<U256> {
 /// * `block_index` - Block index in root tree
 /// * `in_block_index` - Starting index within block tree
 /// * `nonzero_field` - Previous non-zero field (for bounds check)
-/// * `block_proofs` - Merkle proofs for block tree (4 proofs of 12 elements each)
+/// * `block_proofs` - Merkle proofs for block tree (4 proofs of 16 elements each)
 /// * `root_path` - Merkle proof for root tree (28 elements)
 ///
 /// # Returns
@@ -341,7 +341,7 @@ pub async fn generate_tree_update_proof(
     block_index: u64,
     in_block_index: u64,
     nonzero_field: B256,
-    block_proofs: [[B256; 12]; 4],
+    block_proofs: [[B256; 16]; 4],
     root_path: [B256; 28],
 ) -> Result<(B256, Proof)> {
     let prover = SnarkjsProver::new(snarkjs_path, wasm_path, zkey_path);
@@ -406,7 +406,7 @@ mod tests {
             block_index: "100".to_string(),
             in_block_index: "0".to_string(),
             nonzero_field: "0".to_string(),
-            block_proofs: vec![vec!["0".to_string(); 12]; 4],
+            block_proofs: vec![vec!["0".to_string(); 16]; 4],
             root_path: vec!["0".to_string(); 28],
         };
 

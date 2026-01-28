@@ -41,7 +41,7 @@ impl TreeUpdateValidator {
     /// # Returns
     /// Tuple of (fraud_evidence, final_block_tree_root)
     /// - fraud_evidence: Vector of fraud evidence for any incorrect tree updates
-    /// - final_block_tree_root: The root of the 12-level block tree after all updates
+    /// - final_block_tree_root: The root of the 16-level block tree after all updates
     ///   (needed for root tree tracking - this is what gets inserted as a leaf in the root tree)
     pub fn validate_block(
         &self,
@@ -373,7 +373,7 @@ impl RootTreeTracker {
     ///
     /// # Arguments
     /// * `tree_index` - The position in the root tree (day * 8192 + block_index_in_day)
-    /// * `block_root` - The root of the 12-level block tree
+    /// * `block_root` - The root of the 16-level block tree
     pub fn insert_block_root(&mut self, tree_index: u64, block_root: B256) -> B256 {
         // Insert the block root at the specific tree index
         self.root_tree.set_leaf(tree_index as usize, block_root);
@@ -413,7 +413,7 @@ impl RootTreeTracker {
     ///
     /// # Arguments
     /// * `tree_index` - The position in the root tree (day * 8192 + block_index_in_day)
-    /// * `block_root` - The root of the 12-level block tree
+    /// * `block_root` - The root of the 16-level block tree
     ///
     /// # Returns
     /// The anchor that would result from inserting this block root
@@ -432,7 +432,7 @@ impl RootTreeTracker {
 /// the 28-level root tree using the sibling path.
 ///
 /// # Arguments
-/// * `block_root` - The root of the 12-level block tree
+/// * `block_root` - The root of the 16-level block tree
 /// * `tree_index` - The position in the root tree
 /// * `root_path` - The 28 sibling hashes for this position
 pub fn compute_anchor_from_path(
@@ -466,7 +466,7 @@ impl Default for RootTreeTracker {
 ///
 /// The PGP merkle tree has a two-level structure:
 /// - Root tree (28 levels): Contains block roots
-/// - Block tree (12 levels): Contains leaves within a block
+/// - Block tree (16 levels): Contains leaves within a block
 ///
 /// Each update inserts 3 leaves into the block tree, then computes the anchor
 /// by hashing the block root up through the root tree path.
@@ -475,7 +475,7 @@ impl Default for RootTreeTracker {
 /// and restore if needed (e.g., if block submission fails).
 #[derive(Clone)]
 pub struct BlockTreeTracker {
-    /// Current block tree (12 levels)
+    /// Current block tree (16 levels)
     block_tree: IncrementalMerkleTree,
     /// Root tree path (28 levels) - stored as sibling hashes for the block position
     root_path: Vec<B256>,
@@ -626,8 +626,8 @@ impl BlockTreeTracker {
         &self,
         in_block_index: usize,
         leaves: [B256; 3],
-    ) -> [[B256; 12]; 4] {
-        let mut proofs = [[B256::ZERO; 12]; 4];
+    ) -> [[B256; 16]; 4] {
+        let mut proofs = [[B256::ZERO; 16]; 4];
 
         // Clone the block tree so we can modify it to generate proofs at different states
         let mut tree = self.block_tree.clone();
@@ -639,14 +639,14 @@ impl BlockTreeTracker {
             0
         };
         if let Ok(proof) = tree.get_proof(pos0) {
-            for (j, sibling) in proof.siblings.iter().take(12).enumerate() {
+            for (j, sibling) in proof.siblings.iter().take(16).enumerate() {
                 proofs[0][j] = *sibling;
             }
         }
 
         // Proof 1: position inBlockIndex from INITIAL tree
         if let Ok(proof) = tree.get_proof(in_block_index) {
-            for (j, sibling) in proof.siblings.iter().take(12).enumerate() {
+            for (j, sibling) in proof.siblings.iter().take(16).enumerate() {
                 proofs[1][j] = *sibling;
             }
         }
@@ -656,7 +656,7 @@ impl BlockTreeTracker {
 
         // Proof 2: position inBlockIndex + 1 from tree AFTER updates[0] inserted
         if let Ok(proof) = tree.get_proof(in_block_index + 1) {
-            for (j, sibling) in proof.siblings.iter().take(12).enumerate() {
+            for (j, sibling) in proof.siblings.iter().take(16).enumerate() {
                 proofs[2][j] = *sibling;
             }
         }
@@ -666,7 +666,7 @@ impl BlockTreeTracker {
 
         // Proof 3: position inBlockIndex + 2 from tree AFTER updates[0] AND updates[1] inserted
         if let Ok(proof) = tree.get_proof(in_block_index + 2) {
-            for (j, sibling) in proof.siblings.iter().take(12).enumerate() {
+            for (j, sibling) in proof.siblings.iter().take(16).enumerate() {
                 proofs[3][j] = *sibling;
             }
         }

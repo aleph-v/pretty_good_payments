@@ -7,7 +7,6 @@ import {PredictableMerkleLib} from "./library/PredictableMerkleLib.sol";
 import {IUpdateVerifier} from "./interfaces/IUpdateVerifier.sol";
 import {
     BlockNotIncluded,
-    DepositIndexOutOfBounds,
     NoFraud,
     NotPartialDepositGroup,
     DepositPaddingIndexOutOfBounds
@@ -62,7 +61,7 @@ contract DepositChallenge is Deposits, SequencerRegistry {
             bytes32 l2blobhash = data.blobhashes[0];
             validateSingle(l2blobhash, commitment, leafAddress, sequencerSubmittedLeaf, proof);
 
-            // We have established that the field at leafAddress is equal to seqeuncerSubmittedLeaf now we check that
+            // We have established that the field at leafAddress is equal to sequencerSubmittedLeaf now we check that
             // this is the wrong value
             bytes32 realLeaf = depositNr >= data.numDeposits ? bytes32(0) : perBlockDeposits[blockNr][depositNr];
             if (realLeaf == sequencerSubmittedLeaf) revert NoFraud();

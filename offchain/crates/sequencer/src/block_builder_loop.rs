@@ -11,7 +11,7 @@
 //! to fill a blob (~273 transactions). Deposits are fetched at build time.
 //!
 //! Tree structure:
-//! - Block tree (12 levels): Fresh for each block, stores deposits + tx outputs
+//! - Block tree (16 levels): Fresh for each block, stores deposits + tx outputs
 //! - Root tree (28 levels): Persistent, stores block roots
 //!
 //! The root tree state is loaded from the database to compute correct anchors.
@@ -103,7 +103,7 @@ pub enum BlockBuildResult {
 /// 7. On failure, returns transactions to the mempool
 ///
 /// The two-level tree structure:
-/// - Block tree (12 levels): Fresh for each block, stores leaves
+/// - Block tree (16 levels): Fresh for each block, stores leaves
 /// - Root tree (28 levels): Loaded from database, stores block roots
 ///
 /// Note: State is updated by the challenger event loop when it processes
@@ -506,7 +506,7 @@ mod tests {
         let config = BlockBuilderConfig::default();
         assert_eq!(config.min_deposits, 0);
         // tree_depth is no longer configurable - it uses the fixed two-level structure
-        // (12-level block tree + 28-level root tree)
+        // (16-level block tree + 28-level root tree)
     }
 
     #[test]

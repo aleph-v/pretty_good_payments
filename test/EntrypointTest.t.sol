@@ -4,7 +4,6 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Entrypoint} from "../src/Entrypoint.sol";
 import {Spine} from "../src/Spine.sol";
-import {Deposits} from "../src/Deposits.sol";
 import {IYieldRouter} from "../src/interfaces/IYieldRouter.sol";
 import {IUpdateVerifier} from "../src/interfaces/IUpdateVerifier.sol";
 import {ITransferVerifier} from "../src/interfaces/ITransferVerifier.sol";

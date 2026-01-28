@@ -21,7 +21,7 @@ const crypto = require("crypto");
 let poseidon = null;
 let F = null;
 
-const BLOCK_DEPTH = 12;
+const BLOCK_DEPTH = 16;
 const ROOT_DEPTH = 28;
 const BLOCKS_PER_DAY = 8192; // 2^13
 

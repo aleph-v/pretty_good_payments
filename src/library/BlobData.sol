@@ -20,10 +20,6 @@ contract BlobData {
     uint256 constant BLS_MODULUS = 52435875175126190479447740508185965837690552500527637822603658699938581184513;
     uint256 immutable ROOT = exp(7, (BLS_MODULUS - 1) / 4096);
 
-    uint256 constant TREE_DEPTH = 40;
-    uint256 constant DAY_DEPTH = 12;
-    uint256 constant BLOCK_DEPTH = 12;
-
     // Used to validate an opening of a region of memory
     struct Region {
         uint256 length;

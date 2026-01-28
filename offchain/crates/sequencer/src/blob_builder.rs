@@ -20,7 +20,7 @@ use alloy::eips::eip4844::{Blob, BYTES_PER_BLOB};
 use alloy_primitives::B256;
 use pgp_challenger::BlockTreeTracker;
 use pgp_common::types::constants::{
-    BLOB_SIZE, DEPOSIT_GROUP_SIZE, MAX_DEPOSITS, MAX_TX, ROOT_DEPTH, TX_SIZE,
+    BLOB_SIZE, DEPOSIT_GROUP_SIZE, MAX_DEPOSITS, MAX_LEAVES, ROOT_DEPTH, TX_SIZE,
 };
 use pgp_common::types::ParsedTransaction;
 
@@ -56,7 +56,7 @@ pub struct BuiltBlock {
 /// Builder for constructing blob data from deposits and transactions.
 ///
 /// Uses the two-level tree structure:
-/// - Block tree (12 levels): Fresh for each block, stores leaves
+/// - Block tree (16 levels): Fresh for each block, stores leaves
 /// - Root tree (28 levels): Persistent, stores block roots
 ///
 /// The `new_root` after each update is the full anchor (root tree root with
@@ -160,11 +160,10 @@ impl BlobBuilder {
         if num_deposits > MAX_DEPOSITS {
             return Err(SequencerError::TooManyDeposits(num_deposits, MAX_DEPOSITS));
         }
-        if num_transactions > MAX_TX {
-            return Err(SequencerError::TooManyTransactions(
-                num_transactions,
-                MAX_TX,
-            ));
+        // Each deposit produces 1 leaf, each transaction produces 3 leaves
+        let total_leaves = num_deposits + num_transactions * 3;
+        if total_leaves > MAX_LEAVES {
+            return Err(SequencerError::TooManyLeaves(total_leaves, MAX_LEAVES));
         }
 
         // Calculate how many blobs we need

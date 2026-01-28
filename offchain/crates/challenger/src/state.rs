@@ -896,7 +896,7 @@ impl StateManager {
     /// # Arguments
     /// * `tree_index` - Position in root tree (day * 8192 + block_index_in_day)
     /// * `block_nr` - Sequential block number (for reference/rollback)
-    /// * `block_root` - The root of the 12-level block tree
+    /// * `block_root` - The root of the 16-level block tree
     pub fn save_block_root(&self, tree_index: u64, block_nr: u64, block_root: B256) -> Result<()> {
         self.conn.execute(
             "INSERT OR REPLACE INTO block_roots (tree_index, block_nr, block_root) VALUES (?1, ?2, ?3)",

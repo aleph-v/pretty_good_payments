@@ -156,9 +156,9 @@ class SparseMerkleTree {
 }
 
 // Constants
-const BLOCK_DEPTH = 12;
+const BLOCK_DEPTH = 16;
 const ROOT_DEPTH = 28;
-const TREE_DEPTH = 40; // For transfer circuit merkle tree
+const TREE_DEPTH = 44; // For transfer circuit merkle tree
 const DOMAIN_SEPARATOR = BigInt("0x8c89ded3cb316b3e2163ee0f7a92095673c65827649008298772837236d62a6e");
 
 function derivePublicKey(privateKey) {

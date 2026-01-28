@@ -12,7 +12,7 @@ import {FakeERC20} from "./mocks/FakeErc20.sol";
 import {FakeZK} from "./mocks/FakeZk.sol";
 import {MockYieldRouter} from "./mocks/MockYieldRouter.sol";
 import {MockTransactionRegistry} from "./mocks/MockTransactionRegistry.sol";
-import {InvalidDepositAmount, MaxDepositsExceeded} from "../src/library/Errors.sol";
+import {InvalidDepositAmount} from "../src/library/Errors.sol";
 
 // Harness to expose internal state and functions
 contract DepositsHarness is Deposits {

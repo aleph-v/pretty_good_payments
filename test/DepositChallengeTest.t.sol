@@ -7,7 +7,6 @@ import {Spine} from "../src/Spine.sol";
 import {FakeBlobs} from "./mocks/FakeBlobs.sol";
 import {
     NoFraud,
-    DepositIndexOutOfBounds,
     NotPartialDepositGroup,
     DepositPaddingIndexOutOfBounds
 } from "../src/library/Errors.sol";

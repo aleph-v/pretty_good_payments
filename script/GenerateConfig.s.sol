@@ -77,7 +77,7 @@ contract GenerateConfig is Script {
 
     function _contractsSection(address entrypoint, address deposits, address registry)
         internal
-        view
+        pure
         returns (string memory)
     {
         string memory registryLine = registry != address(0)

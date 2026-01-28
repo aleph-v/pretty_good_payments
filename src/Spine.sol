@@ -9,7 +9,7 @@ import {ITransactionRegistry} from "./TransactionRegistry.sol";
 import {
     ZeroBlobHash,
     TooManyDeposits,
-    TooManyTransactions,
+    TooManyLeaves,
     InsufficientBlobCapacity,
     EmptyBlock,
     RollbackIndexOutOfBounds,
@@ -24,9 +24,10 @@ import {
 
 contract Spine is BlobData {
     uint256 public constant CHALLENGE_PERIOD = 3600;
-    uint256 public constant MAX_TX = 4096;
     // Each deposit is a single field plus one root for three deposits, and we want them to fit in one blob (3072/3) + 3072 = 4096
     uint256 public constant MAX_DEPOSITS = 3072;
+    // Maximum leaves per block (2^16 = 65536, matching BLOCK_DEPTH of 16)
+    uint256 public constant MAX_LEAVES = 1 << 16;
     bytes32 public immutable GENESIS_ANCHOR;
 
     // Needed in the deposit withdraw libs downstream.
@@ -91,7 +92,9 @@ contract Spine is BlobData {
             data.blobhashes[i] = hash;
         }
         if (data.numDeposits > MAX_DEPOSITS) revert TooManyDeposits();
-        if (data.numTransactions > MAX_TX) revert TooManyTransactions();
+        // Each deposit produces 1 leaf, each transaction produces 3 leaves
+        uint256 totalLeaves = data.numDeposits + data.numTransactions * 3;
+        if (totalLeaves > MAX_LEAVES) revert TooManyLeaves();
         uint256 depositBlobUse = data.numDeposits % 3 == 0 ? (data.numDeposits / 3) * 4 : (data.numDeposits / 3 + 1) * 4;
         if (depositBlobUse + data.numTransactions * 15 >= 4096 * blobIndices.length) revert InsufficientBlobCapacity();
         if (data.numTransactions == 0 && data.numDeposits == 0) revert EmptyBlock();

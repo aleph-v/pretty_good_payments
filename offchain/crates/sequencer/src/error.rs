@@ -18,9 +18,9 @@ pub enum SequencerError {
     #[error("Too many deposits: {0} exceeds maximum {1}")]
     TooManyDeposits(usize, usize),
 
-    /// Too many transactions for the available blob space.
-    #[error("Too many transactions: {0} exceeds maximum {1}")]
-    TooManyTransactions(usize, usize),
+    /// Too many leaves (deposits + transactions * 3) for block capacity.
+    #[error("Too many leaves: {0} exceeds maximum {1}")]
+    TooManyLeaves(usize, usize),
 
     /// Block submission transaction failed.
     #[error("Block submission failed: {0}")]

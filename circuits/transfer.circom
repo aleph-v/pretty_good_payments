@@ -25,9 +25,9 @@ include "comparators.circom";
 template Transfer () {  
 
    // Declaration of signals.  
-   signal input anchor;  
+   signal input anchor;
    signal input indices[2];
-   signal input paths[2][40];
+   signal input paths[2][44];
    signal input notesIn[2][4];
    signal input notesOut[3][4];
    signal input randoms[3];
@@ -42,8 +42,8 @@ template Transfer () {
    var computedLeaf1 = Poseidon(4)(notesIn[1]);
 
    // Compute the roots implied by the proofs and then get indicator vars for root equality.
-   var root1 = BinaryMerkleRoot(40)(computedLeaf0, 40, indices[0], paths[0]);
-   var root2 = BinaryMerkleRoot(40)(computedLeaf1, 40, indices[1], paths[1]);
+   var root1 = BinaryMerkleRoot(44)(computedLeaf0, 44, indices[0], paths[0]);
+   var root2 = BinaryMerkleRoot(44)(computedLeaf1, 44, indices[1], paths[1]);
    var root1_eq = IsEqual()([root1, anchor]);
    root1_eq === 1;
    var root2_eq = IsEqual()([root2, anchor]);

@@ -216,3 +216,6 @@ error NotPartialDepositGroup();
 
 /// @notice Deposit padding index is beyond the partial group boundary
 error DepositPaddingIndexOutOfBounds();
+
+/// @notice Block exceeds maximum leaf capacity (65,536 leaves per block)
+error TooManyLeaves();

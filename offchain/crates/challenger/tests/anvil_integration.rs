@@ -2457,7 +2457,7 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
     use pgp_challenger::snarkjs::SnarkjsProver;
     use pgp_challenger::validators::{FraudEvidence, TreeUpdateValidator};
     use pgp_common::blob::ParsedBlock;
-    use pgp_common::types::constants::BLOB_SIZE;
+    use pgp_common::types::constants::{BLOB_SIZE, BLOCK_DEPTH};
     use std::path::Path;
 
     // Check if snarkjs is available
@@ -2555,11 +2555,11 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
     // Compute the correct zero hashes for the root tree sibling path.
     // The root tree's "zero leaf" is the root of an empty block tree,
     // NOT literal zero. So:
-    // - block_zero_hashes[12] = root of empty 12-level Poseidon tree
-    // - root_zero[0] = block_zero_hashes[12]  (sibling at level 0)
+    // - block_zero_hashes[BLOCK_DEPTH] = root of empty 16-level Poseidon tree
+    // - root_zero[0] = block_zero_hashes[BLOCK_DEPTH]  (sibling at level 0)
     // - root_zero[i] = Poseidon(root_zero[i-1], root_zero[i-1])
-    let block_zero_hashes = pgp_merkle::compute_zero_hashes(12);
-    let empty_block_root = block_zero_hashes[12];
+    let block_zero_hashes = pgp_merkle::compute_zero_hashes(BLOCK_DEPTH);
+    let empty_block_root = block_zero_hashes[BLOCK_DEPTH];
 
     // Compute root tree zero hashes starting from the empty block root
     let mut root_path = [B256::ZERO; 28];

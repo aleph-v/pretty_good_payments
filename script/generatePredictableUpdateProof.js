@@ -141,7 +141,7 @@ async function main() {
     await initPoseidon();
 
     // Circuit depths
-    const BLOCK_DEPTH = 12; // 2^12 = 4096 elements in a block
+    const BLOCK_DEPTH = 16; // 2^16 = 65536 elements in a block
     const ROOT_DEPTH = 28;  // Root tree depth
 
     // Pre-compute zero hashes

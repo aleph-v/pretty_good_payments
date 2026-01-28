@@ -248,7 +248,7 @@ contract DeployTestnet is Script {
         );
     }
 
-    function _contractsSection(address entrypoint, address registry) internal view returns (string memory) {
+    function _contractsSection(address entrypoint, address registry) internal pure returns (string memory) {
         return string.concat(
             "[contracts]\n",
             "entrypoint = \"",
@@ -491,7 +491,7 @@ contract DeployTestnet is Script {
         address yieldRouter,
         bytes32 genesis,
         uint256 chainId
-    ) internal view {
+    ) internal pure {
         string memory cid = vm.toString(chainId);
 
         console.log("");

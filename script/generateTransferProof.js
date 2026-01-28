@@ -153,7 +153,7 @@ async function main() {
         }
     }
 
-    const TREE_DEPTH = 40;
+    const TREE_DEPTH = 44;
     const zeroHashes = computeZeroHashes(TREE_DEPTH);
     const tree = new SparseMerkleTree(TREE_DEPTH, zeroHashes);
 

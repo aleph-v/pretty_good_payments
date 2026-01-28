@@ -7,11 +7,11 @@ import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 /// @notice Library for computing the root of an empty merkle tree
 /// @dev Uses Poseidon hashing consistent with PredictableMerkleLib
 library ZeroTree {
-    uint256 constant TREE_DEPTH = 40;
+    uint256 constant TREE_DEPTH = 44;
 
     /// @notice Computes the root of an empty merkle tree (all zero leaves)
     /// @dev Zero leaf = 0 (constant), then recursively hash up the tree
-    /// @return The root hash of an empty tree with depth 40
+    /// @return The root hash of an empty tree with depth 44
     function computeZeroTreeRoot() internal pure returns (bytes32) {
         // Start with constant 0 as the leaf value (not a hash of zero leaf)
         bytes32 currentHash = bytes32(0);

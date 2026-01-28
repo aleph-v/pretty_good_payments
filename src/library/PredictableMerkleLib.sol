@@ -55,8 +55,6 @@ library Bytes32Poseidon {
 /// @notice Library for verifying merkle tree updates and computing leaf hashes
 /// @dev Uses Groth16 ZK proofs for efficient on-chain verification of 3-element batch updates
 library PredictableMerkleLib {
-    uint256 constant TREE_DEPTH = 40;
-
     using Bytes32Poseidon for bytes32[2];
     using Bytes32Poseidon for bytes32[4];
 

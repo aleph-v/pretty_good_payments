@@ -34,8 +34,8 @@ pub struct TreeUpdateMerkleData {
     /// Previous non-zero field value (for circuit bounds check)
     pub nonzero_field: B256,
     /// Merkle proofs for the 4 positions being updated in block tree
-    /// Each proof has 12 sibling hashes (BLOCK_DEPTH = 12)
-    pub block_proofs: [[B256; 12]; 4],
+    /// Each proof has 16 sibling hashes (BLOCK_DEPTH = 16)
+    pub block_proofs: [[B256; 16]; 4],
     /// Sibling hashes for the block's position in the root tree
     /// Has 28 elements (ROOT_DEPTH = 28)
     pub root_path: [B256; 28],

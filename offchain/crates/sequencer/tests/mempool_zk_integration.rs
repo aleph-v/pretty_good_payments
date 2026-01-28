@@ -32,15 +32,13 @@ use tempfile::TempDir;
 use pgp_challenger::{validators::NullifierValidator, StateManager};
 use pgp_common::blob::ParsedBlock;
 use pgp_common::contracts::{BlockData, Entrypoint, FakeERC20, Leaf, TransactionChallenge};
-use pgp_common::types::constants::BLOB_SIZE;
+use pgp_common::types::constants::{BLOB_SIZE, TREE_DEPTH};
 use pgp_common::types::{Groth16Proof, ParsedTransaction};
 use pgp_merkle::{poseidon2, poseidon3, poseidon4, IncrementalMerkleTree};
 use pgp_sequencer::{
     try_build_and_submit_block, BlockBuildResult, BlockBuilderConfig, BlockSubmitter, BuiltBlob,
     Mempool, SubmitterConfig,
 };
-
-const TREE_DEPTH: usize = 40;
 
 // Domain separator for public key derivation: Keccak256("Pretty Good Transfer Protocol V1")
 // Original value: 0x8c89ded3cb316b3e2163ee0f7a92095673c65827649008298772837236d62a6e
