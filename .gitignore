@@ -18,3 +18,5 @@ lib
 
 offchain/target
 broadcast/
+
+./verify-contracts.sh

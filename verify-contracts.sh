@@ -20,7 +20,7 @@ CHAIN_ID=11155111
 
 echo "Verifying TestnetERC20..."
 forge verify-contract \
-  0xc536052267Ec6518aa6EAd883373a807DF7A0A59 \
+  0xEac15c43e01c7d63465E6ed11E319d9FE6f2d15e \
   test/mocks/TestnetERC20.sol:TestnetERC20 \
   --chain-id $CHAIN_ID \
   --constructor-args $(cast abi-encode "constructor(string,string)" "PGP Testnet Token" "tPGP") \
@@ -29,32 +29,32 @@ forge verify-contract \
 
 echo "Verifying TestnetERC4626..."
 forge verify-contract \
-  0x2b68F6e432C2F0bef759a1C246c881AcC42184Db \
+  0xb98f856ACF379a55147FB6ACbF5341248D23D4e1 \
   test/mocks/TestnetERC4626.sol:TestnetERC4626 \
   --chain-id $CHAIN_ID \
-  --constructor-args $(cast abi-encode "constructor(address,string,string)" 0xc536052267Ec6518aa6EAd883373a807DF7A0A59 "PGP Testnet Vault" "vtPGP") \
+  --constructor-args $(cast abi-encode "constructor(address,string,string)" 0xEac15c43e01c7d63465E6ed11E319d9FE6f2d15e "PGP Testnet Vault" "vtPGP") \
   --etherscan-api-key $ETHERSCAN_API_KEY \
   --watch
 
-echo "Verifying FakeZK (Transfer Verifier)..."
+echo "Verifying TransferVerifier..."
 forge verify-contract \
-  0x6782693b0a7b450948bfA101329A2b2929353AD7 \
-  test/mocks/FakeZk.sol:FakeZK \
+  0xA8EE1a1C427C8fB13aA928537e63eEA4aEbcb4f7 \
+  circuits/verifiers/transferVerifier.sol:TransferVerifier \
   --chain-id $CHAIN_ID \
   --etherscan-api-key $ETHERSCAN_API_KEY \
   --watch
 
-echo "Verifying FakeZK (Update Verifier)..."
+echo "Verifying UpdateVerifier..."
 forge verify-contract \
-  0x5c69Bdd1e6120a80d08500963b96136544d297e6 \
-  test/mocks/FakeZk.sol:FakeZK \
+  0x07F24695Afb26C38FBe2A59A0b50A6Cf3E5131Bb \
+  circuits/verifiers/predictableUpdateVerifier.sol:UpdateVerifier \
   --chain-id $CHAIN_ID \
   --etherscan-api-key $ETHERSCAN_API_KEY \
   --watch
 
 echo "Verifying TransactionRegistry..."
 forge verify-contract \
-  0x7774417833e30b77CaF241E7f0dee377cC283D4B \
+  0x23cD6560d1e47Be7ed6882664FE8dA3BCD559c76 \
   src/TransactionRegistry.sol:TransactionRegistry \
   --chain-id $CHAIN_ID \
   --etherscan-api-key $ETHERSCAN_API_KEY \
@@ -62,19 +62,19 @@ forge verify-contract \
 
 echo "Verifying Entrypoint..."
 forge verify-contract \
-  0x9874051f38419A3843B01f4Cc8cC40435d663C40 \
+  0xB010a041b288119b5a5607e070D0872b3c9ac958 \
   src/Entrypoint.sol:Entrypoint \
   --chain-id $CHAIN_ID \
-  --constructor-args $(cast abi-encode "constructor(bytes32,address,address,address,address)" 0x1a6be2423333965b4780e29f3cbe0139e6d50a4d1f5c9ca30f04f2e86d944cf3 0xb516a1861e425b60FC865F6107a1EdC957B0bdd0 0x5c69Bdd1e6120a80d08500963b96136544d297e6 0x6782693b0a7b450948bfA101329A2b2929353AD7 0x7774417833e30b77CaF241E7f0dee377cC283D4B) \
+  --constructor-args $(cast abi-encode "constructor(bytes32,address,address,address,address)" 0x1a6be2423333965b4780e29f3cbe0139e6d50a4d1f5c9ca30f04f2e86d944cf3 0xD4A7724f5a620365cfFe2c2Cbe6aA0C3A56c0965 0x07F24695Afb26C38FBe2A59A0b50A6Cf3E5131Bb 0xA8EE1a1C427C8fB13aA928537e63eEA4aEbcb4f7 0x23cD6560d1e47Be7ed6882664FE8dA3BCD559c76) \
   --etherscan-api-key $ETHERSCAN_API_KEY \
   --watch
 
 echo "Verifying YieldRouter..."
 forge verify-contract \
-  0xb516a1861e425b60FC865F6107a1EdC957B0bdd0 \
+  0xD4A7724f5a620365cfFe2c2Cbe6aA0C3A56c0965 \
   src/YieldRouter.sol:YieldRouter \
   --chain-id $CHAIN_ID \
-  --constructor-args $(cast abi-encode "constructor(uint256,uint256,address,address[])" 86400 48 0x9874051f38419A3843B01f4Cc8cC40435d663C40 "[0xc536052267Ec6518aa6EAd883373a807DF7A0A59]") \
+  --constructor-args $(cast abi-encode "constructor(uint256,uint256,address,address[])" 86400 48 0xB010a041b288119b5a5607e070D0872b3c9ac958 "[0xEac15c43e01c7d63465E6ed11E319d9FE6f2d15e]") \
   --etherscan-api-key $ETHERSCAN_API_KEY \
   --watch
 

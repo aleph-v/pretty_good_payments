@@ -10,7 +10,7 @@ Pretty Good Payments (PGP) is a Layer 2 payment system that enables private tran
 - **Free transactions**: Users pay nothing - sequencers are compensated through yield generated on deposited funds
 - **High throughput**: Up to 400 transactions per second on Ethereum mainnet using EIP-4844 blobs
 - **Low cost**: 0.01 to 0.0001 cents per transaction depending on network conditions
-- **Decentralized**: Open sequencer registration with stake-based security
+- **Decentralized**: Open sequencer registration with an slashable stake to discourage spam.
 
 ## How It Works
 
@@ -88,6 +88,8 @@ When fraud is proven:
    - 50% is burned (prevents collusion)
 3. Only the challenger who proves fraud at the **earliest** block number receives the reward
 4. Rewards are claimable after the challenge period passes
+
+Note that the fraud slashing mechanic is not required to ensure security, it creates economic incentives to avoid spamming fraud and to incentive challenge submission in high gas regimes, but overall the system is also secure running with zero stake requirement if sufficient challengers exist.
 
 ## Transfer Features
 

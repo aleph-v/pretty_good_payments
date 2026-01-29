@@ -14,9 +14,9 @@ beacon_url = "http://localhost:5052"
 chain_id = 11155111
 
 [contracts]
-entrypoint = "0xea3E5A86Ad844A488081E6a23F7D7f931b7CDb3e"
-deposits = "0xea3E5A86Ad844A488081E6a23F7D7f931b7CDb3e"
-transaction_registry = "0xD1c1341a7B5842F36baef315b373a5Cf6F0Ed2bC"
+entrypoint = "0xB010a041b288119b5a5607e070D0872b3c9ac958"
+deposits = "0xB010a041b288119b5a5607e070D0872b3c9ac958"
+transaction_registry = "0x23cD6560d1e47Be7ed6882664FE8dA3BCD559c76"
 
 [keys]
 sequencer_private_key = "${SEQUENCER_PRIVATE_KEY}"
