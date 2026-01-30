@@ -101,8 +101,11 @@ contract TransactionChallenge is Spine, SequencerRegistry {
 
         bool noFraud = anchorBlockNr <= data.blockNr;
         if (anchorBlockNr == data.blockNr) {
-            // If we are loading a tx in the same block we require it is less than this tx (or that it is a deposit)
-            noFraud = noFraud && (anchorUpdateNr < txNr || isDeposit);
+            // If we are loading a transaction in the same block we will reference the anchor before the transaction nr
+            // so in this case we need less than or equal to the transaction nr. If they are equal the validatePriorAnchor
+            // refers to the anchor exactly before this transaction, meaning it is a sequential output. (which we don't recommend
+            // as you loose some anonymity)
+            noFraud = noFraud && (anchorUpdateNr <= txNr || isDeposit);
         }
 
         // If the transaction has not been set with invalid update or block numbers then we check that the challenger

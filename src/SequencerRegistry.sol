@@ -45,14 +45,12 @@ contract SequencerRegistry is Spine, Ownable {
     /// @return True if sequencer can submit blocks now
     function isAllowed(address sequencer) public view returns (bool) {
         (uint256 current, bool isClosed) = currentEpoch();
-        if (isClosed) {
-            uint256 len = firstLookSequencers.length;
-            if (len == 0) {
-                return (true);
-            }
-            return (sequencer == firstLookSequencers[current % len]);
-        }
-        return sequencers[sequencer].isActive && (sequencers[sequencer].stakeAmount >= requiredStake);
+        bool active = sequencers[sequencer].isActive && (sequencers[sequencer].stakeAmount >= requiredStake);
+        if (isClosed && firstLookSequencers.length != 0) {
+            return (sequencer == firstLookSequencers[current % firstLookSequencers.length] && active);
+        } else {
+            return active;
+        }    
     }
 
     /// @notice Returns current epoch number and whether we're in the closed (priority) period
@@ -76,7 +74,6 @@ contract SequencerRegistry is Spine, Ownable {
     /// @dev Stake is stored in units of STAKE_DIVISOR (10^14 wei). Reverts if already challenged.
     function fund() external payable {
         if (sequencers[msg.sender].challenger != address(0)) revert AlreadyChallenged();
-        // TODO Need to trigger deposit into the yield system
         sequencers[msg.sender].isActive = true;
         sequencers[msg.sender].stakeAmount += uint64(msg.value / STAKE_DIVISOR);
     }

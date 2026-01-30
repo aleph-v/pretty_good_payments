@@ -240,9 +240,63 @@ contract SequencerRegistryTest is Test {
         vm.prank(sequencer1);
         harness.fund{value: 20 ether}();
 
-        // Empty priority list during closed period allows anyone
+        // Empty priority list during closed period allows active sequencers with stake
         assertTrue(harness.isAllowed(sequencer1));
-        assertTrue(harness.isAllowed(address(0x9999)));
+        // But NOT arbitrary addresses without stake
+        assertFalse(harness.isAllowed(address(0x9999)));
+    }
+
+    function test_IsAllowedEmptyPriorityList_RequiresStake() public {
+        // Fund with less than required stake (20 ether / 10^14 = 200000 units required)
+        vm.prank(sequencer1);
+        harness.fund{value: 1 ether}(); // Only 10000 units, less than 200000 required
+
+        // Should not be allowed - insufficient stake
+        assertFalse(harness.isAllowed(sequencer1));
+
+        // Add more stake to meet requirement
+        vm.prank(sequencer1);
+        harness.fund{value: 19 ether}(); // Now has 200000 units
+
+        // Should be allowed now
+        assertTrue(harness.isAllowed(sequencer1));
+    }
+
+    function test_IsAllowedEmptyPriorityList_RequiresActive() public {
+        // Fund sequencer
+        vm.prank(sequencer1);
+        harness.fund{value: 20 ether}();
+        assertTrue(harness.isAllowed(sequencer1));
+
+        // Register exit (deactivates sequencer)
+        vm.prank(sequencer1);
+        harness.registerExit();
+
+        // Should no longer be allowed - not active
+        assertFalse(harness.isAllowed(sequencer1));
+    }
+
+    function test_IsAllowedEmptyPriorityList_BothClosedAndOpenPeriod() public {
+        uint256 epochLength = harness.getEpochLength();
+
+        // Fund sequencer with sufficient stake
+        vm.prank(sequencer1);
+        harness.fund{value: 20 ether}();
+
+        // Closed period (first half of epoch) - should be allowed
+        assertTrue(harness.isAllowed(sequencer1));
+
+        // Unfunded address - should NOT be allowed even with no priority list
+        assertFalse(harness.isAllowed(address(0x9999)));
+
+        // Move to open period (>50% into epoch)
+        vm.warp(block.timestamp + epochLength / 2 + 1);
+
+        // Should still be allowed in open period
+        assertTrue(harness.isAllowed(sequencer1));
+
+        // Unfunded address - still not allowed
+        assertFalse(harness.isAllowed(address(0x9999)));
     }
 
     function test_IsAllowedOpenPeriod() public {
