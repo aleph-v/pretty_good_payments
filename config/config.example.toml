@@ -25,12 +25,6 @@ chain_id = 31337
 # Entrypoint contract address (main PGP contract)
 entrypoint = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 
-# Deposits contract address
-deposits = "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512"
-
-# Transaction registry contract address (optional, for eth-key authorization)
-# transaction_registry = "0x..."
-
 [keys]
 # Private keys for sequencer and challenger (separate wallets allow different ETH balances)
 # SECURITY: Use environment variables in production!
@@ -71,11 +65,6 @@ max_challenge_retries = 5
 # ZK circuit verification keys (for validating transfer proofs)
 transfer_verification_key = "circuits/outputs/transfer/transferVKey.json"
 update_verification_key = "circuits/outputs/predictableUpdate/predictableUpdateVKey.json"
-
-# Snarkjs configuration (for generating fraud proofs)
-snarkjs_path = "snarkjs"
-circuit_wasm_path = "circuits/outputs/predictableUpdate/predictableUpdate_js/predictableUpdate.wasm"
-circuit_zkey_path = "circuits/outputs/predictableUpdate/predictableUpdate.zkey"
 
 [storage]
 # SQLite database path for persistent state (nullifier tracking, processed blocks)

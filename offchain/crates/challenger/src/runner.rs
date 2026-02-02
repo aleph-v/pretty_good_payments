@@ -12,10 +12,10 @@ use tracing::{debug, error, info, warn};
 use crate::{
     beacon::{create_production_blob_provider, BlobProvider},
     challenge::{memory, BlobWithHash, ChallengeBuilder, ChallengeSubmitter},
+    circom_prover::RustCircomProver,
     contracts,
     events::ChainEvent,
     groth16::Groth16Verifier,
-    snarkjs::SnarkjsProver,
     state::StateManager,
     validators::{
         AnchorLookup, DepositValidator, FraudEvidence, NullifierValidator, RootTreeTracker,
@@ -100,10 +100,10 @@ pub struct ChallengerRunner<P> {
     challenge_builder: Option<ChallengeBuilder>,
     challenge_submitter: Option<ChallengeSubmitter<P>>,
     blob_provider: Arc<dyn BlobProvider>,
-    snarkjs_prover: SnarkjsProver,
+    circom_prover: RustCircomProver,
 
     // Configuration
-    deposits_address: Address,
+    entrypoint_address: Address,
     registry_address: Address,
     genesis_anchor: B256,
     max_retries: i32,
@@ -242,20 +242,12 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
             None
         };
 
-        // Initialize snarkjs prover for tree update challenges
-        let snarkjs_prover = {
-            let snarkjs_path = config.snarkjs_path();
-            let wasm_path = config.circuit_wasm_path();
+        // Initialize pure Rust circom prover for tree update challenges
+        let circom_prover = {
             let zkey_path = config.circuit_zkey_path();
-            info!("Initializing snarkjs prover for tree update challenges");
-            info!("  snarkjs: {}", snarkjs_path);
-            info!("  wasm: {}", wasm_path);
+            info!("Initializing pure Rust circom prover for tree update challenges");
             info!("  zkey: {}", zkey_path);
-            SnarkjsProver::new(
-                snarkjs_path,
-                std::path::Path::new(wasm_path),
-                std::path::Path::new(zkey_path),
-            )
+            RustCircomProver::new(std::path::Path::new(zkey_path))
         };
 
         Ok(Self {
@@ -270,8 +262,8 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
             challenge_builder,
             challenge_submitter,
             blob_provider,
-            snarkjs_prover,
-            deposits_address: config.deposits_address(),
+            circom_prover,
+            entrypoint_address: config.entrypoint_address(),
             registry_address: config
                 .transaction_registry_address()
                 .unwrap_or(Address::ZERO),
@@ -399,7 +391,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 // Fetch expected deposits
                 let expected_deposits = contracts::fetch_expected_deposits(
                     self.provider.clone(),
-                    self.deposits_address,
+                    self.entrypoint_address,
                     new_root.block_number,
                 )
                 .await?;
@@ -914,7 +906,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                     block_data.blockNr, update_nr
                 );
 
-                let prover = &self.snarkjs_prover;
+                let prover = &self.circom_prover;
 
                 let merkle = merkle_data
                     .as_ref()

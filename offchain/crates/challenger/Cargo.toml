@@ -61,8 +61,12 @@ lru.workspace = true
 # Crypto - SHA2 for versioned hash computation
 sha2.workspace = true
 
-# Async util for proof generation
-tempfile = "3"
+# Circom proof generation (pure Rust)
+circom-prover.workspace = true
+rust-witness.workspace = true
+
+[build-dependencies]
+rust-witness.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

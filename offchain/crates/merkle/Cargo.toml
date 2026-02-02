@@ -14,6 +14,7 @@ alloy-primitives.workspace = true
 
 # Utilities
 thiserror.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 hex.workspace = true

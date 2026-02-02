@@ -10,23 +10,23 @@ use tracing::debug;
 
 use pgp_common::contracts::{Deposits, Entrypoint};
 
-/// Fetches all expected deposits for a given L2 block number from the Deposits contract.
+/// Fetches all expected deposits for a given L2 block number from the Entrypoint contract.
 ///
 /// Uses the `getDepositArray` function to fetch all deposits in a single call.
 ///
 /// # Arguments
 /// * `provider` - The Ethereum provider
-/// * `deposits_address` - Address of the Deposits contract
+/// * `entrypoint_address` - Address of the Entrypoint contract (which handles deposits)
 /// * `block_nr` - The L2 block number to fetch deposits for
 ///
 /// # Returns
 /// A vector of deposit leaf hashes in the order they were added
 pub async fn fetch_expected_deposits<P: Provider + Clone>(
     provider: P,
-    deposits_address: Address,
+    entrypoint_address: Address,
     block_nr: U256,
 ) -> Result<Vec<B256>> {
-    let deposits_contract = Deposits::new(deposits_address, provider);
+    let deposits_contract = Deposits::new(entrypoint_address, provider);
 
     let expected_deposits = deposits_contract.getDepositArray(block_nr).call().await?;
 
@@ -44,11 +44,11 @@ pub async fn fetch_expected_deposits<P: Provider + Clone>(
 /// Returns None if the deposit doesn't exist (contract reverts).
 pub async fn fetch_deposit_at_index<P: Provider + Clone>(
     provider: P,
-    deposits_address: Address,
+    entrypoint_address: Address,
     block_nr: U256,
     index: U256,
 ) -> Result<Option<B256>> {
-    let deposits_contract = Deposits::new(deposits_address, provider);
+    let deposits_contract = Deposits::new(entrypoint_address, provider);
 
     match deposits_contract
         .perBlockDeposits(block_nr, index)

@@ -54,6 +54,10 @@ hex = "0.4"
 # Bigint for VK parsing
 num-bigint = "0.4"
 
+# Circom proof generation (pure Rust)
+circom-prover = "0.1"
+rust-witness = "0.1"
+
 # HTTP client
 reqwest = { version = "0.12", features = ["json"] }
 

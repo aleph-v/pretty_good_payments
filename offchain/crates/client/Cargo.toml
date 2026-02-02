@@ -1,0 +1,51 @@
+[package]
+name = "pgp-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "pgp_client"
+path = "src/lib.rs"
+
+[[bin]]
+name = "pgp-client"
+path = "src/main.rs"
+
+[dependencies]
+# Internal crates
+pgp-common = { path = "../common" }
+pgp-merkle = { path = "../merkle" }
+
+# Ethereum
+alloy.workspace = true
+alloy-primitives = { workspace = true, features = ["serde"] }
+
+# Async
+tokio.workspace = true
+
+# CLI
+clap.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# HTTP client
+reqwest.workspace = true
+
+# Utilities
+eyre.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+hex.workspace = true
+
+# Crypto
+sha2.workspace = true
+
+# File paths
+dirs = "5"
+
+[dev-dependencies]
+tempfile.workspace = true

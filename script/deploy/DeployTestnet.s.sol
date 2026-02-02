@@ -23,8 +23,8 @@ import {TestnetERC4626} from "../../test/mocks/TestnetERC4626.sol";
 ///
 /// Usage:
 ///   forge script script/deploy/DeployTestnet.s.sol:DeployTestnet \
-///     --rpc-url <RPC_URL> \
-///     --private-key <PRIVATE_KEY> \
+///     --rpc-url $RPC_URL \
+///     --private-key $PRIVATE_KEY \
 ///     --broadcast
 contract DeployTestnet is Script {
     // Period length: 1 day in seconds
@@ -255,9 +255,6 @@ contract DeployTestnet is Script {
             "entrypoint = \"",
             vm.toString(entrypoint),
             "\"\n",
-            "deposits = \"",
-            vm.toString(entrypoint),
-            "\"\n", // Same contract for now
             "transaction_registry = \"",
             vm.toString(registry),
             "\"\n\n"

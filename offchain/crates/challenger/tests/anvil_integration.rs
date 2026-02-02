@@ -2388,7 +2388,7 @@ fn deploy_contracts_with_real_zk(rpc_url: &str, private_key: &str) -> Result<Dep
     })
 }
 
-/// Create a test context with real ZK verifier for snarkjs integration tests
+/// Create a test context with real ZK verifier for circom-prover integration tests
 pub async fn setup_test_context_with_real_zk() -> Result<Option<TestContext<impl Provider + Clone>>>
 {
     // Skip if forge is not available
@@ -2443,32 +2443,22 @@ pub async fn setup_test_context_with_real_zk() -> Result<Option<TestContext<impl
     }))
 }
 
-/// Test: Tree Update fraud E2E with real snarkjs proof generation
+/// Test: Tree Update fraud E2E with real ZK proof generation
 ///
 /// This test:
 /// 1. Submits a block with an incorrect tree update anchor (deposit group)
 /// 2. Detects the fraud using TreeUpdateValidator
-/// 3. Uses SnarkjsProver to generate a real ZK proof proving the correct anchor
+/// 3. Uses RustCircomProver to generate a real ZK proof proving the correct anchor
 /// 4. Builds and submits the challenge
 /// 5. Verifies the sequencer was slashed
 #[tokio::test]
-async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
+async fn test_tree_update_fraud_e2e_with_circom_prover() -> Result<()> {
     use pgp_challenger::challenge::{ChallengeBuilder, ChallengeSubmitter};
-    use pgp_challenger::snarkjs::SnarkjsProver;
+    use pgp_challenger::circom_prover::RustCircomProver;
     use pgp_challenger::validators::{FraudEvidence, TreeUpdateValidator};
     use pgp_common::blob::ParsedBlock;
     use pgp_common::types::constants::{BLOB_SIZE, BLOCK_DEPTH};
     use std::path::Path;
-
-    // Check if snarkjs is available
-    if std::process::Command::new("npx")
-        .args(["snarkjs", "--version"])
-        .output()
-        .is_err()
-    {
-        eprintln!("Skipping test: snarkjs not found (run `npm install snarkjs`)");
-        return Ok(());
-    }
 
     // Check if circuit files exist
     let wasm_path = Path::new(
@@ -2476,17 +2466,17 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
     );
     let zkey_path = Path::new("../../../circuits/outputs/predictableUpdate/predictableUpdate.zkey");
 
-    if !wasm_path.exists() || !zkey_path.exists() {
-        eprintln!("Skipping test: circuit files not found at {wasm_path:?} and {zkey_path:?}");
+    if !zkey_path.exists() || !wasm_path.exists() {
+        eprintln!("Skipping test: circuit files not found at {zkey_path:?} or {wasm_path:?}");
         return Ok(());
     }
 
-    // Use setup with real ZK verifier for snarkjs proofs
+    // Use setup with real ZK verifier for circom proofs
     let Some(ctx) = setup_test_context_with_real_zk().await? else {
         return Ok(());
     };
 
-    println!("\n=== Tree Update Fraud E2E Test with snarkjs ===\n");
+    println!("\n=== Tree Update Fraud E2E Test with RustCircomProver ===\n");
 
     // Setup: Register sequencer and advance to open period
     ctx.register_sequencer().await?;
@@ -2610,20 +2600,24 @@ async fn test_tree_update_fraud_e2e_with_snarkjs() -> Result<()> {
     assert_eq!(update_nr, 0, "Should be first update");
     println!("✓ Fraud evidence: update_nr={update_nr}, expected_anchor={expected_anchor:?}");
 
-    // Generate ZK proof using snarkjs
-    println!("Generating ZK proof with snarkjs...");
+    // Generate ZK proof using pure Rust circom-prover
+    println!("Generating ZK proof with RustCircomProver...");
     println!("  prior_anchor: {prior_anchor:?}");
     println!("  block_root_before: {:?}", merkle_data.block_root_before);
     println!("  leaves: {leaves:?}");
     println!("  block_index: {}", merkle_data.block_index);
     println!("  in_block_index: {}", merkle_data.in_block_index);
     println!("  nonzero_field: {:?}", merkle_data.nonzero_field);
-    println!("  block_proofs[0][0]: {:?}", merkle_data.block_proofs[0][0]);
-    println!("  root_path[0]: {:?}", merkle_data.root_path[0]);
+    println!("  block_proofs[0][0..4]: {:?}", &merkle_data.block_proofs[0][0..4]);
+    println!("  block_proofs[1][0..4]: {:?}", &merkle_data.block_proofs[1][0..4]);
+    println!("  block_proofs[2][0..4]: {:?}", &merkle_data.block_proofs[2][0..4]);
+    println!("  block_proofs[3][0..4]: {:?}", &merkle_data.block_proofs[3][0..4]);
+    println!("  root_path[0..4]: {:?}", &merkle_data.root_path[0..4]);
 
-    let snarkjs_prover = SnarkjsProver::new("npx snarkjs", wasm_path, zkey_path);
+    // Use native rust-witness for fast proof generation
+    let circom_prover = RustCircomProver::new(zkey_path);
 
-    let (true_anchor, zk_proof) = snarkjs_prover
+    let (true_anchor, zk_proof) = circom_prover
         .generate_update_proof(
             prior_anchor,
             merkle_data.block_root_before,

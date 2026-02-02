@@ -19,4 +19,6 @@ lib
 offchain/target
 broadcast/
 
-./verify-contracts.sh
+verify-contracts.sh
+prepared_blocks.json
+script/demo

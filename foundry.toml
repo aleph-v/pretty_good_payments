@@ -8,6 +8,7 @@ no_match_coverage = "test/*"
 via_ir = true
 optimizer = true
 optimizer_runs = 20000
+solc = "0.8.28"
 
 [lint]
 exclude_lints = [

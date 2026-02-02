@@ -65,7 +65,6 @@ async fn main() -> Result<()> {
     info!("  RPC URL: {}", config.network.rpc_url);
     info!("  Chain ID: {}", config.network.chain_id);
     info!("  Entrypoint: {:?}", config.contracts.entrypoint);
-    info!("  Deposits: {:?}", config.contracts.deposits);
     info!("  Database: {}", config.storage.database_path);
     info!("  Dry run: {}", config.challenger.dry_run);
 
@@ -73,10 +72,6 @@ async fn main() -> Result<()> {
     if config.contracts.entrypoint == Address::ZERO {
         error!("Entrypoint address must be configured");
         return Err(eyre::eyre!("Entrypoint address not configured"));
-    }
-    if config.contracts.deposits == Address::ZERO {
-        error!("Deposits address must be configured");
-        return Err(eyre::eyre!("Deposits address not configured"));
     }
 
     // Validate private key requirement for challenge submission

@@ -86,7 +86,6 @@ async fn main() -> Result<()> {
     info!("  RPC URL: {}", config.network.rpc_url);
     info!("  Chain ID: {}", config.network.chain_id);
     info!("  Entrypoint: {:?}", config.contracts.entrypoint);
-    info!("  Deposits: {:?}", config.contracts.deposits);
     info!("  Database: {}", config.storage.database_path);
     info!("  API listen: {}", api_listen_addr);
     info!(
@@ -98,9 +97,6 @@ async fn main() -> Result<()> {
     // Validate configuration
     if config.contracts.entrypoint == Address::ZERO {
         return Err(eyre::eyre!("Entrypoint address must be configured"));
-    }
-    if config.contracts.deposits == Address::ZERO {
-        return Err(eyre::eyre!("Deposits address must be configured"));
     }
 
     // Validate private key requirement for block submission

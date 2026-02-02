@@ -10,13 +10,12 @@ contract GenerateConfig is Script {
     function run() external {
         // Read deployed addresses from environment
         address entrypoint = vm.envAddress("ENTRYPOINT_ADDRESS");
-        address deposits = vm.envOr("DEPOSITS_ADDRESS", entrypoint); // Default to entrypoint if not set
         address registry = vm.envOr("TRANSACTION_REGISTRY_ADDRESS", address(0));
         string memory rpcUrl = vm.envOr("RPC_URL", string("http://localhost:8545"));
         uint256 chainId = block.chainid;
 
         // Generate unified config file
-        string memory config = generateUnifiedConfig(entrypoint, deposits, registry, rpcUrl, chainId);
+        string memory config = generateUnifiedConfig(entrypoint, registry, rpcUrl, chainId);
 
         // Ensure config directory exists
         vm.createDir("config", true);
@@ -28,7 +27,6 @@ contract GenerateConfig is Script {
 
     function generateUnifiedConfig(
         address entrypoint,
-        address deposits,
         address registry,
         string memory rpcUrl,
         uint256 chainId
@@ -36,7 +34,7 @@ contract GenerateConfig is Script {
         return string.concat(
             _header(chainId),
             _networkSection(rpcUrl, chainId),
-            _contractsSection(entrypoint, deposits, registry),
+            _contractsSection(entrypoint, registry),
             _keysSection(),
             _sequencerSection(),
             _challengerSection(),
@@ -75,7 +73,7 @@ contract GenerateConfig is Script {
         );
     }
 
-    function _contractsSection(address entrypoint, address deposits, address registry)
+    function _contractsSection(address entrypoint, address registry)
         internal
         pure
         returns (string memory)
@@ -88,9 +86,6 @@ contract GenerateConfig is Script {
             "[contracts]\n",
             "entrypoint = \"",
             vm.toString(entrypoint),
-            "\"\n",
-            "deposits = \"",
-            vm.toString(deposits),
             "\"\n",
             registryLine,
             "\n"

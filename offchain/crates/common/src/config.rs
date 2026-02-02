@@ -69,12 +69,9 @@ impl Default for NetworkConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ContractsConfig {
-    /// Entrypoint contract address
+    /// Entrypoint contract address (also handles deposits)
     #[serde(default)]
     pub entrypoint: Address,
-    /// Deposits contract address
-    #[serde(default)]
-    pub deposits: Address,
     /// TransactionRegistry contract address (optional)
     pub transaction_registry: Option<Address>,
 }
@@ -147,18 +144,12 @@ impl Default for ChallengerSectionConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CircuitsConfig {
-    /// Path to transfer circuit verification key (snarkjs JSON)
+    /// Path to transfer circuit verification key (JSON)
     #[serde(default = "default_transfer_verification_key")]
     pub transfer_verification_key: String,
-    /// Path to predictableUpdate circuit verification key (snarkjs JSON)
+    /// Path to predictableUpdate circuit verification key (JSON)
     #[serde(default = "default_update_verification_key")]
     pub update_verification_key: String,
-    /// Path to snarkjs command
-    #[serde(default = "default_snarkjs_path")]
-    pub snarkjs_path: String,
-    /// Path to predictableUpdate circuit WASM
-    #[serde(default = "default_circuit_wasm_path")]
-    pub circuit_wasm_path: String,
     /// Path to predictableUpdate circuit zkey
     #[serde(default = "default_circuit_zkey_path")]
     pub circuit_zkey_path: String,
@@ -169,8 +160,6 @@ impl Default for CircuitsConfig {
         Self {
             transfer_verification_key: default_transfer_verification_key(),
             update_verification_key: default_update_verification_key(),
-            snarkjs_path: default_snarkjs_path(),
-            circuit_wasm_path: default_circuit_wasm_path(),
             circuit_zkey_path: default_circuit_zkey_path(),
         }
     }
@@ -259,14 +248,6 @@ fn default_update_verification_key() -> String {
     "circuits/outputs/predictableUpdate/predictableUpdateVKey.json".to_string()
 }
 
-fn default_snarkjs_path() -> String {
-    "snarkjs".to_string()
-}
-
-fn default_circuit_wasm_path() -> String {
-    "circuits/outputs/predictableUpdate/predictableUpdate_js/predictableUpdate.wasm".to_string()
-}
-
 fn default_circuit_zkey_path() -> String {
     "circuits/outputs/predictableUpdate/predictableUpdate.zkey".to_string()
 }
@@ -322,9 +303,6 @@ impl EnvOverride for Config {
         // Contracts
         if let Ok(val) = std::env::var("PGP_ENTRYPOINT_ADDRESS") {
             self.contracts.entrypoint = val.parse().wrap_err("Invalid PGP_ENTRYPOINT_ADDRESS")?;
-        }
-        if let Ok(val) = std::env::var("PGP_DEPOSITS_ADDRESS") {
-            self.contracts.deposits = val.parse().wrap_err("Invalid PGP_DEPOSITS_ADDRESS")?;
         }
         if let Ok(val) = std::env::var("PGP_TRANSACTION_REGISTRY_ADDRESS") {
             self.contracts.transaction_registry = Some(
@@ -384,12 +362,6 @@ impl EnvOverride for Config {
         if let Ok(val) = std::env::var("PGP_UPDATE_VERIFICATION_KEY") {
             self.circuits.update_verification_key = val;
         }
-        if let Ok(val) = std::env::var("PGP_SNARKJS_PATH") {
-            self.circuits.snarkjs_path = val;
-        }
-        if let Ok(val) = std::env::var("PGP_CIRCUIT_WASM_PATH") {
-            self.circuits.circuit_wasm_path = val;
-        }
         if let Ok(val) = std::env::var("PGP_CIRCUIT_ZKEY_PATH") {
             self.circuits.circuit_zkey_path = val;
         }
@@ -413,10 +385,8 @@ impl EnvOverride for Config {
 /// Configuration trait for the ChallengerRunner.
 /// The unified Config implements this trait.
 pub trait ChallengerRunnerConfig {
-    /// Entrypoint contract address
+    /// Entrypoint contract address (also handles deposits)
     fn entrypoint_address(&self) -> Address;
-    /// Deposits contract address
-    fn deposits_address(&self) -> Address;
     /// RPC URL for Ethereum provider
     fn rpc_url(&self) -> &str;
     /// Chain ID
@@ -435,10 +405,6 @@ pub trait ChallengerRunnerConfig {
     fn transfer_verification_key(&self) -> &str;
     /// Path to update circuit verification key
     fn update_verification_key(&self) -> &str;
-    /// Path to snarkjs command
-    fn snarkjs_path(&self) -> &str;
-    /// Path to circuit WASM
-    fn circuit_wasm_path(&self) -> &str;
     /// Path to circuit zkey
     fn circuit_zkey_path(&self) -> &str;
     /// Beacon chain API URL
@@ -454,9 +420,6 @@ pub trait ChallengerRunnerConfig {
 impl ChallengerRunnerConfig for Config {
     fn entrypoint_address(&self) -> Address {
         self.contracts.entrypoint
-    }
-    fn deposits_address(&self) -> Address {
-        self.contracts.deposits
     }
     fn rpc_url(&self) -> &str {
         &self.network.rpc_url
@@ -485,12 +448,6 @@ impl ChallengerRunnerConfig for Config {
     fn update_verification_key(&self) -> &str {
         &self.circuits.update_verification_key
     }
-    fn snarkjs_path(&self) -> &str {
-        &self.circuits.snarkjs_path
-    }
-    fn circuit_wasm_path(&self) -> &str {
-        &self.circuits.circuit_wasm_path
-    }
     fn circuit_zkey_path(&self) -> &str {
         &self.circuits.circuit_zkey_path
     }
@@ -517,9 +474,6 @@ pub struct ConfigWithDryRun<'a> {
 impl ChallengerRunnerConfig for ConfigWithDryRun<'_> {
     fn entrypoint_address(&self) -> Address {
         self.config.entrypoint_address()
-    }
-    fn deposits_address(&self) -> Address {
-        self.config.deposits_address()
     }
     fn rpc_url(&self) -> &str {
         self.config.rpc_url()
@@ -548,12 +502,6 @@ impl ChallengerRunnerConfig for ConfigWithDryRun<'_> {
     fn update_verification_key(&self) -> &str {
         self.config.update_verification_key()
     }
-    fn snarkjs_path(&self) -> &str {
-        self.config.snarkjs_path()
-    }
-    fn circuit_wasm_path(&self) -> &str {
-        self.config.circuit_wasm_path()
-    }
     fn circuit_zkey_path(&self) -> &str {
         self.config.circuit_zkey_path()
     }
@@ -580,9 +528,6 @@ pub fn validate_challenger_config(config: &Config) -> Result<()> {
     if config.contracts.entrypoint == Address::ZERO {
         return Err(eyre!("Entrypoint address must be configured"));
     }
-    if config.contracts.deposits == Address::ZERO {
-        return Err(eyre!("Deposits address must be configured"));
-    }
     if !config.challenger.dry_run && config.keys.challenger_private_key.is_none() {
         return Err(eyre!(
             "challenger_private_key must be configured for non-dry-run mode"
@@ -595,9 +540,6 @@ pub fn validate_challenger_config(config: &Config) -> Result<()> {
 pub fn validate_sequencer_config(config: &Config) -> Result<()> {
     if config.contracts.entrypoint == Address::ZERO {
         return Err(eyre!("Entrypoint address must be configured"));
-    }
-    if config.contracts.deposits == Address::ZERO {
-        return Err(eyre!("Deposits address must be configured"));
     }
     if config.keys.sequencer_private_key.is_none() {
         return Err(eyre!("sequencer_private_key must be configured"));
@@ -615,7 +557,6 @@ pub struct CommonConfig {
     pub rpc_url: String,
     pub chain_id: u64,
     pub entrypoint_address: Address,
-    pub deposits_address: Address,
 }
 
 impl Default for CommonConfig {
@@ -624,7 +565,6 @@ impl Default for CommonConfig {
             rpc_url: default_rpc_url(),
             chain_id: default_chain_id(),
             entrypoint_address: Address::ZERO,
-            deposits_address: Address::ZERO,
         }
     }
 }
@@ -639,9 +579,6 @@ impl EnvOverride for CommonConfig {
         }
         if let Ok(val) = std::env::var("PGP_ENTRYPOINT_ADDRESS") {
             self.entrypoint_address = val.parse().wrap_err("Invalid PGP_ENTRYPOINT_ADDRESS")?;
-        }
-        if let Ok(val) = std::env::var("PGP_DEPOSITS_ADDRESS") {
-            self.deposits_address = val.parse().wrap_err("Invalid PGP_DEPOSITS_ADDRESS")?;
         }
         Ok(())
     }
@@ -670,7 +607,6 @@ chain_id = 1
 
 [contracts]
 entrypoint = "0x1234567890123456789012345678901234567890"
-deposits = "0xabcdef0123456789abcdef0123456789abcdef01"
 
 [keys]
 sequencer_private_key = "0xseq123"
@@ -742,7 +678,6 @@ database_path = "test.db"
         assert!(validate_challenger_config(&config).is_err());
 
         config.contracts.entrypoint = Address::repeat_byte(0x12);
-        config.contracts.deposits = Address::repeat_byte(0x34);
         config.challenger.dry_run = true;
         assert!(validate_challenger_config(&config).is_ok());
     }
@@ -753,7 +688,6 @@ database_path = "test.db"
         assert!(validate_sequencer_config(&config).is_err());
 
         config.contracts.entrypoint = Address::repeat_byte(0x12);
-        config.contracts.deposits = Address::repeat_byte(0x34);
         config.keys.sequencer_private_key = Some("0xkey".to_string());
         assert!(validate_sequencer_config(&config).is_ok());
     }
@@ -762,11 +696,9 @@ database_path = "test.db"
     fn test_challenger_runner_config_trait() {
         let mut config = Config::default();
         config.contracts.entrypoint = Address::repeat_byte(0x12);
-        config.contracts.deposits = Address::repeat_byte(0x34);
         config.network.rpc_url = "http://test:8545".to_string();
 
         assert_eq!(config.entrypoint_address(), Address::repeat_byte(0x12));
-        assert_eq!(config.deposits_address(), Address::repeat_byte(0x34));
         assert_eq!(config.rpc_url(), "http://test:8545");
     }
 }
