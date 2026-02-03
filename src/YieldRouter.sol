@@ -46,7 +46,7 @@ contract YieldRouter is Ownable {
     /// @param epochPerPeriod Number of epochs per yield period (yield is split evenly across epochs)
     /// @param _bridge Address of the bridge contract (only caller allowed for deposits/withdrawals)
     /// @param tracked Initial list of token addresses to track yield for
-    constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked) {
+    constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked) payable {
         _initializeOwner(msg.sender);
         EPOCHS_PER_PERIOD = epochPerPeriod;
         PERIOD_LENGTH = periodLength;
@@ -78,7 +78,7 @@ contract YieldRouter is Ownable {
     /// @param asset The asset we are withdrawing
     /// @param amount The amount of asset we are withdrawing
     /// @param destination The place we send the funds to.
-    function triggerWithdraw(address asset, uint256 amount, address destination) external onlyBridge {
+    function triggerWithdraw(address asset, uint256 amount, address destination) external payable onlyBridge {
         uint256 totalShares = sources[asset].balanceOf(address(this));
         uint256 currentGlobalValue = sources[asset].previewRedeem(totalShares);
         uint256 userAmount = amount;
@@ -96,7 +96,7 @@ contract YieldRouter is Ownable {
     function changeYieldSource(address token, IERC4626 newSource) external onlyOwner {
         // First we withdraw from the source that currently has funds
         IERC4626 cachedSource = sources[token];
-        uint256 priorBalance = 0;
+        uint256 priorBalance;
         if (address(cachedSource) != address(0)) {
             uint256 shares = cachedSource.balanceOf(address(this));
             priorBalance = IERC20(token).balanceOf(address(this));
@@ -117,7 +117,7 @@ contract YieldRouter is Ownable {
     function poke() public {
         uint256 period = currentPeriod();
         if (!reportedPeriod[period]) {
-            for (uint256 i = 0; i < trackedYieldSources.length; i++) {
+            for (uint256 i; i != trackedYieldSources.length; ++i) {
                 address token = trackedYieldSources[i];
                 _record(token, period);
             }
@@ -156,8 +156,8 @@ contract YieldRouter is Ownable {
     /// @param sequencer The credited sequencer
     /// @param epochs The epocs we will claim all assets for
     function withdrawMany(address sequencer, uint256[] memory epochs) external {
-        for (uint256 i = 0; i < trackedYieldSources.length; i++) {
-            for (uint256 j = 0; j < epochs.length; j++) {
+        for (uint256 i; i != trackedYieldSources.length; ++i) {
+            for (uint256 j; j != epochs.length; ++j) {
                 sequencerWithdrawAsset(trackedYieldSources[i], sequencer, epochs[j]);
             }
         }
