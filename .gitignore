@@ -1,5 +1,6 @@
 # Compiler files
 cache/
+!offchain/crates/client/src/cache/
 out/
 
 # Ignores development broadcast logs
