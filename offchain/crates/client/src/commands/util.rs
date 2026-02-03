@@ -15,7 +15,7 @@ use eyre::{Result, WrapErr};
 pub fn parse_address(s: &str) -> Result<Address> {
     let s = s.trim_start_matches("0x");
     let bytes = hex::decode(s)
-        .wrap_err_with(|| format!("Invalid address format: '{}' is not valid hex", s))?;
+        .wrap_err_with(|| format!("Invalid address format: '{s}' is not valid hex"))?;
     if bytes.len() != 20 {
         eyre::bail!(
             "Address must be 20 bytes, got {} bytes from '{}'",
@@ -41,9 +41,9 @@ pub fn parse_amount(s: &str) -> Result<U256> {
     }
 
     // Try parsing as hex
-    if s.starts_with("0x") {
-        let bytes = hex::decode(&s[2..])
-            .wrap_err_with(|| format!("Invalid hex amount: '{}' is not valid hex", s))?;
+    if let Some(hex_str) = s.strip_prefix("0x") {
+        let bytes = hex::decode(hex_str)
+            .wrap_err_with(|| format!("Invalid hex amount: '{s}' is not valid hex"))?;
         return Ok(U256::from_be_slice(&bytes));
     }
 
@@ -62,7 +62,7 @@ pub fn parse_amount(s: &str) -> Result<U256> {
 pub fn parse_public_key(s: &str) -> Result<B256> {
     let s = s.trim_start_matches("0x");
     let bytes = hex::decode(s)
-        .wrap_err_with(|| format!("Invalid public key format: '{}' is not valid hex", s))?;
+        .wrap_err_with(|| format!("Invalid public key format: '{s}' is not valid hex"))?;
     if bytes.len() != 32 {
         eyre::bail!(
             "Public key must be 32 bytes, got {} bytes from '{}'",

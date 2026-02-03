@@ -157,6 +157,7 @@ impl TrackedNote {
     }
 
     /// Create a new note with a stored proof.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_proof(
         commitment: B256,
         position: TreePosition,
@@ -197,9 +198,7 @@ impl TrackedNote {
 
     /// Check if this note has a complete stored proof (day finalized).
     pub fn has_complete_proof(&self) -> bool {
-        self.stored_proof
-            .as_ref()
-            .map_or(false, |p| p.is_complete())
+        self.stored_proof.as_ref().is_some_and(|p| p.is_complete())
     }
 
     /// Check if this note has any stored proof.

@@ -320,7 +320,7 @@ impl TransferProver {
             public_inputs
                 .iter()
                 .take(7)
-                .map(|x| format!("{}", x))
+                .map(|x| format!("{x}"))
                 .collect::<Vec<_>>()
         );
 

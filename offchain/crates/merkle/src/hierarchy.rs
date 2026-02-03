@@ -269,7 +269,7 @@ impl HierarchicalProof {
         let mut index = self.position.leaf_in_block as usize;
 
         for sibling in &self.block_siblings {
-            let is_left = index % 2 == 0;
+            let is_left = index.is_multiple_of(2);
             current = if is_left {
                 poseidon2(current, *sibling)
             } else {
@@ -288,7 +288,7 @@ impl HierarchicalProof {
         let mut index = self.position.block_in_day as usize;
 
         for sibling in &self.day_siblings {
-            let is_left = index % 2 == 0;
+            let is_left = index.is_multiple_of(2);
             current = if is_left {
                 poseidon2(current, *sibling)
             } else {
@@ -307,7 +307,7 @@ impl HierarchicalProof {
         let mut index = self.position.day as usize;
 
         for sibling in &self.global_siblings {
-            let is_left = index % 2 == 0;
+            let is_left = index.is_multiple_of(2);
             current = if is_left {
                 poseidon2(current, *sibling)
             } else {
@@ -350,7 +350,7 @@ impl SharedBlockProof {
         let mut index = self.block_in_day as usize;
 
         for sibling in &self.day_siblings {
-            let is_left = index % 2 == 0;
+            let is_left = index.is_multiple_of(2);
             current = if is_left {
                 poseidon2(current, *sibling)
             } else {
@@ -369,7 +369,7 @@ impl SharedBlockProof {
         let mut index = self.day as usize;
 
         for sibling in &self.global_siblings {
-            let is_left = index % 2 == 0;
+            let is_left = index.is_multiple_of(2);
             current = if is_left {
                 poseidon2(current, *sibling)
             } else {
@@ -400,7 +400,7 @@ impl LeafProof {
         let mut index = self.leaf_index as usize;
 
         for sibling in &self.siblings {
-            let is_left = index % 2 == 0;
+            let is_left = index.is_multiple_of(2);
             current = if is_left {
                 poseidon2(current, *sibling)
             } else {

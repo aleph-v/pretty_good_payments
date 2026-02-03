@@ -179,11 +179,10 @@ pub async fn build_transfer(
     let leaves_in_hash = pgp_merkle::poseidon2(leaf0, leaf1);
 
     // Derive randoms and compute blindings for output notes
-    let recipient_random =
-        derive_blinding(wallet.spending_key(), "transfer", (tx_counter << 8) | 0);
+    let recipient_random = derive_blinding(wallet.spending_key(), "transfer", tx_counter << 8);
     let recipient_blinding = compute_transfer_blinding(recipient_random, leaves_in_hash);
 
-    let change_random = derive_blinding(wallet.spending_key(), "transfer", (tx_counter << 8) | 1);
+    let change_random = derive_blinding(wallet.spending_key(), "transfer", tx_counter << 8 | 1);
     let change_blinding = compute_transfer_blinding(change_random, leaves_in_hash);
 
     // Build witness
@@ -294,7 +293,7 @@ pub async fn run(
     println!("========");
     println!("From: 0x{}", hex::encode(wallet.public_key()));
     println!("To: 0x{}", hex::encode(recipient));
-    println!("Amount: {}", amount);
+    println!("Amount: {amount}");
     println!(
         "Asset: {}",
         if asset == Address::ZERO {

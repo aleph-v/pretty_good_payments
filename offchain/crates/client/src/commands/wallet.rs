@@ -32,7 +32,7 @@ pub async fn create(config: &ClientConfig, seed: Option<&str>) -> Result<()> {
     println!("Public key: {}", hex::encode(wallet.public_key()));
     println!();
     println!("IMPORTANT: Save your seed phrase securely:");
-    println!("  {}", seed);
+    println!("  {seed}");
 
     Ok(())
 }
@@ -71,7 +71,7 @@ pub async fn info(config: &ClientConfig) -> Result<()> {
             } else {
                 hex::encode(asset)
             };
-            println!("  {}: {}", asset_str, balance);
+            println!("  {asset_str}: {balance}");
         }
     }
 

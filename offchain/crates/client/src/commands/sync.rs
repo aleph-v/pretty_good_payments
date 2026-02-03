@@ -281,9 +281,9 @@ fn compute_block_in_day_path(
     let mut current_level = leaves;
     let mut idx = block_in_day as usize;
 
-    for level in 0..BLOCK_IN_DAY_DEPTH {
+    for sibling in &mut siblings {
         let sibling_idx = idx ^ 1;
-        siblings[level] = current_level[sibling_idx];
+        *sibling = current_level[sibling_idx];
 
         let mut next_level = Vec::with_capacity(current_level.len() / 2);
         for i in (0..current_level.len()).step_by(2) {
@@ -366,10 +366,7 @@ pub async fn run(config: &ClientConfig, full: bool) -> Result<()> {
     }
 
     if withdrawals_found > 0 {
-        println!(
-            "Found block info for {} pending withdrawal(s)",
-            withdrawals_found
-        );
+        println!("Found block info for {withdrawals_found} pending withdrawal(s)");
     }
 
     println!("Sync complete!");

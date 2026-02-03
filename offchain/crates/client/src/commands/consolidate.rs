@@ -101,10 +101,9 @@ pub async fn run(config: &ClientConfig, asset_str: Option<&str>) -> Result<()> {
             format!("0x{}", hex::encode(asset))
         };
         let pairs = *count / 2;
-        let remaining = (*count + 1) / 2; // ceil(count/2)
+        let remaining = (*count).div_ceil(2); // ceil(count/2)
         println!(
-            "  {}: {} notes -> {} pairs -> {} notes after this round",
-            asset_str, count, pairs, remaining
+            "  {asset_str}: {count} notes -> {pairs} pairs -> {remaining} notes after this round"
         );
     }
     println!();
@@ -163,7 +162,7 @@ pub async fn run(config: &ClientConfig, asset_str: Option<&str>) -> Result<()> {
             format!("0x{}", hex::encode(*asset))
         };
 
-        println!("Consolidating {}...", asset_str);
+        println!("Consolidating {asset_str}...");
 
         // Get all unspent notes for this asset
         let notes: Vec<TrackedNote> = wallet
@@ -178,15 +177,11 @@ pub async fn run(config: &ClientConfig, asset_str: Option<&str>) -> Result<()> {
         let unpaired = if notes.len() % 2 == 1 { 1 } else { 0 };
 
         println!(
-            "  {} notes -> {} pairs to consolidate, {} unpaired",
-            note_count, num_pairs_to_consolidate, unpaired
+            "  {note_count} notes -> {num_pairs_to_consolidate} pairs to consolidate, {unpaired} unpaired"
         );
 
         // Build all consolidation transactions in parallel
-        println!(
-            "  Building {} consolidation transactions...",
-            num_pairs_to_consolidate
-        );
+        println!("  Building {num_pairs_to_consolidate} consolidation transactions...");
 
         let mut built_transactions = Vec::new();
         let mut pairs_with_notes: Vec<(Vec<TrackedNote>, U256)> = Vec::new();
@@ -213,7 +208,7 @@ pub async fn run(config: &ClientConfig, asset_str: Option<&str>) -> Result<()> {
                 sync_result.block_nr,
             )
             .await
-            .wrap_err_with(|| format!("Failed to build transaction for pair {}", i))?;
+            .wrap_err_with(|| format!("Failed to build transaction for pair {i}"))?;
 
             built_transactions.push((tx, pair_notes.clone()));
         }
@@ -228,7 +223,7 @@ pub async fn run(config: &ClientConfig, asset_str: Option<&str>) -> Result<()> {
             let response = client
                 .submit_transaction(tx_result.transaction)
                 .await
-                .wrap_err_with(|| format!("Failed to submit transaction {}", i))?;
+                .wrap_err_with(|| format!("Failed to submit transaction {i}"))?;
 
             if response.accepted {
                 accepted += 1;
@@ -251,7 +246,7 @@ pub async fn run(config: &ClientConfig, asset_str: Option<&str>) -> Result<()> {
             }
         }
 
-        println!("  Submitted: {} accepted, {} rejected", accepted, rejected);
+        println!("  Submitted: {accepted} accepted, {rejected} rejected");
         total_transactions += accepted;
 
         // Calculate notes remaining after this round syncs
@@ -259,15 +254,9 @@ pub async fn run(config: &ClientConfig, asset_str: Option<&str>) -> Result<()> {
         notes_after_sync += notes_remaining;
 
         if notes_remaining > 1 {
-            println!(
-                "  After sync: {} notes (run consolidate again to continue)",
-                notes_remaining
-            );
+            println!("  After sync: {notes_remaining} notes (run consolidate again to continue)");
         } else {
-            println!(
-                "  After sync: {} note (fully consolidated!)",
-                notes_remaining
-            );
+            println!("  After sync: {notes_remaining} note (fully consolidated!)");
         }
     }
 
@@ -277,7 +266,7 @@ pub async fn run(config: &ClientConfig, asset_str: Option<&str>) -> Result<()> {
     println!();
     println!("Consolidation round complete!");
     println!("=============================");
-    println!("Transactions submitted: {}", total_transactions);
+    println!("Transactions submitted: {total_transactions}");
     println!(
         "Notes consolidated: {} -> {}",
         total_notes_consolidated + notes_after_sync,
@@ -312,6 +301,7 @@ struct ConsolidationResult {
 }
 
 /// Build a single consolidation transaction.
+#[allow(clippy::too_many_arguments)]
 async fn build_consolidation(
     wallet: &mut Wallet,
     cache: &ProofCache,

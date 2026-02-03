@@ -64,9 +64,9 @@ pub async fn run(config: &ClientConfig, amount: &str, asset_str: Option<&str>) -
         "To: 0x{} (your L2 wallet)",
         hex::encode(wallet.public_key())
     );
-    println!("Amount: {}", amount);
+    println!("Amount: {amount}");
     println!("Asset: 0x{}", hex::encode(asset));
-    println!("L1 RPC: {}", rpc_url);
+    println!("L1 RPC: {rpc_url}");
     println!("Entrypoint: 0x{}", hex::encode(entrypoint_address));
     println!();
 
@@ -92,7 +92,7 @@ pub async fn run(config: &ClientConfig, amount: &str, asset_str: Option<&str>) -
         .call()
         .await
         .wrap_err("Failed to get token balance")?;
-    println!("Token balance: {}", balance);
+    println!("Token balance: {balance}");
 
     if balance < amount {
         eyre::bail!(

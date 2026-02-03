@@ -59,7 +59,7 @@ pub async fn run(config: &ClientConfig) -> Result<()> {
             println!("Sequencer Status");
             println!("----------------");
             println!("  URL: {}", config.sequencer_url);
-            println!("  Status: Unavailable ({})", e);
+            println!("  Status: Unavailable ({e})");
             println!();
         }
     }
@@ -112,10 +112,7 @@ fn print_balances(wallet: &Wallet) {
                 format!("0x{}", hex::encode(asset))
             };
 
-            println!(
-                "  {}: {} ({} notes, {} spent)",
-                asset_str, balance, unspent, spent
-            );
+            println!("  {asset_str}: {balance} ({unspent} notes, {spent} spent)");
         }
     }
     println!();
@@ -173,7 +170,7 @@ fn print_cache_info(cache: &ProofCache) {
 
     // Count non-zero day roots
     let finalized = cache.day_roots.iter().filter(|r| **r != B256::ZERO).count();
-    println!("  Day Roots Cached: {}", finalized);
+    println!("  Day Roots Cached: {finalized}");
 
     if !cache.day_roots.is_empty() {
         // Find the latest non-zero day
@@ -186,7 +183,7 @@ fn print_cache_info(cache: &ProofCache) {
             .map(|(i, _)| i);
 
         if let Some(day) = latest_day {
-            println!("  Latest Day: {}", day);
+            println!("  Latest Day: {day}");
         }
     }
 
@@ -209,7 +206,7 @@ fn print_cache_info(cache: &ProofCache) {
 fn print_sync_status(status: &crate::api::SyncStatusResponse, url: &str) {
     println!("Sequencer Status");
     println!("----------------");
-    println!("  URL: {}", url);
+    println!("  URL: {url}");
     println!("  Status: Connected");
     println!("  Latest Block: {}", status.latest_block_nr);
     println!("  Latest Day: {}", status.latest_day);
@@ -229,7 +226,7 @@ fn print_config_info(config: &ClientConfig) {
     println!("  Sequencer: {}", config.sequencer_url);
 
     if let Some(ref rpc) = config.rpc_url {
-        println!("  ETH RPC: {}", rpc);
+        println!("  ETH RPC: {rpc}");
     } else {
         println!("  ETH RPC: Not configured");
     }

@@ -60,9 +60,9 @@ pub fn generate_blinding() -> B256 {
 
     let mut hasher = Sha256::new();
     hasher.update(b"PGP_BLINDING");
-    hasher.update(&now.to_le_bytes());
+    hasher.update(now.to_le_bytes());
     // Add some entropy from the process
-    hasher.update(&std::process::id().to_le_bytes());
+    hasher.update(std::process::id().to_le_bytes());
     let hash = hasher.finalize();
 
     let mut bytes = [0u8; 32];
@@ -90,7 +90,7 @@ pub fn derive_blinding(spending_key: B256, domain_separator: &str, index: u64) -
     hasher.update(BLINDING_DOMAIN);
     hasher.update(spending_key.as_slice());
     hasher.update(domain_separator.as_bytes());
-    hasher.update(&index.to_le_bytes());
+    hasher.update(index.to_le_bytes());
     let hash = hasher.finalize();
 
     let mut bytes = [0u8; 32];

@@ -108,8 +108,7 @@ impl TransferWitness {
 
         if input_sum != output_sum {
             return Err(format!(
-                "Value not conserved: inputs={}, outputs={}",
-                input_sum, output_sum
+                "Value not conserved: inputs={input_sum}, outputs={output_sum}"
             ));
         }
 

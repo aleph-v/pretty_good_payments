@@ -1223,7 +1223,7 @@ async fn test_sync_block_tree_proof_with_real_data() {
     assert_eq!(proof_response["position"]["leaf_in_block"], 0);
 
     println!("Block tree proof test passed!");
-    println!("  Block root: {}", returned_root);
+    println!("  Block root: {returned_root}");
     println!("  Leaf: {}", proof_response["leaf"]);
 }
 
@@ -1284,7 +1284,7 @@ async fn test_sync_full_proof_with_real_data() {
     assert_eq!(returned_anchor, format!("0x{}", hex::encode(anchor)));
 
     println!("Full proof test passed!");
-    println!("  Anchor: {}", returned_anchor);
+    println!("  Anchor: {returned_anchor}");
     println!("  Block siblings: {} levels", block_siblings.len());
     println!(
         "  Block-in-day siblings: {} levels",
@@ -1367,7 +1367,7 @@ async fn test_multi_block_day_structure() {
 
     println!("Multi-block day structure test passed!");
     println!("  3 blocks in day 0");
-    println!("  Block 1's first sibling: {}", first_sibling);
+    println!("  Block 1's first sibling: {first_sibling}");
 }
 
 #[tokio::test]
@@ -1445,7 +1445,7 @@ async fn test_multi_day_structure() {
 
     println!("Multi-day structure test passed!");
     println!("  Day 0 root: 0x{}", hex::encode(day0_root));
-    println!("  Day 0's first sibling (day 1): {}", first_sibling);
+    println!("  Day 0's first sibling (day 1): {first_sibling}");
     println!("  Final anchor: 0x{}", hex::encode(anchor_day1));
 }
 
@@ -1509,7 +1509,7 @@ async fn test_proof_verification_round_trip() {
     );
 
     println!("Proof verification round-trip test passed!");
-    println!("  Leaf: {}", leaf_str);
+    println!("  Leaf: {leaf_str}");
     println!("  Computed block root: 0x{}", hex::encode(current));
     println!("  Expected block root: 0x{}", hex::encode(block_root));
 }

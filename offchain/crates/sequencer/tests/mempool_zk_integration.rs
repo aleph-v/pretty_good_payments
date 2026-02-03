@@ -1739,7 +1739,7 @@ async fn test_mempool_rejects_invalid_zk_proof() -> Result<()> {
     // The mempool should reject the transaction with an invalid proof
     match result {
         pgp_sequencer::mempool::AddResult::ValidationFailed(err) => {
-            println!("✓ Transaction correctly rejected: {:?}", err);
+            println!("✓ Transaction correctly rejected: {err:?}");
             // InvalidZkProof is the expected error variant
             assert!(
                 matches!(
@@ -1755,7 +1755,7 @@ async fn test_mempool_rejects_invalid_zk_proof() -> Result<()> {
             println!("Note: Mempool accepted transaction (proof verification may be deferred)");
         }
         other => {
-            println!("Unexpected result: {:?}", other);
+            println!("Unexpected result: {other:?}");
         }
     }
 
@@ -1814,13 +1814,13 @@ async fn test_mempool_rejects_wrong_public_inputs() -> Result<()> {
     let result1 = mempool.add(wrong_nullifier_tx).await;
     match result1 {
         pgp_sequencer::mempool::AddResult::ValidationFailed(err) => {
-            println!("✓ Transaction with wrong nullifier rejected: {:?}", err);
+            println!("✓ Transaction with wrong nullifier rejected: {err:?}");
         }
         pgp_sequencer::mempool::AddResult::Accepted => {
             println!("Note: Mempool accepted transaction (proof verification may be deferred)");
         }
         other => {
-            println!("Unexpected result: {:?}", other);
+            println!("Unexpected result: {other:?}");
         }
     }
 
@@ -1832,13 +1832,13 @@ async fn test_mempool_rejects_wrong_public_inputs() -> Result<()> {
     let result2 = mempool.add(wrong_leaf_tx).await;
     match result2 {
         pgp_sequencer::mempool::AddResult::ValidationFailed(err) => {
-            println!("✓ Transaction with wrong leaf rejected: {:?}", err);
+            println!("✓ Transaction with wrong leaf rejected: {err:?}");
         }
         pgp_sequencer::mempool::AddResult::Accepted => {
             println!("Note: Mempool accepted transaction (proof verification may be deferred)");
         }
         other => {
-            println!("Unexpected result: {:?}", other);
+            println!("Unexpected result: {other:?}");
         }
     }
 
@@ -1857,14 +1857,14 @@ async fn test_mempool_rejects_wrong_public_inputs() -> Result<()> {
     let result3 = mempool.add(wrong_anchor_tx).await;
     match result3 {
         pgp_sequencer::mempool::AddResult::ValidationFailed(err) => {
-            println!("✓ Transaction with invalid anchor rejected: {:?}", err);
+            println!("✓ Transaction with invalid anchor rejected: {err:?}");
             // Expect AnchorBlockInFuture or similar error
         }
         pgp_sequencer::mempool::AddResult::Accepted => {
             println!("Note: Mempool accepted transaction (anchor may be validated later)");
         }
         other => {
-            println!("Unexpected result: {:?}", other);
+            println!("Unexpected result: {other:?}");
         }
     }
 

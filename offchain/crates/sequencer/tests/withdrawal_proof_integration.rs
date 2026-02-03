@@ -220,8 +220,8 @@ async fn test_withdrawal_proof_with_stored_data() -> Result<()> {
     println!("Withdrawal proof generated successfully!");
     println!("  tx_nr: {}", proof_response.tx_nr.unwrap());
     println!("  which: {}", proof_response.which.unwrap());
-    println!("  commitment: {}", commitment);
-    println!("  proof: {}", proof);
+    println!("  commitment: {commitment}");
+    println!("  proof: {proof}");
 
     Ok(())
 }

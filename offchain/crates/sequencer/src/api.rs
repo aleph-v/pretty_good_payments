@@ -427,7 +427,7 @@ async fn withdrawal_proof(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(WithdrawalProofResponse {
                     found: false,
-                    message: format!("Failed to load block: {}", e),
+                    message: format!("Failed to load block: {e}"),
                     block_data: None,
                     tx_nr: None,
                     which: None,
@@ -449,7 +449,7 @@ async fn withdrawal_proof(
                     StatusCode::NOT_FOUND,
                     Json(WithdrawalProofResponse {
                         found: false,
-                        message: format!("Blob {} not found", blobhash),
+                        message: format!("Blob {blobhash} not found"),
                         block_data: None,
                         tx_nr: None,
                         which: None,
@@ -464,7 +464,7 @@ async fn withdrawal_proof(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(WithdrawalProofResponse {
                         found: false,
-                        message: format!("Failed to load blob: {}", e),
+                        message: format!("Failed to load blob: {e}"),
                         block_data: None,
                         tx_nr: None,
                         which: None,
@@ -519,7 +519,7 @@ async fn withdrawal_proof(
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(WithdrawalProofResponse {
                         found: false,
-                        message: format!("Failed to parse blob: {}", e),
+                        message: format!("Failed to parse blob: {e}"),
                         block_data: None,
                         tx_nr: None,
                         which: None,
@@ -614,7 +614,7 @@ async fn withdrawal_proof(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(WithdrawalProofResponse {
                     found: false,
-                    message: format!("Failed to create KZG prover: {}", e),
+                    message: format!("Failed to create KZG prover: {e}"),
                     block_data: None,
                     tx_nr: None,
                     which: None,
@@ -633,7 +633,7 @@ async fn withdrawal_proof(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(WithdrawalProofResponse {
                     found: false,
-                    message: format!("Failed to generate KZG proof: {}", e),
+                    message: format!("Failed to generate KZG proof: {e}"),
                     block_data: None,
                     tx_nr: None,
                     which: None,

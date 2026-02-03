@@ -106,7 +106,7 @@ pub async fn run(config: &ClientConfig, index: Option<usize>) -> Result<()> {
     };
 
     let withdrawal = &unexecuted[withdrawal_index];
-    println!("Executing withdrawal [{}]:", withdrawal_index);
+    println!("Executing withdrawal [{withdrawal_index}]:");
     println!("  Amount: {}", withdrawal.amount);
     println!(
         "  Asset: {}",
@@ -163,10 +163,10 @@ pub async fn run(config: &ClientConfig, index: Option<usize>) -> Result<()> {
         .ok_or_else(|| eyre::eyre!("Withdrawal proof response missing proof"))?;
 
     println!("  Block: {}", block_data_resp.block_nr);
-    println!("  Transaction: {}", tx_nr);
-    println!("  Output: {}", which);
-    println!("  Commitment: {}", commitment_hex);
-    println!("  Proof: {}", proof_hex);
+    println!("  Transaction: {tx_nr}");
+    println!("  Output: {which}");
+    println!("  Commitment: {commitment_hex}");
+    println!("  Proof: {proof_hex}");
     println!();
 
     // Convert hex strings to bytes
@@ -312,7 +312,7 @@ async fn find_withdrawal_block(config: &ClientConfig, leaf_commitment: B256) -> 
         let result = client.get_withdrawal_proof(leaf_commitment, block_nr).await;
         if let Ok(response) = result {
             if response.found {
-                println!("Found withdrawal in block {}!", block_nr);
+                println!("Found withdrawal in block {block_nr}!");
                 println!("  Transaction: {}", response.tx_nr.unwrap_or(0));
                 println!("  Output: {}", response.which.unwrap_or(0));
                 println!();
@@ -416,10 +416,10 @@ pub async fn update(
 
     pending_withdrawals.save(&pending_path)?;
 
-    println!("Updated withdrawal [{}]:", index);
-    println!("  Block: {}", block_nr);
-    println!("  Transaction: {}", tx_nr);
-    println!("  Output: {}", output_index);
+    println!("Updated withdrawal [{index}]:");
+    println!("  Block: {block_nr}");
+    println!("  Transaction: {tx_nr}");
+    println!("  Output: {output_index}");
 
     Ok(())
 }

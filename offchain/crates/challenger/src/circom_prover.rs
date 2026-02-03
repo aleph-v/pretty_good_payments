@@ -181,7 +181,7 @@ impl RustCircomProver {
             public_inputs
                 .iter()
                 .take(10)
-                .map(|x| format!("{}", x))
+                .map(|x| format!("{x}"))
                 .collect::<Vec<_>>()
         );
 

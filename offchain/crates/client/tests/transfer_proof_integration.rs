@@ -371,10 +371,7 @@ async fn test_build_transfer_generates_valid_proof() -> Result<()> {
         decoded_anchor.block_nr, 0,
         "Anchor should reference block 0"
     );
-    assert_eq!(
-        decoded_anchor.is_deposit, false,
-        "Should not be a deposit tx"
-    );
+    assert!(!decoded_anchor.is_deposit, "Should not be a deposit tx");
 
     // Verify the anchor matches
     assert_eq!(
@@ -651,7 +648,7 @@ async fn test_build_transfer_output_leaves_match_expected() -> Result<()> {
     let leaves_in_hash = poseidon2(leaf0, leaf1);
 
     // Derive the blinding for the recipient output (index 0)
-    let recipient_random = derive_blinding(spending_key, "transfer", (tx_counter << 8) | 0);
+    let recipient_random = derive_blinding(spending_key, "transfer", tx_counter << 8);
     let recipient_blinding = compute_transfer_blinding(recipient_random, leaves_in_hash);
 
     // Compute expected recipient leaf
@@ -738,10 +735,7 @@ async fn test_build_transfer_increments_tx_counter() -> Result<()> {
         "build_transfer should increment tx_counter"
     );
 
-    println!(
-        "build_transfer correctly increments tx_counter: {} -> {}",
-        counter_before, counter_after
-    );
+    println!("build_transfer correctly increments tx_counter: {counter_before} -> {counter_after}");
 
     Ok(())
 }

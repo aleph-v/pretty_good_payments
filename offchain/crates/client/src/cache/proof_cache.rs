@@ -166,10 +166,10 @@ impl ProofCache {
         let mut current_level = leaves;
         let mut idx = day as usize;
 
-        for level in 0..DAY_TREE_DEPTH {
+        for sibling in &mut siblings {
             // Get sibling at this level
             let sibling_idx = idx ^ 1;
-            siblings[level] = current_level[sibling_idx];
+            *sibling = current_level[sibling_idx];
 
             // Compute next level
             let mut next_level = Vec::with_capacity(current_level.len() / 2);
@@ -234,9 +234,9 @@ impl ProofCache {
     /// Returns true only if we have roots for the correct day AND they were
     /// fetched at the current block number. Each new block changes the day root.
     pub fn has_valid_current_day_roots(&self, day: u16, current_block_nr: u64) -> bool {
-        self.current_day_block_roots.as_ref().map_or(false, |r| {
-            r.day == day && r.fetched_at_block_nr == current_block_nr
-        })
+        self.current_day_block_roots
+            .as_ref()
+            .is_some_and(|r| r.day == day && r.fetched_at_block_nr == current_block_nr)
     }
 
     /// Check if we need to refresh the current day's block roots.
@@ -246,9 +246,9 @@ impl ProofCache {
     /// - The day has changed, OR
     /// - A new block has been added (block_nr increased)
     pub fn needs_current_day_refresh(&self, latest_day: u16, latest_block_nr: u64) -> bool {
-        self.current_day_block_roots.as_ref().map_or(true, |r| {
-            r.day != latest_day || r.fetched_at_block_nr < latest_block_nr
-        })
+        self.current_day_block_roots
+            .as_ref()
+            .is_none_or(|r| r.day != latest_day || r.fetched_at_block_nr < latest_block_nr)
     }
 
     /// Get the number of finalized days we have cached.
@@ -300,9 +300,9 @@ impl ProofCache {
         let mut current_level = leaves;
         let mut idx = block_in_day as usize;
 
-        for level in 0..BLOCK_IN_DAY_DEPTH {
+        for sibling in &mut siblings {
             let sibling_idx = idx ^ 1;
-            siblings[level] = current_level[sibling_idx];
+            *sibling = current_level[sibling_idx];
 
             let mut next_level = Vec::with_capacity(current_level.len() / 2);
             for i in (0..current_level.len()).step_by(2) {

@@ -21,7 +21,7 @@ fn main() {
     } else {
         // Print a warning but don't fail the build
         // This allows the crate to be built without the circuit files for development
-        println!("cargo:warning=Circuit WASM not found at {:?}. Build circuits first with `make circuits`.", wasm_file);
+        println!("cargo:warning=Circuit WASM not found at {wasm_file:?}. Build circuits first with `make circuits`.");
     }
 
     // Rerun build script if these change

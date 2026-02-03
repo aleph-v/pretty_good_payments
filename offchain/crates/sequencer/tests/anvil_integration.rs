@@ -649,10 +649,7 @@ async fn test_epoch_timing_closed_period() -> Result<()> {
 
     // During closed period, a regular sequencer (not in firstLookSequencers)
     // should be rejected
-    println!(
-        "During closed period: is_allowed = {} (expected: false for non-priority)",
-        is_allowed
-    );
+    println!("During closed period: is_allowed = {is_allowed} (expected: false for non-priority)");
 
     // Note: The actual behavior depends on whether firstLookSequencers is configured
     // If is_allowed is true during closed period, it means either:

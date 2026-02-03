@@ -63,7 +63,7 @@ pub async fn run(
     println!("================================");
     println!("From: 0x{} (L2)", hex::encode(wallet.public_key()));
     println!("To: 0x{} (L1)", hex::encode(recipient));
-    println!("Amount: {}", amount);
+    println!("Amount: {amount}");
     println!(
         "Asset: {}",
         if asset == Address::ZERO {
@@ -89,7 +89,7 @@ pub async fn run(
 
     println!("Selected {} notes for withdrawal", selected_notes.len());
     if change > U256::ZERO {
-        println!("Change: {} (returned to your wallet)", change);
+        println!("Change: {change} (returned to your wallet)");
     }
     println!();
 
@@ -330,7 +330,7 @@ pub async fn run(
         // determined when the sequencer includes the transaction in a block.
         // For now, we store what we know and will update when we can query the sequencer.
         let pending = PendingWithdrawal {
-            tx_id: Some(format!("{}", hex::encode(output_leaves[0]))),
+            tx_id: Some(hex::encode(output_leaves[0]).to_string()),
             block_nr: 0,     // Unknown until included in block
             tx_nr: 0,        // Unknown until included in block
             output_index: 0, // The withdrawal is always output 0
