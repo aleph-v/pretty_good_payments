@@ -39,8 +39,12 @@ pub async fn create(config: &ClientConfig, seed: Option<&str>) -> Result<()> {
 
 /// Show wallet info.
 pub async fn info(config: &ClientConfig) -> Result<()> {
-    let wallet = Wallet::load(&config.wallet_path)
-        .wrap_err_with(|| format!("Failed to load wallet from {}", config.wallet_path.display()))?;
+    let wallet = Wallet::load(&config.wallet_path).wrap_err_with(|| {
+        format!(
+            "Failed to load wallet from {}",
+            config.wallet_path.display()
+        )
+    })?;
 
     println!("Wallet Info");
     println!("============");
@@ -49,7 +53,10 @@ pub async fn info(config: &ClientConfig) -> Result<()> {
     println!();
     println!("Notes: {} total", wallet.notes.len());
     println!("  Unspent: {}", wallet.unspent_notes().len());
-    println!("  Spent: {}", wallet.notes.len() - wallet.unspent_notes().len());
+    println!(
+        "  Spent: {}",
+        wallet.notes.len() - wallet.unspent_notes().len()
+    );
     println!();
 
     let assets = wallet.assets();
@@ -73,8 +80,12 @@ pub async fn info(config: &ClientConfig) -> Result<()> {
 
 /// Export seed phrase.
 pub async fn export(config: &ClientConfig) -> Result<()> {
-    let wallet = Wallet::load(&config.wallet_path)
-        .wrap_err_with(|| format!("Failed to load wallet from {}", config.wallet_path.display()))?;
+    let wallet = Wallet::load(&config.wallet_path).wrap_err_with(|| {
+        format!(
+            "Failed to load wallet from {}",
+            config.wallet_path.display()
+        )
+    })?;
 
     println!("Seed phrase:");
     println!("  {}", wallet.seed);

@@ -122,3 +122,59 @@ pub struct SubmitTxResponse {
     /// Current mempool size
     pub mempool_size: usize,
 }
+
+/// Request for POST /withdrawal-proof
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WithdrawalProofRequest {
+    /// The leaf commitment to find
+    pub leaf_commitment: B256,
+    /// The block number to search in
+    pub block_nr: u64,
+}
+
+/// Block data response (from sequencer)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockDataResponse {
+    /// Anchor hash
+    pub anchor: B256,
+    /// Block timestamp (as string)
+    pub timestamp: String,
+    /// Number of transactions
+    pub num_transactions: u64,
+    /// Number of deposits
+    pub num_deposits: u64,
+    /// Block number
+    pub block_nr: u64,
+    /// Day index
+    pub day: u64,
+    /// Block index within day
+    pub block_in_day: u64,
+    /// Sequencer address (as hex string)
+    pub sequencer: String,
+    /// Blob hashes
+    pub blobhashes: Vec<B256>,
+}
+
+/// Response for POST /withdrawal-proof
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WithdrawalProofResponse {
+    /// Whether the proof was found
+    pub found: bool,
+    /// Human-readable message
+    pub message: String,
+    /// Block data needed for L1 withdrawal
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_data: Option<BlockDataResponse>,
+    /// Transaction index within the block
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_nr: Option<u64>,
+    /// Output index within the transaction (0, 1, or 2)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub which: Option<u8>,
+    /// 48-byte KZG commitment (hex encoded)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<String>,
+    /// 48-byte KZG proof (hex encoded)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof: Option<String>,
+}

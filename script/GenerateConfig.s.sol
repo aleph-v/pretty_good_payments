@@ -25,12 +25,11 @@ contract GenerateConfig is Script {
         console.log("Written: config/config.toml");
     }
 
-    function generateUnifiedConfig(
-        address entrypoint,
-        address registry,
-        string memory rpcUrl,
-        uint256 chainId
-    ) internal view returns (string memory) {
+    function generateUnifiedConfig(address entrypoint, address registry, string memory rpcUrl, uint256 chainId)
+        internal
+        view
+        returns (string memory)
+    {
         return string.concat(
             _header(chainId),
             _networkSection(rpcUrl, chainId),
@@ -73,23 +72,12 @@ contract GenerateConfig is Script {
         );
     }
 
-    function _contractsSection(address entrypoint, address registry)
-        internal
-        pure
-        returns (string memory)
-    {
+    function _contractsSection(address entrypoint, address registry) internal pure returns (string memory) {
         string memory registryLine = registry != address(0)
             ? string.concat("transaction_registry = \"", vm.toString(registry), "\"\n")
             : "# transaction_registry = \"0x...\"\n";
 
-        return string.concat(
-            "[contracts]\n",
-            "entrypoint = \"",
-            vm.toString(entrypoint),
-            "\"\n",
-            registryLine,
-            "\n"
-        );
+        return string.concat("[contracts]\n", "entrypoint = \"", vm.toString(entrypoint), "\"\n", registryLine, "\n");
     }
 
     function _keysSection() internal pure returns (string memory) {

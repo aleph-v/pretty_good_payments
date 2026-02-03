@@ -9,7 +9,8 @@
 //! - Nullifiers are checked against pending transactions (via in-memory HashSet)
 
 use alloy::primitives::B256;
-use pgp_challenger::{Groth16Verifier, StateManager, TransferPublicInputs};
+use eyre::Result;
+use pgp_challenger::{AnchorLookup, Groth16Verifier, StateManager, TransferPublicInputs};
 use pgp_common::types::constants::{BLOB_SIZE, TX_SIZE};
 use pgp_common::types::{DecodedAnchorInfo, ParsedTransaction};
 use std::collections::{HashSet, VecDeque};
@@ -112,9 +113,12 @@ pub struct Mempool {
     transactions: Mutex<VecDeque<MempoolTransaction>>,
     /// Pending nullifiers from transactions in the mempool (for fast duplicate detection).
     pending_nullifiers: Mutex<HashSet<B256>>,
-    /// State manager for historical nullifier lookups and anchor validation.
+    /// State manager for historical nullifier lookups.
     /// SQLite Connection is not Sync, so we need a mutex for concurrent access.
     state: Mutex<StateManager>,
+    /// In-memory anchor lookup for anchor validation.
+    /// Populated as blocks are processed, not persisted to database.
+    anchor_lookup: Mutex<AnchorLookup>,
     /// ZK proof verifier for validating Groth16 proofs.
     zk_verifier: Groth16Verifier,
     /// Configuration.
@@ -128,8 +132,8 @@ pub struct Mempool {
 impl Mempool {
     /// Create a new mempool with the given configuration, state manager, and ZK verifier.
     ///
-    /// The state manager is used to check historical nullifiers and anchor validity.
-    /// It should use the same database file as the challenger for consistency.
+    /// The state manager is used to check historical nullifiers.
+    /// The anchor lookup is used for anchor validation (in-memory).
     ///
     /// The ZK verifier is used to validate Groth16 proofs for each transaction.
     pub fn new(config: MempoolConfig, state: StateManager, verifier: Groth16Verifier) -> Self {
@@ -137,10 +141,38 @@ impl Mempool {
             transactions: Mutex::new(VecDeque::new()),
             pending_nullifiers: Mutex::new(HashSet::new()),
             state: Mutex::new(state),
+            anchor_lookup: Mutex::new(AnchorLookup::new()),
             zk_verifier: verifier,
             config,
             force_submit: AtomicBool::new(false),
         }
+    }
+
+    /// Register an anchor from a processed block.
+    ///
+    /// This should be called by the sequencer when processing blocks to populate
+    /// the in-memory anchor lookup for transaction validation.
+    pub async fn register_anchor(
+        &self,
+        block_nr: u32,
+        update_nr: u32,
+        is_deposit: bool,
+        anchor: B256,
+    ) {
+        let mut lookup = self.anchor_lookup.lock().await;
+        lookup.insert(block_nr, update_nr, is_deposit, anchor);
+    }
+
+    /// Set the current block number for anchor validation bounds checking.
+    pub async fn set_current_block(&self, block_nr: u64) {
+        let mut lookup = self.anchor_lookup.lock().await;
+        lookup.set_current_block(block_nr);
+    }
+
+    /// Rollback anchor lookup from a specific block onwards.
+    pub async fn rollback_anchors_from(&self, from_block: u32) {
+        let mut lookup = self.anchor_lookup.lock().await;
+        lookup.rollback_from(from_block);
     }
 
     /// Add a transaction to the mempool after validation.
@@ -236,15 +268,15 @@ impl Mempool {
                 });
             }
 
-            // Check update_nr bounds
-            let max_update = match state
-                .get_max_update_nr(anchor_info.block_nr, anchor_info.is_deposit)
-            {
-                Ok(max) => max,
-                Err(e) => {
-                    return AddResult::DatabaseError(format!("Failed to get max update_nr: {e}"));
-                }
-            };
+            // Drop state lock before acquiring anchor_lookup lock
+            drop(state);
+
+            // Acquire anchor lookup lock for anchor validation
+            let anchor_lookup = self.anchor_lookup.lock().await;
+
+            // Check update_nr bounds using in-memory anchor lookup
+            let max_update =
+                anchor_lookup.get_max_update_nr(anchor_info.block_nr, anchor_info.is_deposit);
 
             if let Some(max) = max_update {
                 if anchor_info.update_nr > max {
@@ -273,14 +305,14 @@ impl Mempool {
                 });
             }
 
-            // Load the actual anchor value for ZK proof verification
-            match state.load_anchor(
+            // Look up the actual anchor value from in-memory cache for ZK proof verification
+            match anchor_lookup.get(
                 anchor_info.block_nr,
                 anchor_info.update_nr,
                 anchor_info.is_deposit,
             ) {
-                Ok(Some(a)) => a,
-                Ok(None) => {
+                Some(a) => a,
+                None => {
                     warn!(
                         "Anchor not found: block={}, update={}, is_deposit={}",
                         anchor_info.block_nr, anchor_info.update_nr, anchor_info.is_deposit
@@ -290,9 +322,6 @@ impl Mempool {
                         update_nr: anchor_info.update_nr,
                         is_deposit: anchor_info.is_deposit,
                     });
-                }
-                Err(e) => {
-                    return AddResult::DatabaseError(format!("Failed to load anchor: {e}"));
                 }
             }
         };
@@ -472,6 +501,25 @@ impl Mempool {
         self.force_submit.swap(false, Ordering::SeqCst)
     }
 
+    /// Load block data from the state manager.
+    ///
+    /// Returns the BlockData and L1 block number if found.
+    pub async fn load_block_data(
+        &self,
+        block_nr: u64,
+    ) -> Result<Option<(pgp_common::contracts::BlockData, u64)>> {
+        let state = self.state.lock().await;
+        state.load_block_data(block_nr)
+    }
+
+    /// Load blob data from the state manager.
+    ///
+    /// Returns the raw blob data (131072 bytes) if found.
+    pub async fn load_blob(&self, versioned_hash: B256) -> Result<Option<Vec<u8>>> {
+        let state = self.state.lock().await;
+        state.load_blob(versioned_hash)
+    }
+
     /// Insert a transaction directly without validation (for testing only).
     ///
     /// This bypasses all validation checks and adds the transaction directly
@@ -638,7 +686,7 @@ mod tests {
     async fn test_reject_historical_nullifier() {
         let state = StateManager::in_memory().unwrap();
 
-        // Pre-populate database with a spent nullifier AND a valid anchor
+        // Pre-populate database with a spent nullifier
         let spent_nullifier = B256::repeat_byte(0xBB);
         let record = pgp_challenger::validators::nullifier::NullifierRecord {
             block_nr: 100,
@@ -647,14 +695,14 @@ mod tests {
         };
         state.save_nullifier(&spent_nullifier, &record).unwrap();
 
-        // Add a genesis anchor so anchor validation passes
-        let genesis_anchor = B256::repeat_byte(0x01);
-        state.save_anchor(0, 0, false, genesis_anchor).unwrap();
-
         let Some(mempool) = create_test_mempool_with_state(state) else {
             eprintln!("Skipping test: verification keys not found");
             return;
         };
+
+        // Add a genesis anchor so anchor validation passes (in-memory)
+        let genesis_anchor = B256::repeat_byte(0x01);
+        mempool.register_anchor(0, 0, false, genesis_anchor).await;
 
         // Create a transaction with a valid anchor reference (block 0, update 0)
         // but with a spent nullifier
@@ -718,16 +766,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_reject_anchor_update_out_of_bounds() {
-        let state = StateManager::in_memory().unwrap();
-
-        // Add an anchor for block 0, update 0 only
-        let genesis_anchor = B256::repeat_byte(0x01);
-        state.save_anchor(0, 0, false, genesis_anchor).unwrap();
-
-        let Some(mempool) = create_test_mempool_with_state(state) else {
+        let Some(mempool) = create_test_mempool() else {
             eprintln!("Skipping test: verification keys not found");
             return;
         };
+
+        // Add an anchor for block 0, update 0 only (in-memory)
+        let genesis_anchor = B256::repeat_byte(0x01);
+        mempool.register_anchor(0, 0, false, genesis_anchor).await;
 
         // Create a transaction referencing block 0, update 5 (out of bounds)
         let anchor_info = DecodedAnchorInfo {
@@ -807,16 +853,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_reject_invalid_zk_proof() {
-        let state = StateManager::in_memory().unwrap();
-
-        // Add a valid anchor
-        let genesis_anchor = B256::repeat_byte(0x01);
-        state.save_anchor(0, 0, false, genesis_anchor).unwrap();
-
-        let Some(mempool) = create_test_mempool_with_state(state) else {
+        let Some(mempool) = create_test_mempool() else {
             eprintln!("Skipping test: verification keys not found");
             return;
         };
+
+        // Add a valid anchor (in-memory)
+        let genesis_anchor = B256::repeat_byte(0x01);
+        mempool.register_anchor(0, 0, false, genesis_anchor).await;
 
         // Create a transaction with valid anchor reference but invalid ZK proof
         let anchor_info = DecodedAnchorInfo {

@@ -5,14 +5,13 @@ use eyre::Result;
 use std::path::PathBuf;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-mod api;
-mod cache;
-mod commands;
-mod config;
-mod proof;
-mod wallet;
-
-use commands::{balance, deposit, sync, transfer, wallet as wallet_cmd, withdraw};
+// Use the library modules instead of inline mod declarations.
+// This ensures the binary uses the same compiled code as the library,
+// including the rust-witness generated native code linked via build.rs.
+use pgp_client::commands::{
+    consolidate, deposit, status, sync, transfer, wallet as wallet_cmd, withdraw, withdraw_execute,
+};
+use pgp_client::config;
 
 /// PGP Client - Command line interface for Pretty Good Payments
 #[derive(Parser)]
@@ -24,13 +23,34 @@ struct Cli {
     #[arg(short, long, default_value = "~/.pgp/wallet.json")]
     wallet: String,
 
-    /// Sequencer API URL
-    #[arg(short, long, default_value = "http://localhost:8080")]
+    /// Sequencer API URL (default is localhost for development)
+    #[arg(
+        short,
+        long,
+        default_value = "http://localhost:8080",
+        env = "PGP_SEQUENCER_URL"
+    )]
     sequencer: String,
 
-    /// Ethereum RPC URL
+    /// Ethereum RPC URL (required for deposits/withdrawals)
     #[arg(short, long, env = "ETH_RPC_URL")]
     rpc: Option<String>,
+
+    /// Ethereum private key for signing L1 transactions (required for deposits/withdrawals)
+    #[arg(long, env = "ETH_PRIVATE_KEY")]
+    eth_key: Option<String>,
+
+    /// PGP Entrypoint contract address (required for deposits/withdrawals)
+    #[arg(long, env = "PGP_ENTRYPOINT")]
+    entrypoint: Option<String>,
+
+    /// PGP Withdraw contract address (required for L1 withdrawal execution)
+    #[arg(long, env = "PGP_WITHDRAW")]
+    withdraw_contract: Option<String>,
+
+    /// Path to circuits outputs directory
+    #[arg(short = 'c', long, default_value = "circuits/outputs")]
+    circuits: String,
 
     /// Verbose output
     #[arg(short, long)]
@@ -42,6 +62,8 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Show wallet and system status overview
+    Status,
     /// Wallet management commands
     Wallet {
         #[command(subcommand)]
@@ -52,18 +74,6 @@ enum Commands {
         /// Perform full sync (re-fetch all proofs)
         #[arg(long)]
         full: bool,
-    },
-    /// Show wallet balance
-    Balance {
-        /// Filter by asset address
-        #[arg(long)]
-        asset: Option<String>,
-    },
-    /// Show transaction history
-    History {
-        /// Maximum number of transactions to show
-        #[arg(long, default_value = "10")]
-        limit: usize,
     },
     /// Transfer tokens on L2
     Transfer {
@@ -92,6 +102,34 @@ enum Commands {
         /// Asset address (defaults to native token)
         #[arg(long)]
         asset: Option<String>,
+    },
+    /// Consolidate multiple notes into fewer notes
+    Consolidate {
+        /// Asset address to consolidate (consolidates all assets if not specified)
+        #[arg(long)]
+        asset: Option<String>,
+    },
+    /// Execute a pending L1 withdrawal (Stage 2)
+    WithdrawExecute {
+        /// Index of the pending withdrawal to execute
+        #[arg(long)]
+        index: Option<usize>,
+    },
+    /// List pending withdrawals
+    WithdrawList,
+    /// Update a pending withdrawal with block info
+    WithdrawUpdate {
+        /// Index of the pending withdrawal to update
+        index: usize,
+        /// Block number where the withdrawal was included
+        #[arg(long)]
+        block_nr: u64,
+        /// Transaction index within the block
+        #[arg(long)]
+        tx_nr: u64,
+        /// Output index within the transaction (0, 1, or 2)
+        #[arg(long)]
+        output_index: u8,
     },
 }
 
@@ -123,6 +161,22 @@ fn expand_tilde(path: &str) -> PathBuf {
     PathBuf::from(path)
 }
 
+/// Parse an address from a CLI argument with a descriptive error message.
+fn parse_address_arg(s: &str, arg_name: &str) -> Result<alloy_primitives::Address> {
+    let s = s.trim_start_matches("0x");
+    let bytes = hex::decode(s)
+        .map_err(|e| eyre::eyre!("Invalid {} address '{}': not valid hex. {}", arg_name, s, e))?;
+    if bytes.len() != 20 {
+        eyre::bail!(
+            "Invalid {} address '{}': expected 20 bytes (40 hex chars), got {} bytes",
+            arg_name,
+            s,
+            bytes.len()
+        );
+    }
+    Ok(alloy_primitives::Address::from_slice(&bytes))
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -140,13 +194,36 @@ async fn main() -> Result<()> {
         .init();
 
     let wallet_path = expand_tilde(&cli.wallet);
+    let circuits_path = expand_tilde(&cli.circuits);
+
+    // Parse entrypoint address if provided
+    let entrypoint_address = cli
+        .entrypoint
+        .as_ref()
+        .map(|s| parse_address_arg(s, "entrypoint"))
+        .transpose()?;
+
+    // Parse withdraw contract address if provided
+    let withdraw_address = cli
+        .withdraw_contract
+        .as_ref()
+        .map(|s| parse_address_arg(s, "withdraw contract"))
+        .transpose()?;
+
     let config = config::ClientConfig {
         wallet_path,
         sequencer_url: cli.sequencer,
         rpc_url: cli.rpc,
+        eth_private_key: cli.eth_key,
+        entrypoint_address,
+        withdraw_address,
+        circuits_path: Some(circuits_path),
     };
 
     match cli.command {
+        Commands::Status => {
+            status::run(&config).await?;
+        }
         Commands::Wallet { command } => match command {
             WalletCommands::Create { seed } => {
                 wallet_cmd::create(&config, seed.as_deref()).await?;
@@ -164,12 +241,6 @@ async fn main() -> Result<()> {
         Commands::Sync { full } => {
             sync::run(&config, full).await?;
         }
-        Commands::Balance { asset } => {
-            balance::run(&config, asset.as_deref()).await?;
-        }
-        Commands::History { limit } => {
-            println!("Transaction history (limit: {limit}) - not yet implemented");
-        }
         Commands::Transfer { to, amount, asset } => {
             transfer::run(&config, &to, &amount, asset.as_deref()).await?;
         }
@@ -178,6 +249,23 @@ async fn main() -> Result<()> {
         }
         Commands::Withdraw { to, amount, asset } => {
             withdraw::run(&config, &to, &amount, asset.as_deref()).await?;
+        }
+        Commands::Consolidate { asset } => {
+            consolidate::run(&config, asset.as_deref()).await?;
+        }
+        Commands::WithdrawExecute { index } => {
+            withdraw_execute::run(&config, index).await?;
+        }
+        Commands::WithdrawList => {
+            withdraw_execute::list(&config).await?;
+        }
+        Commands::WithdrawUpdate {
+            index,
+            block_nr,
+            tx_nr,
+            output_index,
+        } => {
+            withdraw_execute::update(&config, index, block_nr, tx_nr, output_index).await?;
         }
     }
 

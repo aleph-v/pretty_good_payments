@@ -5,7 +5,8 @@
 //! - Last processed block for recovery
 //! - Expected deposits for validation
 //! - Block data for challenge submission
-//! - Anchors for transaction validation
+//! - Day roots for hierarchical merkle tree (15-level day tree)
+//! - Block roots with hierarchical position (day, block_in_day)
 
 use alloy::primitives::{Address, B256, U256};
 use eyre::{eyre, Result, WrapErr};
@@ -132,14 +133,6 @@ impl StateManager {
                 PRIMARY KEY (block_nr, deposit_index)
             );
 
-            CREATE TABLE IF NOT EXISTS anchors (
-                block_nr INTEGER NOT NULL,
-                update_nr INTEGER NOT NULL,
-                is_deposit INTEGER NOT NULL,
-                anchor BLOB NOT NULL,
-                PRIMARY KEY (block_nr, update_nr, is_deposit)
-            );
-
             CREATE TABLE IF NOT EXISTS state (
                 key TEXT PRIMARY KEY,
                 value BLOB NOT NULL
@@ -147,25 +140,36 @@ impl StateManager {
 
             -- Block data for challenge submission
             -- Stores full BlockData struct serialized as individual columns
+            -- Note: block_index (day, block_in_day) is now stored in block_roots table
             CREATE TABLE IF NOT EXISTS blocks (
                 block_nr INTEGER PRIMARY KEY,
                 anchor BLOB NOT NULL,
                 timestamp BLOB NOT NULL,
                 num_transactions INTEGER NOT NULL,
                 num_deposits INTEGER NOT NULL,
-                block_index_day INTEGER NOT NULL,
-                block_index_index INTEGER NOT NULL,
                 sequencer BLOB NOT NULL,
                 blobhashes BLOB NOT NULL,
                 l1_block_number INTEGER NOT NULL
             );
 
-            -- Block roots for root tree tracking (28-level merkle tree of block roots)
-            -- tree_index = day * 8192 + block_index_in_day (sparse tree positions)
+            -- Day roots for hierarchical merkle tree (15-level day tree)
+            -- Each day contains up to 8192 blocks in a 13-level subtree
+            CREATE TABLE IF NOT EXISTS day_roots (
+                day INTEGER PRIMARY KEY,
+                day_root BLOB NOT NULL,
+                block_count INTEGER NOT NULL,
+                last_block_nr INTEGER NOT NULL
+            );
+
+            -- Block roots with hierarchical position (day, block_in_day)
+            -- Replaces the flattened tree_index storage
             CREATE TABLE IF NOT EXISTS block_roots (
-                tree_index INTEGER PRIMARY KEY,
+                day INTEGER NOT NULL,
+                block_in_day INTEGER NOT NULL,
                 block_nr INTEGER NOT NULL,
-                block_root BLOB NOT NULL
+                block_root BLOB NOT NULL,
+                leaf_count INTEGER NOT NULL,
+                PRIMARY KEY (day, block_in_day)
             );
 
             -- Pending challenges for retry after failures
@@ -192,7 +196,8 @@ impl StateManager {
 
             CREATE INDEX IF NOT EXISTS idx_nullifiers_block ON nullifiers(block_nr);
             CREATE INDEX IF NOT EXISTS idx_deposits_block ON expected_deposits(block_nr);
-            CREATE INDEX IF NOT EXISTS idx_anchors_block ON anchors(block_nr);
+            CREATE INDEX IF NOT EXISTS idx_block_roots_day ON block_roots(day);
+            CREATE INDEX IF NOT EXISTS idx_block_roots_block_nr ON block_roots(block_nr);
             CREATE INDEX IF NOT EXISTS idx_blobs_l1_block ON blobs(l1_block_number);
             "#,
         )?;
@@ -412,176 +417,6 @@ impl StateManager {
     }
 
     // ========================================================================
-    // Anchor Persistence
-    // ========================================================================
-
-    /// Save an anchor for a specific (block_nr, update_nr, is_deposit) tuple
-    pub fn save_anchor(
-        &self,
-        block_nr: u32,
-        update_nr: u32,
-        is_deposit: bool,
-        anchor: B256,
-    ) -> Result<()> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO anchors (block_nr, update_nr, is_deposit, anchor) VALUES (?1, ?2, ?3, ?4)",
-            params![
-                block_nr as i64,
-                update_nr as i64,
-                is_deposit as i32,
-                anchor.as_slice(),
-            ],
-        )?;
-
-        Ok(())
-    }
-
-    /// Batch save anchors (more efficient for multiple anchors)
-    pub fn save_anchors_batch(&self, anchors: &[(u32, u32, bool, B256)]) -> Result<()> {
-        if anchors.is_empty() {
-            return Ok(());
-        }
-
-        self.conn.execute("BEGIN TRANSACTION", [])?;
-
-        let result = (|| {
-            let mut stmt = self.conn.prepare(
-                "INSERT OR REPLACE INTO anchors (block_nr, update_nr, is_deposit, anchor) VALUES (?1, ?2, ?3, ?4)"
-            )?;
-
-            for (block_nr, update_nr, is_deposit, anchor) in anchors {
-                stmt.execute(params![
-                    *block_nr as i64,
-                    *update_nr as i64,
-                    *is_deposit as i32,
-                    anchor.as_slice(),
-                ])?;
-            }
-
-            Ok::<(), eyre::Error>(())
-        })();
-
-        match result {
-            Ok(()) => {
-                self.conn.execute("COMMIT", [])?;
-                Ok(())
-            }
-            Err(e) => {
-                let _ = self.conn.execute("ROLLBACK", []);
-                Err(e)
-            }
-        }
-    }
-
-    /// Load an anchor by (block_nr, update_nr, is_deposit)
-    pub fn load_anchor(
-        &self,
-        block_nr: u32,
-        update_nr: u32,
-        is_deposit: bool,
-    ) -> Result<Option<B256>> {
-        let result: Option<Vec<u8>> = self
-            .conn
-            .query_row(
-                "SELECT anchor FROM anchors WHERE block_nr = ?1 AND update_nr = ?2 AND is_deposit = ?3",
-                params![block_nr as i64, update_nr as i64, is_deposit as i32],
-                |row| row.get(0),
-            )
-            .optional()?;
-
-        match result {
-            Some(bytes) => Ok(Some(B256::from_slice(&bytes))),
-            None => Ok(None),
-        }
-    }
-
-    /// Load all anchors for a block
-    pub fn load_anchors_for_block(&self, block_nr: u32) -> Result<Vec<(u32, bool, B256)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT update_nr, is_deposit, anchor FROM anchors WHERE block_nr = ?1")?;
-
-        let rows = stmt.query_map(params![block_nr as i64], |row| {
-            let update_nr: i64 = row.get(0)?;
-            let is_deposit: i32 = row.get(1)?;
-            let anchor: Vec<u8> = row.get(2)?;
-            Ok((update_nr, is_deposit, anchor))
-        })?;
-
-        let mut anchors = Vec::new();
-        for row in rows {
-            let (update_nr, is_deposit, anchor_bytes) = row?;
-            anchors.push((
-                update_nr as u32,
-                is_deposit != 0,
-                B256::from_slice(&anchor_bytes),
-            ));
-        }
-
-        Ok(anchors)
-    }
-
-    /// Get the maximum update_nr for a block and is_deposit flag
-    pub fn get_max_update_nr(&self, block_nr: u32, is_deposit: bool) -> Result<Option<u32>> {
-        // MAX() returns NULL if no rows match, so we use Option<i64> for the column
-        let result: Option<i64> = self.conn.query_row(
-            "SELECT MAX(update_nr) FROM anchors WHERE block_nr = ?1 AND is_deposit = ?2",
-            params![block_nr as i64, is_deposit as i32],
-            |row| row.get(0),
-        )?;
-
-        Ok(result.map(|v| v as u32))
-    }
-
-    /// Delete anchors from a specific block onwards (for rollback)
-    pub fn delete_anchors_from(&self, from_block: u32) -> Result<usize> {
-        let count = self.conn.execute(
-            "DELETE FROM anchors WHERE block_nr >= ?1",
-            params![from_block as i64],
-        )?;
-
-        if count > 0 {
-            info!(
-                "Deleted {} anchors from block {} onwards",
-                count, from_block
-            );
-        }
-
-        Ok(count)
-    }
-
-    /// Get the count of anchors in the database
-    pub fn anchor_count(&self) -> Result<usize> {
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM anchors", [], |row| row.get(0))?;
-        Ok(count as usize)
-    }
-
-    /// Load the latest anchor (highest block_nr, highest update_nr within that block)
-    ///
-    /// This returns the most recent anchor, which represents the current state root.
-    pub fn load_latest_anchor(&self) -> Result<Option<B256>> {
-        // First find the highest block_nr, then find the highest update_nr within it
-        let result: Option<Vec<u8>> = self
-            .conn
-            .query_row(
-                "SELECT anchor FROM anchors
-                 WHERE block_nr = (SELECT MAX(block_nr) FROM anchors)
-                 ORDER BY is_deposit ASC, update_nr DESC
-                 LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?;
-
-        match result {
-            Some(bytes) => Ok(Some(B256::from_slice(&bytes))),
-            None => Ok(None),
-        }
-    }
-
-    // ========================================================================
     // Block Data Persistence
     // ========================================================================
 
@@ -589,6 +424,7 @@ impl StateManager {
     ///
     /// This persists the BlockData struct so we can build challenges after restart
     /// without needing to re-fetch blob data from the beacon chain.
+    /// Note: blockIndex (day, block_in_day) is stored in block_roots table, not here.
     pub fn save_block_data(&self, block_data: &BlockData, l1_block_number: u64) -> Result<()> {
         let block_nr: u64 = block_data
             .blockNr
@@ -617,16 +453,14 @@ impl StateManager {
         self.conn.execute(
             "INSERT OR REPLACE INTO blocks (
                 block_nr, anchor, timestamp, num_transactions, num_deposits,
-                block_index_day, block_index_index, sequencer, blobhashes, l1_block_number
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+                sequencer, blobhashes, l1_block_number
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 block_nr as i64,
                 block_data.anchor.as_slice(),
                 timestamp_bytes.as_slice(),
                 num_txs as i64,
                 num_deposits as i64,
-                block_data.blockIndex.day as i64,
-                block_data.blockIndex.index as i64,
                 block_data.sequencer.as_slice(),
                 blobhashes_bytes,
                 l1_block_number as i64,
@@ -638,12 +472,15 @@ impl StateManager {
     }
 
     /// Load block data by block number
+    ///
+    /// Note: blockIndex (day, block_in_day) is loaded from block_roots table.
+    /// Use get_block_position() to get hierarchy information.
     pub fn load_block_data(&self, block_nr: u64) -> Result<Option<(BlockData, u64)>> {
         let result = self
             .conn
             .query_row(
                 "SELECT anchor, timestamp, num_transactions, num_deposits,
-                    block_index_day, block_index_index, sequencer, blobhashes, l1_block_number
+                    sequencer, blobhashes, l1_block_number
              FROM blocks WHERE block_nr = ?1",
                 params![block_nr as i64],
                 |row| {
@@ -651,19 +488,15 @@ impl StateManager {
                     let timestamp: Vec<u8> = row.get(1)?;
                     let num_txs: i64 = row.get(2)?;
                     let num_deposits: i64 = row.get(3)?;
-                    let block_index_day: i64 = row.get(4)?;
-                    let block_index_index: i64 = row.get(5)?;
-                    let sequencer: Vec<u8> = row.get(6)?;
-                    let blobhashes_bytes: Vec<u8> = row.get(7)?;
-                    let l1_block_number: i64 = row.get(8)?;
+                    let sequencer: Vec<u8> = row.get(4)?;
+                    let blobhashes_bytes: Vec<u8> = row.get(5)?;
+                    let l1_block_number: i64 = row.get(6)?;
 
                     Ok((
                         anchor,
                         timestamp,
                         num_txs,
                         num_deposits,
-                        block_index_day,
-                        block_index_index,
                         sequencer,
                         blobhashes_bytes,
                         l1_block_number,
@@ -672,14 +505,16 @@ impl StateManager {
             )
             .optional()?;
 
+        // Also load block position from block_roots
+        let position = self.get_block_position(block_nr)?;
+        let (day, block_in_day) = position.unwrap_or((0, 0));
+
         match result {
             Some((
                 anchor,
                 timestamp,
                 num_txs,
                 num_deposits,
-                day,
-                index,
                 sequencer,
                 blobhashes_bytes,
                 l1_block,
@@ -709,7 +544,7 @@ impl StateManager {
                     blockNr: U256::from(block_nr),
                     blockIndex: TimestampAndIndex {
                         day: day as u128,
-                        index: index as u128,
+                        index: block_in_day as u128,
                     },
                     sequencer: Address::from_slice(&sequencer),
                     blobhashes,
@@ -719,6 +554,24 @@ impl StateManager {
             }
             None => Ok(None),
         }
+    }
+
+    /// Get block position (day, block_in_day) by block number
+    pub fn get_block_position(&self, block_nr: u64) -> Result<Option<(u16, u16)>> {
+        let result = self
+            .conn
+            .query_row(
+                "SELECT day, block_in_day FROM block_roots WHERE block_nr = ?1",
+                params![block_nr as i64],
+                |row| {
+                    let day: i64 = row.get(0)?;
+                    let block_in_day: i64 = row.get(1)?;
+                    Ok((day as u16, block_in_day as u16))
+                },
+            )
+            .optional()?;
+
+        Ok(result)
     }
 
     /// Delete block data from a specific block onwards (for rollback)
@@ -752,6 +605,20 @@ impl StateManager {
             self.conn
                 .query_row("SELECT MAX(block_nr) FROM blocks", [], |row| row.get(0))?;
         Ok(result.map(|v| v as u64))
+    }
+
+    /// Get the anchor from the most recent block
+    pub fn load_latest_anchor(&self) -> Result<Option<B256>> {
+        let result: Option<Vec<u8>> = self
+            .conn
+            .query_row(
+                "SELECT anchor FROM blocks ORDER BY block_nr DESC LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        Ok(result.map(|bytes| B256::from_slice(&bytes)))
     }
 
     // ========================================================================
@@ -888,52 +755,242 @@ impl StateManager {
     }
 
     // ========================================================================
-    // Block Root Persistence (for root tree tracking)
+    // Day Root Persistence (for hierarchical merkle tree)
     // ========================================================================
 
-    /// Save a block root for root tree tracking
+    /// Save a day root (root of the 13-level block-in-day subtree)
     ///
     /// # Arguments
-    /// * `tree_index` - Position in root tree (day * 8192 + block_index_in_day)
-    /// * `block_nr` - Sequential block number (for reference/rollback)
-    /// * `block_root` - The root of the 16-level block tree
-    pub fn save_block_root(&self, tree_index: u64, block_nr: u64, block_root: B256) -> Result<()> {
+    /// * `day` - Day index (0..32768)
+    /// * `day_root` - Root hash of the day's block-in-day subtree
+    /// * `block_count` - Number of blocks in this day
+    /// * `last_block_nr` - Block number of the last block in this day
+    pub fn save_day_root(
+        &self,
+        day: u16,
+        day_root: B256,
+        block_count: u32,
+        last_block_nr: u64,
+    ) -> Result<()> {
         self.conn.execute(
-            "INSERT OR REPLACE INTO block_roots (tree_index, block_nr, block_root) VALUES (?1, ?2, ?3)",
-            params![tree_index as i64, block_nr as i64, block_root.as_slice()],
+            "INSERT OR REPLACE INTO day_roots (day, day_root, block_count, last_block_nr) VALUES (?1, ?2, ?3, ?4)",
+            params![
+                day as i64,
+                day_root.as_slice(),
+                block_count as i64,
+                last_block_nr as i64,
+            ],
         )?;
         debug!(
-            "Saved block root for tree_index {} (block {})",
-            tree_index, block_nr
+            "Saved day root for day {} (block_count={}, last_block_nr={})",
+            day, block_count, last_block_nr
         );
         Ok(())
     }
 
-    /// Load all block roots as (tree_index, block_root) pairs (for root tree recovery)
-    pub fn load_block_roots(&self) -> Result<Vec<(u64, B256)>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT tree_index, block_root FROM block_roots")?;
+    /// Load all day roots
+    pub fn load_day_roots(&self) -> Result<Vec<(u16, B256, u32, u64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT day, day_root, block_count, last_block_nr FROM day_roots ORDER BY day",
+        )?;
 
         let rows = stmt.query_map([], |row| {
-            let tree_index: i64 = row.get(0)?;
+            let day: i64 = row.get(0)?;
             let root: Vec<u8> = row.get(1)?;
-            Ok((tree_index, root))
+            let block_count: i64 = row.get(2)?;
+            let last_block_nr: i64 = row.get(3)?;
+            Ok((day, root, block_count, last_block_nr))
         })?;
 
         let mut roots = Vec::new();
         for row in rows {
-            let (tree_index, root_bytes) = row?;
-            roots.push((tree_index as u64, B256::from_slice(&root_bytes)));
+            let (day, root_bytes, block_count, last_block_nr) = row?;
+            roots.push((
+                day as u16,
+                B256::from_slice(&root_bytes),
+                block_count as u32,
+                last_block_nr as u64,
+            ));
+        }
+
+        info!("Loaded {} day roots from database", roots.len());
+        Ok(roots)
+    }
+
+    /// Load a specific day root
+    pub fn load_day_root(&self, day: u16) -> Result<Option<(B256, u32, u64)>> {
+        let result = self
+            .conn
+            .query_row(
+                "SELECT day_root, block_count, last_block_nr FROM day_roots WHERE day = ?1",
+                params![day as i64],
+                |row| {
+                    let root: Vec<u8> = row.get(0)?;
+                    let block_count: i64 = row.get(1)?;
+                    let last_block_nr: i64 = row.get(2)?;
+                    Ok((root, block_count, last_block_nr))
+                },
+            )
+            .optional()?;
+
+        match result {
+            Some((root_bytes, block_count, last_block_nr)) => Ok(Some((
+                B256::from_slice(&root_bytes),
+                block_count as u32,
+                last_block_nr as u64,
+            ))),
+            None => Ok(None),
+        }
+    }
+
+    /// Get day roots in a range (for sync API)
+    pub fn get_day_roots_range(&self, from_day: u16, to_day: u16) -> Result<Vec<(u16, B256)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT day, day_root FROM day_roots WHERE day >= ?1 AND day <= ?2 ORDER BY day",
+        )?;
+
+        let rows = stmt.query_map(params![from_day as i64, to_day as i64], |row| {
+            let day: i64 = row.get(0)?;
+            let root: Vec<u8> = row.get(1)?;
+            Ok((day, root))
+        })?;
+
+        let mut roots = Vec::new();
+        for row in rows {
+            let (day, root_bytes) = row?;
+            roots.push((day as u16, B256::from_slice(&root_bytes)));
+        }
+
+        Ok(roots)
+    }
+
+    /// Delete day roots from a specific day onwards (for rollback)
+    pub fn delete_day_roots_from(&self, from_day: u16) -> Result<usize> {
+        let count = self.conn.execute(
+            "DELETE FROM day_roots WHERE day >= ?1",
+            params![from_day as i64],
+        )?;
+
+        if count > 0 {
+            info!("Deleted {} day roots from day {} onwards", count, from_day);
+        }
+
+        Ok(count)
+    }
+
+    /// Get the count of day roots in the database
+    pub fn day_root_count(&self) -> Result<usize> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM day_roots", [], |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
+    /// Get the latest day with a root
+    pub fn get_latest_day(&self) -> Result<Option<u16>> {
+        let result: Option<i64> =
+            self.conn
+                .query_row("SELECT MAX(day) FROM day_roots", [], |row| row.get(0))?;
+        Ok(result.map(|v| v as u16))
+    }
+
+    // ========================================================================
+    // Block Root Persistence (hierarchical storage)
+    // ========================================================================
+
+    /// Save a block root with hierarchical position
+    ///
+    /// # Arguments
+    /// * `day` - Day index (0..32768)
+    /// * `block_in_day` - Block index within the day (0..8192)
+    /// * `block_nr` - Sequential block number (for reference/rollback)
+    /// * `block_root` - The root of the 16-level block tree
+    /// * `leaf_count` - Number of leaves in this block
+    pub fn save_block_root(
+        &self,
+        day: u16,
+        block_in_day: u16,
+        block_nr: u64,
+        block_root: B256,
+        leaf_count: u32,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO block_roots (day, block_in_day, block_nr, block_root, leaf_count) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                day as i64,
+                block_in_day as i64,
+                block_nr as i64,
+                block_root.as_slice(),
+                leaf_count as i64,
+            ],
+        )?;
+        debug!(
+            "Saved block root for day={}, block_in_day={} (block {})",
+            day, block_in_day, block_nr
+        );
+        Ok(())
+    }
+
+    /// Load all block roots as (day, block_in_day, block_nr, block_root, leaf_count)
+    pub fn load_block_roots(&self) -> Result<Vec<(u16, u16, u64, B256, u32)>> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT day, block_in_day, block_nr, block_root, leaf_count FROM block_roots ORDER BY day, block_in_day")?;
+
+        let rows = stmt.query_map([], |row| {
+            let day: i64 = row.get(0)?;
+            let block_in_day: i64 = row.get(1)?;
+            let block_nr: i64 = row.get(2)?;
+            let root: Vec<u8> = row.get(3)?;
+            let leaf_count: i64 = row.get(4)?;
+            Ok((day, block_in_day, block_nr, root, leaf_count))
+        })?;
+
+        let mut roots = Vec::new();
+        for row in rows {
+            let (day, block_in_day, block_nr, root_bytes, leaf_count) = row?;
+            roots.push((
+                day as u16,
+                block_in_day as u16,
+                block_nr as u64,
+                B256::from_slice(&root_bytes),
+                leaf_count as u32,
+            ));
         }
 
         info!("Loaded {} block roots from database", roots.len());
         Ok(roots)
     }
 
+    /// Get all block roots for a specific day
+    pub fn get_block_roots_for_day(&self, day: u16) -> Result<Vec<(u16, u64, B256, u32)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT block_in_day, block_nr, block_root, leaf_count FROM block_roots WHERE day = ?1 ORDER BY block_in_day",
+        )?;
+
+        let rows = stmt.query_map(params![day as i64], |row| {
+            let block_in_day: i64 = row.get(0)?;
+            let block_nr: i64 = row.get(1)?;
+            let root: Vec<u8> = row.get(2)?;
+            let leaf_count: i64 = row.get(3)?;
+            Ok((block_in_day, block_nr, root, leaf_count))
+        })?;
+
+        let mut roots = Vec::new();
+        for row in rows {
+            let (block_in_day, block_nr, root_bytes, leaf_count) = row?;
+            roots.push((
+                block_in_day as u16,
+                block_nr as u64,
+                B256::from_slice(&root_bytes),
+                leaf_count as u32,
+            ));
+        }
+
+        Ok(roots)
+    }
+
     /// Delete block roots from a specific block number onwards (for rollback)
-    ///
-    /// Note: This deletes by block_nr, not tree_index, since rollbacks are by block number.
     pub fn delete_block_roots_from(&self, from_block: u64) -> Result<usize> {
         let count = self.conn.execute(
             "DELETE FROM block_roots WHERE block_nr >= ?1",
@@ -950,13 +1007,13 @@ impl StateManager {
         Ok(count)
     }
 
-    /// Delete a specific block root by tree_index
-    pub fn delete_block_root(&self, tree_index: u64) -> Result<bool> {
+    /// Delete block roots for a specific day (for rollback)
+    pub fn delete_block_roots_for_day(&self, day: u16) -> Result<usize> {
         let count = self.conn.execute(
-            "DELETE FROM block_roots WHERE tree_index = ?1",
-            params![tree_index as i64],
+            "DELETE FROM block_roots WHERE day = ?1",
+            params![day as i64],
         )?;
-        Ok(count > 0)
+        Ok(count)
     }
 
     /// Get the count of block roots in the database
@@ -965,6 +1022,26 @@ impl StateManager {
             .conn
             .query_row("SELECT COUNT(*) FROM block_roots", [], |row| row.get(0))?;
         Ok(count as usize)
+    }
+
+    /// Get block count for a specific day
+    pub fn get_block_count_for_day(&self, day: u16) -> Result<u32> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM block_roots WHERE day = ?1",
+            params![day as i64],
+            |row| row.get(0),
+        )?;
+        Ok(count as u32)
+    }
+
+    /// Get the latest block_in_day for a specific day
+    pub fn get_latest_block_in_day(&self, day: u16) -> Result<Option<u16>> {
+        let result: Option<i64> = self.conn.query_row(
+            "SELECT MAX(block_in_day) FROM block_roots WHERE day = ?1",
+            params![day as i64],
+            |row| row.get(0),
+        )?;
+        Ok(result.map(|v| v as u16))
     }
 
     // ========================================================================
@@ -1270,7 +1347,12 @@ mod tests {
 
         let l1_block = 50000u64;
 
-        // Save
+        // Save block_root first (provides the day/block_in_day mapping)
+        state
+            .save_block_root(1, 2, 100, B256::repeat_byte(0xEE), 15)
+            .unwrap();
+
+        // Save block data
         state.save_block_data(&block_data, l1_block).unwrap();
         assert_eq!(state.block_count().unwrap(), 1);
 
@@ -1284,6 +1366,7 @@ mod tests {
         assert_eq!(loaded_data.numTransactions, block_data.numTransactions);
         assert_eq!(loaded_data.numDeposits, block_data.numDeposits);
         assert_eq!(loaded_data.blockNr, block_data.blockNr);
+        // blockIndex now comes from block_roots table
         assert_eq!(loaded_data.blockIndex.day, 1u128);
         assert_eq!(loaded_data.blockIndex.index, 2u128);
         assert_eq!(loaded_data.sequencer, block_data.sequencer);
@@ -1295,6 +1378,107 @@ mod tests {
         // Delete
         state.delete_blocks_from(100).unwrap();
         assert_eq!(state.block_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn test_state_manager_day_roots() {
+        let state = StateManager::in_memory().unwrap();
+
+        // Save day roots
+        state
+            .save_day_root(0, B256::repeat_byte(0x11), 100, 99)
+            .unwrap();
+        state
+            .save_day_root(1, B256::repeat_byte(0x22), 50, 149)
+            .unwrap();
+        state
+            .save_day_root(2, B256::repeat_byte(0x33), 25, 174)
+            .unwrap();
+
+        assert_eq!(state.day_root_count().unwrap(), 3);
+
+        // Load all
+        let roots = state.load_day_roots().unwrap();
+        assert_eq!(roots.len(), 3);
+        assert_eq!(roots[0].0, 0);
+        assert_eq!(roots[0].1, B256::repeat_byte(0x11));
+        assert_eq!(roots[0].2, 100);
+        assert_eq!(roots[0].3, 99);
+
+        // Load single
+        let root = state.load_day_root(1).unwrap();
+        assert!(root.is_some());
+        let (day_root, block_count, last_block_nr) = root.unwrap();
+        assert_eq!(day_root, B256::repeat_byte(0x22));
+        assert_eq!(block_count, 50);
+        assert_eq!(last_block_nr, 149);
+
+        // Get range
+        let range = state.get_day_roots_range(0, 1).unwrap();
+        assert_eq!(range.len(), 2);
+        assert_eq!(range[0].0, 0);
+        assert_eq!(range[1].0, 1);
+
+        // Delete from day 1 onwards
+        state.delete_day_roots_from(1).unwrap();
+        assert_eq!(state.day_root_count().unwrap(), 1);
+        assert!(state.load_day_root(1).unwrap().is_none());
+
+        // Get latest day
+        assert_eq!(state.get_latest_day().unwrap(), Some(0));
+    }
+
+    #[test]
+    fn test_state_manager_block_roots_hierarchical() {
+        let state = StateManager::in_memory().unwrap();
+
+        // Save block roots for day 0
+        state
+            .save_block_root(0, 0, 0, B256::repeat_byte(0x11), 30)
+            .unwrap();
+        state
+            .save_block_root(0, 1, 1, B256::repeat_byte(0x22), 45)
+            .unwrap();
+        state
+            .save_block_root(0, 2, 2, B256::repeat_byte(0x33), 60)
+            .unwrap();
+
+        // Save block roots for day 1
+        state
+            .save_block_root(1, 0, 3, B256::repeat_byte(0x44), 15)
+            .unwrap();
+
+        assert_eq!(state.block_root_count().unwrap(), 4);
+
+        // Load all
+        let roots = state.load_block_roots().unwrap();
+        assert_eq!(roots.len(), 4);
+        // Should be ordered by day, block_in_day
+        assert_eq!(roots[0], (0, 0, 0, B256::repeat_byte(0x11), 30));
+        assert_eq!(roots[1], (0, 1, 1, B256::repeat_byte(0x22), 45));
+
+        // Get block roots for specific day
+        let day0_roots = state.get_block_roots_for_day(0).unwrap();
+        assert_eq!(day0_roots.len(), 3);
+        assert_eq!(day0_roots[0].0, 0); // block_in_day
+        assert_eq!(day0_roots[0].1, 0); // block_nr
+
+        // Get block position
+        let pos = state.get_block_position(1).unwrap();
+        assert_eq!(pos, Some((0, 1))); // day=0, block_in_day=1
+
+        // Get block count for day
+        assert_eq!(state.get_block_count_for_day(0).unwrap(), 3);
+        assert_eq!(state.get_block_count_for_day(1).unwrap(), 1);
+        assert_eq!(state.get_block_count_for_day(2).unwrap(), 0);
+
+        // Get latest block_in_day
+        assert_eq!(state.get_latest_block_in_day(0).unwrap(), Some(2));
+        assert_eq!(state.get_latest_block_in_day(1).unwrap(), Some(0));
+
+        // Delete from block 2 onwards
+        state.delete_block_roots_from(2).unwrap();
+        assert_eq!(state.block_root_count().unwrap(), 2);
     }
 
     #[test]

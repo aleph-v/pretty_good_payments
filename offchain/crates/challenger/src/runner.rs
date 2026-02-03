@@ -18,8 +18,8 @@ use crate::{
     groth16::Groth16Verifier,
     state::StateManager,
     validators::{
-        AnchorLookup, DepositValidator, FraudEvidence, NullifierValidator, RootTreeTracker,
-        TransactionValidator, TreeUpdateValidator, BLOCKS_PER_DAY,
+        AnchorLookup, DepositValidator, FraudEvidence, HierarchicalRootTracker, NullifierValidator,
+        TransactionValidator, TreeUpdateValidator,
     },
 };
 use pgp_common::blob::ParsedBlock;
@@ -92,9 +92,10 @@ pub struct ChallengerRunner<P> {
     tree_update_validator: TreeUpdateValidator,
     transaction_validator: TransactionValidator,
 
-    // State tracking
+    // State tracking (in-memory only - not persisted)
     anchor_lookup: AnchorLookup,
-    root_tree_tracker: RootTreeTracker,
+    // Hierarchical root tree tracker
+    root_tree_tracker: HierarchicalRootTracker,
 
     // Challenge infrastructure
     challenge_builder: Option<ChallengeBuilder>,
@@ -154,43 +155,30 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 .wrap_err("Failed to fetch genesis anchor from contract")?;
         info!("Genesis anchor: {:?}", genesis_anchor);
 
-        // Initialize anchor lookup from database
-        let mut anchor_lookup = AnchorLookup::new();
-        let anchor_count = state.anchor_count()?;
-        if anchor_count > 0 {
-            info!("Loading {} anchors from database...", anchor_count);
-            let mut stmt = state.conn_ref().prepare(
-                "SELECT block_nr, update_nr, is_deposit, anchor FROM anchors ORDER BY block_nr",
-            )?;
-            let rows = stmt.query_map([], |row| {
-                let block_nr: i64 = row.get(0)?;
-                let update_nr: i64 = row.get(1)?;
-                let is_deposit: i32 = row.get(2)?;
-                let anchor: Vec<u8> = row.get(3)?;
-                Ok((block_nr as u32, update_nr as u32, is_deposit != 0, anchor))
-            })?;
-
-            for row in rows {
-                let (block_nr, update_nr, is_deposit, anchor_bytes) = row?;
-                let anchor = B256::from_slice(&anchor_bytes);
-                anchor_lookup.insert(block_nr, update_nr, is_deposit, anchor);
-            }
-            info!("Loaded {} anchors into memory", anchor_lookup.len());
-        }
+        // Initialize anchor lookup (in-memory only, not persisted)
+        // Anchors are recomputable from blob data and don't need to be persisted
+        let anchor_lookup = AnchorLookup::new();
+        info!("AnchorLookup initialized (in-memory only, rebuilt per block)");
 
         info!("{} nullifiers in database", state.nullifier_count()?);
 
-        // Initialize root tree tracker
+        // Initialize hierarchical root tree tracker from database
+        let day_roots = state.load_day_roots()?;
         let block_roots = state.load_block_roots()?;
-        let root_tree_tracker = if !block_roots.is_empty() {
-            info!("Restoring root tree from {} block roots", block_roots.len());
-            RootTreeTracker::from_block_roots(&block_roots)
+        let root_tree_tracker = if !block_roots.is_empty() || !day_roots.is_empty() {
+            info!(
+                "Restoring hierarchical root tree from {} day roots and {} block roots",
+                day_roots.len(),
+                block_roots.len()
+            );
+            HierarchicalRootTracker::from_database(&day_roots, &block_roots)
         } else {
-            info!("Starting root tree from genesis");
-            RootTreeTracker::new()
+            info!("Starting hierarchical root tree from genesis");
+            HierarchicalRootTracker::new()
         };
         info!(
-            "Root tree tracker: {} blocks tracked, current_anchor={:?}",
+            "Hierarchical root tree tracker: {} days, {} blocks tracked, current_anchor={:?}",
+            root_tree_tracker.day_count(),
             root_tree_tracker.block_count(),
             root_tree_tracker.current_anchor()
         );
@@ -406,12 +394,39 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
 
                 // Get blob data
                 let versioned_hashes = &new_root.block_data.blobhashes;
+                let num_deposits: u64 = new_root
+                    .block_data
+                    .numDeposits
+                    .try_into()
+                    .map_err(|_| eyre::eyre!("numDeposits exceeds u64::MAX"))?;
+                let num_txs: u64 = new_root
+                    .block_data
+                    .numTransactions
+                    .try_into()
+                    .map_err(|_| eyre::eyre!("numTransactions exceeds u64::MAX"))?;
+
                 if versioned_hashes.is_empty() {
-                    warn!(
-                        "Block {} has no blob hashes - skipping validation",
-                        block_nr
-                    );
-                    return Ok(all_fraud);
+                    // Block has no blob hashes - this is unexpected for any block with content
+                    // All blocks with deposits or transactions must have blob data for validation
+                    if num_deposits == 0 && num_txs == 0 {
+                        // Empty block (no deposits, no transactions) - unusual but not fraud
+                        warn!(
+                            "Block {} has no blob hashes and no deposits/transactions - empty block?",
+                            block_nr
+                        );
+                        return Ok(all_fraud);
+                    } else {
+                        // Block claims to have deposits or transactions but no blob hashes
+                        // This is an error condition - we cannot validate without blob data
+                        return Err(eyre::eyre!(
+                            "Block {} has {} deposits and {} transactions but no blob hashes - \
+                             cannot validate without blob data. This may indicate missing blob \
+                             storage or a data availability failure.",
+                            block_nr,
+                            num_deposits,
+                            num_txs
+                        ));
+                    }
                 }
 
                 let blob_data = self
@@ -425,17 +440,7 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                     block_nr
                 );
 
-                // Parse blob data
-                let num_deposits: u64 = new_root
-                    .block_data
-                    .numDeposits
-                    .try_into()
-                    .map_err(|_| eyre::eyre!("numDeposits exceeds u64::MAX"))?;
-                let num_txs: u64 = new_root
-                    .block_data
-                    .numTransactions
-                    .try_into()
-                    .map_err(|_| eyre::eyre!("numTransactions exceeds u64::MAX"))?;
+                // Parse blob data (num_deposits and num_txs already computed above)
 
                 let blobs: Vec<[B256; pgp_common::types::constants::BLOB_SIZE]> = blob_data
                     .iter()
@@ -466,7 +471,8 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                     parsed_block.transactions.len()
                 );
 
-                // Populate anchor_lookup from this block's updates
+                // Populate anchor_lookup from this block's updates (in-memory only)
+                // Anchors are recomputable from blob data so we don't persist them
                 let block_nr_u32 = block_nr as u32;
 
                 for (deposit_update_nr, group) in (0u32..).zip(parsed_block.deposit_groups.iter()) {
@@ -476,19 +482,11 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                         true,
                         group.new_root,
                     );
-                    self.state.save_anchor(
-                        block_nr_u32,
-                        deposit_update_nr,
-                        true,
-                        group.new_root,
-                    )?;
                 }
 
                 for (tx_update_nr, tx) in (0u32..).zip(parsed_block.transactions.iter()) {
                     self.anchor_lookup
                         .insert(block_nr_u32, tx_update_nr, false, tx.new_root);
-                    self.state
-                        .save_anchor(block_nr_u32, tx_update_nr, false, tx.new_root)?;
                 }
 
                 // Save block data
@@ -550,12 +548,14 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 }
                 raw_fraud.extend(tx_fraud);
 
-                // 4. Tree update validation
-                let day = new_root.block_data.blockIndex.day as u64;
-                let index_in_day = new_root.block_data.blockIndex.index as u64;
-                let tree_index = day * BLOCKS_PER_DAY + index_in_day;
+                // 4. Tree update validation with hierarchical structure
+                let day = new_root.block_data.blockIndex.day as u16;
+                let block_in_day = new_root.block_data.blockIndex.index as u16;
+                let tree_index = HierarchicalRootTracker::compute_tree_index(day, block_in_day);
 
-                let root_path = self.root_tree_tracker.get_root_path_for_index(tree_index);
+                let root_path = self
+                    .root_tree_tracker
+                    .get_root_path_for_position(day, block_in_day);
                 let prior_anchor = self.root_tree_tracker.current_anchor();
                 let prior_block_nr = if block_nr > 0 {
                     Some(block_nr - 1)
@@ -564,8 +564,8 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 };
 
                 debug!(
-                    "Tree validation for block {}: tree_index={}, prior_anchor={:?}",
-                    block_nr, tree_index, prior_anchor
+                    "Tree validation for block {}: day={}, block_in_day={}, tree_index={}, prior_anchor={:?}",
+                    block_nr, day, block_in_day, tree_index, prior_anchor
                 );
 
                 let (tree_fraud, final_block_tree_root) =
@@ -587,16 +587,49 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 }
                 raw_fraud.extend(tree_fraud);
 
-                // Update root tree
-                self.state
-                    .save_block_root(tree_index, block_nr, final_block_tree_root)?;
-                let new_anchor = self
+                // Compute leaf count for this block (3 leaves per update)
+                let leaf_count = ((parsed_block.deposit_groups.len()
+                    + parsed_block.transactions.len())
+                    * 3) as u32;
+
+                // Update hierarchical root tree
+                let (new_anchor, day_changed, previous_day_root) = self
                     .root_tree_tracker
-                    .insert_block_root(tree_index, final_block_tree_root);
+                    .insert_block_root(day, block_in_day, final_block_tree_root, leaf_count);
+
+                // Persist block root with hierarchical position
+                self.state.save_block_root(
+                    day,
+                    block_in_day,
+                    block_nr,
+                    final_block_tree_root,
+                    leaf_count,
+                )?;
+
                 debug!(
-                    "Inserted block {} tree root {:?} at tree_index {}, new anchor: {:?}",
-                    block_nr, final_block_tree_root, tree_index, new_anchor
+                    "Inserted block {} tree root {:?} at day={}, block_in_day={}, new anchor: {:?}",
+                    block_nr, final_block_tree_root, day, block_in_day, new_anchor
                 );
+
+                // If day changed, persist the previous day's root
+                if day_changed {
+                    if let Some(prev_day_root) = previous_day_root {
+                        let prev_day = day.saturating_sub(1);
+                        let block_count = self.root_tree_tracker.get_block_count_for_day(prev_day);
+                        // Last block nr for previous day is block_nr - 1
+                        let last_block_nr = block_nr.saturating_sub(1);
+                        self.state.save_day_root(
+                            prev_day,
+                            prev_day_root,
+                            block_count,
+                            last_block_nr,
+                        )?;
+                        info!(
+                            "Saved day root for day {}: {:?} ({} blocks)",
+                            prev_day, prev_day_root, block_count
+                        );
+                    }
+                }
 
                 // Wrap all fraud with context
                 for fraud in raw_fraud {
@@ -634,24 +667,33 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 // Delete nullifiers
                 self.state.delete_nullifiers_from(rollback_to)?;
 
-                // Delete anchors
+                // Clear in-memory anchor lookup (will be rebuilt as blocks are reprocessed)
                 let rollback_from = rollback_to.saturating_add(1) as u32;
-                self.state.delete_anchors_from(rollback_from)?;
                 self.anchor_lookup.rollback_from(rollback_from);
 
                 // Delete block data
                 self.state.delete_blocks_from(rollback_to)?;
 
-                // Delete block roots and rebuild root tree
+                // Delete block roots from database and rebuild hierarchical tracker
                 self.state.delete_block_roots_from(rollback_to)?;
-                let remaining_roots = self.state.load_block_roots()?;
-                self.root_tree_tracker = if !remaining_roots.is_empty() {
-                    RootTreeTracker::from_block_roots(&remaining_roots)
-                } else {
-                    RootTreeTracker::new()
-                };
+
+                // Also need to recalculate which day roots are affected
+                // Load remaining data and rebuild tracker
+                let remaining_day_roots = self.state.load_day_roots()?;
+                let remaining_block_roots = self.state.load_block_roots()?;
+
+                self.root_tree_tracker =
+                    if !remaining_block_roots.is_empty() || !remaining_day_roots.is_empty() {
+                        HierarchicalRootTracker::from_database(
+                            &remaining_day_roots,
+                            &remaining_block_roots,
+                        )
+                    } else {
+                        HierarchicalRootTracker::new()
+                    };
                 info!(
-                    "Root tree rolled back: {} blocks remain, current_anchor={:?}",
+                    "Hierarchical root tree rolled back: {} days, {} blocks remain, current_anchor={:?}",
+                    self.root_tree_tracker.day_count(),
                     self.root_tree_tracker.block_count(),
                     self.root_tree_tracker.current_anchor()
                 );
@@ -837,17 +879,27 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                         eyre::eyre!("Prior anchor block {} not found", anchor_block_nr)
                     })?;
 
-                let anchor = self
-                    .state
-                    .load_anchor(*anchor_block_nr, *anchor_update_nr, *is_deposit)?
-                    .ok_or_else(|| {
-                        eyre::eyre!(
-                            "Anchor not found: block={}, update={}, is_deposit={}",
-                            anchor_block_nr,
-                            anchor_update_nr,
-                            is_deposit
+                // Get anchor from in-memory lookup, or rebuild from blob if not available
+                let anchor = match self.anchor_lookup.get(
+                    *anchor_block_nr,
+                    *anchor_update_nr,
+                    *is_deposit,
+                ) {
+                    Some(anchor) => anchor,
+                    None => {
+                        // Anchor not in memory (e.g., after restart) - rebuild from blob data
+                        info!(
+                            "Anchor not in memory for block={}, update={}, is_deposit={} - rebuilding from blob",
+                            anchor_block_nr, anchor_update_nr, is_deposit
+                        );
+                        self.rebuild_anchor_from_blob(
+                            *anchor_block_nr as u64,
+                            *anchor_update_nr,
+                            *is_deposit,
                         )
-                    })?;
+                        .await?
+                    }
+                };
 
                 if prior_anchor_block.blobhashes.is_empty() {
                     return Err(eyre::eyre!(
@@ -1090,8 +1142,11 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
         }
     }
 
-    /// Retry pending challenges that failed previously
-    pub async fn retry_pending_challenges(&self) -> Result<()> {
+    /// Retry pending challenges that failed previously.
+    ///
+    /// This re-fetches block and blob data, re-validates to confirm the fraud
+    /// still exists, and re-submits the challenge transaction.
+    pub async fn retry_pending_challenges(&mut self) -> Result<()> {
         let pending = self.state.load_pending_challenges()?;
 
         if pending.is_empty() {
@@ -1117,14 +1172,220 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
                 challenge.fraud_type
             );
 
-            // For now, just increment retry count - full retry requires re-validation
-            self.state.update_pending_challenge_retry(
-                challenge.id,
-                Some("Pending challenge retry not fully implemented"),
-            )?;
+            match self.retry_single_challenge(&challenge).await {
+                Ok(tx_hash) => {
+                    info!(
+                        "Challenge {} for block {} succeeded, tx: {:?}",
+                        challenge.id, challenge.block_nr, tx_hash
+                    );
+                    // Remove the pending challenge on success
+                    self.state.delete_pending_challenge(challenge.id)?;
+                }
+                Err(e) => {
+                    warn!(
+                        "Challenge {} for block {} failed: {}",
+                        challenge.id, challenge.block_nr, e
+                    );
+                    // Update retry count with error message
+                    self.state
+                        .update_pending_challenge_retry(challenge.id, Some(&e.to_string()))?;
+                }
+            }
         }
 
         Ok(())
+    }
+
+    /// Retry a single pending challenge by re-validating and re-submitting.
+    async fn retry_single_challenge(
+        &mut self,
+        challenge: &crate::state::PendingChallenge,
+    ) -> Result<B256> {
+        // Load block data from database
+        let (block_data, _l1_block) =
+            self.state
+                .load_block_data(challenge.block_nr)?
+                .ok_or_else(|| {
+                    eyre::eyre!(
+                        "Block data not found for pending challenge block {}",
+                        challenge.block_nr
+                    )
+                })?;
+
+        // Fetch blob data
+        if block_data.blobhashes.is_empty() {
+            return Err(eyre::eyre!(
+                "Block {} has no blob hashes for retry",
+                challenge.block_nr
+            ));
+        }
+
+        let blob_data = self
+            .blob_provider
+            .get_blobs(challenge.l1_block_number, &block_data.blobhashes)
+            .await?;
+
+        // Parse blob data
+        let num_deposits: u64 = block_data
+            .numDeposits
+            .try_into()
+            .map_err(|_| eyre::eyre!("numDeposits exceeds u64::MAX"))?;
+        let num_txs: u64 = block_data
+            .numTransactions
+            .try_into()
+            .map_err(|_| eyre::eyre!("numTransactions exceeds u64::MAX"))?;
+
+        let blobs: Vec<[B256; pgp_common::types::constants::BLOB_SIZE]> = blob_data
+            .iter()
+            .map(|data| {
+                let mut blob = [B256::ZERO; pgp_common::types::constants::BLOB_SIZE];
+                for (i, chunk) in data.chunks(32).enumerate() {
+                    if i >= blob.len() {
+                        break;
+                    }
+                    if chunk.len() == 32 {
+                        blob[i] = B256::from_slice(chunk);
+                    }
+                }
+                blob
+            })
+            .collect();
+
+        let parsed_block =
+            ParsedBlock::from_blobs(&blobs.to_vec(), num_deposits as usize, num_txs as usize)?;
+
+        // Populate anchor lookup for this block (needed for transaction validation)
+        let block_nr_u32 = challenge.block_nr as u32;
+        for (deposit_update_nr, group) in (0u32..).zip(parsed_block.deposit_groups.iter()) {
+            self.anchor_lookup
+                .insert(block_nr_u32, deposit_update_nr, true, group.new_root);
+        }
+        for (tx_update_nr, tx) in (0u32..).zip(parsed_block.transactions.iter()) {
+            self.anchor_lookup
+                .insert(block_nr_u32, tx_update_nr, false, tx.new_root);
+        }
+
+        // Re-validate based on fraud type to get fresh fraud evidence
+        let fraud_evidence = self
+            .revalidate_for_fraud_type(
+                &challenge.fraud_type,
+                challenge.block_nr,
+                &block_data,
+                &parsed_block,
+            )
+            .await?;
+
+        // Create fraud context
+        let fraud_ctx = FraudWithContext {
+            fraud: fraud_evidence,
+            block_nr: challenge.block_nr,
+            l1_block_number: challenge.l1_block_number,
+        };
+
+        // Re-submit the challenge
+        self.submit_challenge(&fraud_ctx).await
+    }
+
+    /// Re-validate a block for a specific fraud type to get fresh evidence.
+    async fn revalidate_for_fraud_type(
+        &self,
+        fraud_type: &str,
+        block_nr: u64,
+        block_data: &BlockData,
+        parsed_block: &ParsedBlock,
+    ) -> Result<FraudEvidence> {
+        match fraud_type {
+            "DepositWrongLeaf" | "DepositPaddingNotZero" => {
+                // Re-fetch expected deposits
+                let expected_deposits = contracts::fetch_expected_deposits(
+                    self.provider.clone(),
+                    self.entrypoint_address,
+                    block_data.blockNr,
+                )
+                .await?;
+
+                let fraud = self.deposit_validator.validate_block(
+                    block_data,
+                    parsed_block,
+                    &expected_deposits,
+                );
+
+                fraud.into_iter().next().ok_or_else(|| {
+                    eyre::eyre!(
+                        "No deposit fraud found on re-validation of block {}",
+                        block_nr
+                    )
+                })
+            }
+
+            "NullifierDoubleSpend" => {
+                let fraud =
+                    self.nullifier_validator
+                        .process_block(&self.state, block_nr, parsed_block)?;
+
+                fraud.into_iter().next().ok_or_else(|| {
+                    eyre::eyre!(
+                        "No nullifier fraud found on re-validation of block {}",
+                        block_nr
+                    )
+                })
+            }
+
+            "InvalidTransactionProof" | "InvalidAnchorReference" | "MissingEthKeyAuth" => {
+                let fraud = self
+                    .transaction_validator
+                    .validate_block(
+                        &self.provider,
+                        self.registry_address,
+                        block_data,
+                        parsed_block,
+                        &self.anchor_lookup,
+                    )
+                    .await?;
+
+                fraud.into_iter().next().ok_or_else(|| {
+                    eyre::eyre!(
+                        "No transaction fraud found on re-validation of block {}",
+                        block_nr
+                    )
+                })
+            }
+
+            "IncorrectTreeUpdate" => {
+                let day = block_data.blockIndex.day as u16;
+                let block_in_day = block_data.blockIndex.index as u16;
+                let tree_index = HierarchicalRootTracker::compute_tree_index(day, block_in_day);
+
+                let root_path = self
+                    .root_tree_tracker
+                    .get_root_path_for_position(day, block_in_day);
+                let prior_anchor = self.root_tree_tracker.current_anchor();
+                let prior_block_nr = if block_nr > 0 {
+                    Some(block_nr - 1)
+                } else {
+                    None
+                };
+
+                let (fraud, _) = self.tree_update_validator.validate_block(
+                    block_data,
+                    parsed_block,
+                    prior_anchor,
+                    prior_block_nr,
+                    tree_index,
+                    0,
+                    &root_path,
+                );
+
+                fraud.into_iter().next().ok_or_else(|| {
+                    eyre::eyre!(
+                        "No tree update fraud found on re-validation of block {}",
+                        block_nr
+                    )
+                })
+            }
+
+            _ => Err(eyre::eyre!("Unknown fraud type for retry: {}", fraud_type)),
+        }
     }
 
     /// Save a pending challenge for later retry
@@ -1177,5 +1438,93 @@ impl<P: Provider + Clone> ChallengerRunner<P> {
     /// Check if running in dry-run mode
     pub fn is_dry_run(&self) -> bool {
         self.dry_run
+    }
+
+    /// Rebuild an anchor value from blob data.
+    ///
+    /// This is used when the anchor is not in memory (e.g., after a restart)
+    /// and needs to be reconstructed from the persisted block and blob data.
+    ///
+    /// Note: The anchor is not cached since this method takes &self. The blob
+    /// data is typically already cached by the blob provider, so repeated
+    /// lookups are not expensive.
+    async fn rebuild_anchor_from_blob(
+        &self,
+        block_nr: u64,
+        update_nr: u32,
+        is_deposit: bool,
+    ) -> Result<B256> {
+        // Load block data to get blob hashes and deposit count
+        let (block_data, l1_block_number) = self
+            .state
+            .load_block_data(block_nr)?
+            .ok_or_else(|| eyre::eyre!("Block data not found for block {}", block_nr))?;
+
+        if block_data.blobhashes.is_empty() {
+            return Err(eyre::eyre!(
+                "Block {} has no blob hashes - cannot rebuild anchor",
+                block_nr
+            ));
+        }
+
+        // Get number of deposits for memory address calculation
+        let num_deposits: u64 = block_data
+            .numDeposits
+            .try_into()
+            .map_err(|_| eyre::eyre!("numDeposits exceeds u64::MAX"))?;
+
+        // Calculate the memory address for this anchor
+        let memory_addr = memory::anchor_memory_address(update_nr as u64, num_deposits, is_deposit);
+
+        // Determine which blob and field index
+        const FIELDS_PER_BLOB: u64 = 4096;
+        let blob_index = (memory_addr / FIELDS_PER_BLOB) as usize;
+        let field_in_blob = (memory_addr % FIELDS_PER_BLOB) as usize;
+
+        if blob_index >= block_data.blobhashes.len() {
+            return Err(eyre::eyre!(
+                "Anchor memory address {} requires blob {} but block {} only has {} blobs",
+                memory_addr,
+                blob_index,
+                block_nr,
+                block_data.blobhashes.len()
+            ));
+        }
+
+        // Fetch blob data
+        let blob_data = self
+            .blob_provider
+            .get_blobs(l1_block_number, &block_data.blobhashes)
+            .await?;
+
+        if blob_index >= blob_data.len() {
+            return Err(eyre::eyre!(
+                "Fetched {} blobs but need blob index {}",
+                blob_data.len(),
+                blob_index
+            ));
+        }
+
+        // Extract the anchor value from the blob
+        let blob = &blob_data[blob_index];
+        let byte_offset = field_in_blob * 32;
+
+        if byte_offset + 32 > blob.len() {
+            return Err(eyre::eyre!(
+                "Field {} at byte offset {} exceeds blob length {}",
+                field_in_blob,
+                byte_offset,
+                blob.len()
+            ));
+        }
+
+        let anchor = B256::from_slice(&blob[byte_offset..byte_offset + 32]);
+
+        info!(
+            "Rebuilt anchor for block {} update {} is_deposit={}: {:?}",
+            block_nr, update_nr, is_deposit, anchor
+        );
+
+        Ok(anchor)
     }
 }

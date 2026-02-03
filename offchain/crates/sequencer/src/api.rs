@@ -1,15 +1,23 @@
 //! REST API for the sequencer.
 //!
-//! Provides endpoints for submitting transactions to the mempool.
+//! Provides endpoints for:
+//! - Submitting transactions to the mempool
+//! - Syncing merkle proofs for clients
+//! - Generating withdrawal proofs
 
 use crate::mempool::{AddResult, Mempool, MempoolStats, ValidationError};
+use crate::sync_state::SyncState;
+use alloy_primitives::B256;
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use pgp_challenger::{memory, KzgProver};
+use pgp_common::blob::ParsedBlock;
+use pgp_common::contracts::BlockData;
 use pgp_common::types::ParsedTransaction;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
@@ -19,12 +27,25 @@ use tracing::{debug, info, warn};
 pub struct ApiState {
     /// The transaction mempool.
     pub mempool: Arc<Mempool>,
+    /// Sync state for merkle proof endpoints (optional - not available in all test contexts).
+    pub sync_state: Option<Arc<SyncState>>,
 }
 
 impl ApiState {
     /// Create new API state with the given mempool.
     pub fn new(mempool: Arc<Mempool>) -> Self {
-        Self { mempool }
+        Self {
+            mempool,
+            sync_state: None,
+        }
+    }
+
+    /// Create new API state with mempool and sync state.
+    pub fn with_sync(mempool: Arc<Mempool>, sync_state: Arc<SyncState>) -> Self {
+        Self {
+            mempool,
+            sync_state: Some(sync_state),
+        }
     }
 }
 
@@ -91,13 +112,95 @@ pub struct PokeResponse {
     pub mempool_size: usize,
 }
 
+/// Request body for withdrawal proof.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WithdrawalProofRequest {
+    /// The leaf commitment to find.
+    pub leaf_commitment: B256,
+    /// The block number containing the transaction.
+    pub block_nr: u64,
+}
+
+/// Response for withdrawal proof.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WithdrawalProofResponse {
+    /// Whether the proof was found.
+    pub found: bool,
+    /// Human-readable message.
+    pub message: String,
+    /// Block data needed for L1 withdrawal (serialized).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub block_data: Option<BlockDataResponse>,
+    /// Transaction index within the block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_nr: Option<u64>,
+    /// Output index within the transaction (0, 1, or 2).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub which: Option<u8>,
+    /// 48-byte KZG commitment (hex encoded).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commitment: Option<String>,
+    /// 48-byte KZG proof (hex encoded).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proof: Option<String>,
+}
+
+/// Serializable representation of BlockData for the API response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BlockDataResponse {
+    /// Anchor hash.
+    pub anchor: B256,
+    /// Block timestamp.
+    pub timestamp: String,
+    /// Number of transactions.
+    pub num_transactions: u64,
+    /// Number of deposits.
+    pub num_deposits: u64,
+    /// Block number.
+    pub block_nr: u64,
+    /// Day index.
+    pub day: u64,
+    /// Block index within day.
+    pub block_in_day: u64,
+    /// Sequencer address.
+    pub sequencer: String,
+    /// Blob hashes.
+    pub blobhashes: Vec<B256>,
+}
+
+impl From<BlockData> for BlockDataResponse {
+    fn from(data: BlockData) -> Self {
+        Self {
+            anchor: data.anchor,
+            timestamp: data.timestamp.to_string(),
+            num_transactions: data.numTransactions.try_into().unwrap_or(0),
+            num_deposits: data.numDeposits.try_into().unwrap_or(0),
+            block_nr: data.blockNr.try_into().unwrap_or(0),
+            day: data.blockIndex.day as u64,
+            block_in_day: data.blockIndex.index as u64,
+            sequencer: format!("0x{}", hex::encode(data.sequencer)),
+            blobhashes: data.blobhashes,
+        }
+    }
+}
+
 /// Create the API router.
 pub fn create_router(state: Arc<ApiState>) -> Router {
     Router::new()
+        // Transaction endpoints
         .route("/tx", post(submit_tx))
         .route("/mempool", get(mempool_status))
         .route("/health", get(health_check))
         .route("/poke", post(poke))
+        .route("/withdrawal-proof", post(withdrawal_proof))
+        // Sync endpoints
+        .route("/sync/status", get(sync_status))
+        .route("/sync/day-roots", get(sync_day_roots))
+        .route("/sync/block-roots", get(sync_block_roots))
+        .route("/sync/day-path", get(sync_day_path))
+        .route("/sync/block-path", get(sync_block_path))
+        .route("/sync/block-tree-proof", get(sync_block_tree_proof))
+        .route("/sync/full-proof", get(sync_full_proof))
         .with_state(state)
 }
 
@@ -284,14 +387,534 @@ async fn poke(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
     )
 }
 
-/// Start the API server.
+/// POST /withdrawal-proof - Generate KZG proof for L1 withdrawal.
+///
+/// Given a leaf commitment and block number, this endpoint finds the transaction
+/// output containing that commitment and generates the KZG proof needed for
+/// the Withdraw.sol contract on L1.
+///
+/// Returns the BlockData, transaction index, output index, KZG commitment, and KZG proof.
+async fn withdrawal_proof(
+    State(state): State<Arc<ApiState>>,
+    Json(request): Json<WithdrawalProofRequest>,
+) -> impl IntoResponse {
+    info!(
+        "Withdrawal proof requested for leaf {} in block {}",
+        request.leaf_commitment, request.block_nr
+    );
+
+    // Load block data
+    let block_data = match state.mempool.load_block_data(request.block_nr).await {
+        Ok(Some((data, _l1_block))) => data,
+        Ok(None) => {
+            warn!("Block {} not found", request.block_nr);
+            return (
+                StatusCode::NOT_FOUND,
+                Json(WithdrawalProofResponse {
+                    found: false,
+                    message: format!("Block {} not found", request.block_nr),
+                    block_data: None,
+                    tx_nr: None,
+                    which: None,
+                    commitment: None,
+                    proof: None,
+                }),
+            );
+        }
+        Err(e) => {
+            warn!("Failed to load block {}: {}", request.block_nr, e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(WithdrawalProofResponse {
+                    found: false,
+                    message: format!("Failed to load block: {}", e),
+                    block_data: None,
+                    tx_nr: None,
+                    which: None,
+                    commitment: None,
+                    proof: None,
+                }),
+            );
+        }
+    };
+
+    // Load blobs for this block
+    let mut blob_data_vec: Vec<Vec<u8>> = Vec::new();
+    for blobhash in &block_data.blobhashes {
+        match state.mempool.load_blob(*blobhash).await {
+            Ok(Some(data)) => blob_data_vec.push(data),
+            Ok(None) => {
+                warn!("Blob {} not found for block {}", blobhash, request.block_nr);
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(WithdrawalProofResponse {
+                        found: false,
+                        message: format!("Blob {} not found", blobhash),
+                        block_data: None,
+                        tx_nr: None,
+                        which: None,
+                        commitment: None,
+                        proof: None,
+                    }),
+                );
+            }
+            Err(e) => {
+                warn!("Failed to load blob {}: {}", blobhash, e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(WithdrawalProofResponse {
+                        found: false,
+                        message: format!("Failed to load blob: {}", e),
+                        block_data: None,
+                        tx_nr: None,
+                        which: None,
+                        commitment: None,
+                        proof: None,
+                    }),
+                );
+            }
+        }
+    }
+
+    if blob_data_vec.is_empty() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(WithdrawalProofResponse {
+                found: false,
+                message: "No blobs found for block".to_string(),
+                block_data: None,
+                tx_nr: None,
+                which: None,
+                commitment: None,
+                proof: None,
+            }),
+        );
+    }
+
+    // Parse the blob data to find transactions
+    // Convert raw bytes to B256 arrays for parsing
+    let blobs_b256: Vec<Vec<B256>> = blob_data_vec
+        .iter()
+        .map(|blob_bytes| {
+            blob_bytes
+                .chunks(32)
+                .map(|chunk| {
+                    let mut arr = [0u8; 32];
+                    arr.copy_from_slice(chunk);
+                    B256::from(arr)
+                })
+                .collect()
+        })
+        .collect();
+
+    let num_deposits: usize = block_data.numDeposits.try_into().unwrap_or(0);
+    let num_transactions: usize = block_data.numTransactions.try_into().unwrap_or(0);
+
+    let parsed_block =
+        match ParsedBlock::from_blob_vecs(&blobs_b256, num_deposits, num_transactions) {
+            Ok(block) => block,
+            Err(e) => {
+                warn!("Failed to parse block blob: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(WithdrawalProofResponse {
+                        found: false,
+                        message: format!("Failed to parse blob: {}", e),
+                        block_data: None,
+                        tx_nr: None,
+                        which: None,
+                        commitment: None,
+                        proof: None,
+                    }),
+                );
+            }
+        };
+
+    // Search for the leaf commitment in transaction outputs
+    let mut found_tx_nr: Option<usize> = None;
+    let mut found_which: Option<u8> = None;
+
+    for (tx_idx, tx) in parsed_block.transactions.iter().enumerate() {
+        if tx.leaf0 == request.leaf_commitment {
+            found_tx_nr = Some(tx_idx);
+            found_which = Some(0);
+            break;
+        }
+        if tx.leaf1 == request.leaf_commitment {
+            found_tx_nr = Some(tx_idx);
+            found_which = Some(1);
+            break;
+        }
+        if tx.leaf2 == request.leaf_commitment {
+            found_tx_nr = Some(tx_idx);
+            found_which = Some(2);
+            break;
+        }
+    }
+
+    let (tx_nr, which) = match (found_tx_nr, found_which) {
+        (Some(t), Some(w)) => (t, w),
+        _ => {
+            warn!(
+                "Leaf commitment {} not found in block {}",
+                request.leaf_commitment, request.block_nr
+            );
+            return (
+                StatusCode::NOT_FOUND,
+                Json(WithdrawalProofResponse {
+                    found: false,
+                    message: format!(
+                        "Leaf commitment {} not found in block {}",
+                        request.leaf_commitment, request.block_nr
+                    ),
+                    block_data: None,
+                    tx_nr: None,
+                    which: None,
+                    commitment: None,
+                    proof: None,
+                }),
+            );
+        }
+    };
+
+    // Calculate the memory address for this leaf
+    let memory_address =
+        memory::leaf_memory_address(tx_nr as u64, num_deposits as u64, false, which as u64);
+
+    // Determine which blob contains this field
+    let blob_index = memory_address as usize / 4096;
+    let field_index = memory_address as usize % 4096;
+
+    if blob_index >= blob_data_vec.len() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(WithdrawalProofResponse {
+                found: false,
+                message: format!(
+                    "Memory address {} requires blob {} but only {} blobs available",
+                    memory_address,
+                    blob_index,
+                    blob_data_vec.len()
+                ),
+                block_data: None,
+                tx_nr: None,
+                which: None,
+                commitment: None,
+                proof: None,
+            }),
+        );
+    }
+
+    // Generate KZG proof
+    let kzg_prover = match KzgProver::new() {
+        Ok(prover) => prover,
+        Err(e) => {
+            warn!("Failed to create KZG prover: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(WithdrawalProofResponse {
+                    found: false,
+                    message: format!("Failed to create KZG prover: {}", e),
+                    block_data: None,
+                    tx_nr: None,
+                    which: None,
+                    commitment: None,
+                    proof: None,
+                }),
+            );
+        }
+    };
+
+    let kzg_result = match kzg_prover.generate_proof(&blob_data_vec[blob_index], field_index) {
+        Ok(proof) => proof,
+        Err(e) => {
+            warn!("Failed to generate KZG proof: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(WithdrawalProofResponse {
+                    found: false,
+                    message: format!("Failed to generate KZG proof: {}", e),
+                    block_data: None,
+                    tx_nr: None,
+                    which: None,
+                    commitment: None,
+                    proof: None,
+                }),
+            );
+        }
+    };
+
+    info!(
+        "Generated withdrawal proof for tx {} output {} in block {}",
+        tx_nr, which, request.block_nr
+    );
+
+    (
+        StatusCode::OK,
+        Json(WithdrawalProofResponse {
+            found: true,
+            message: "Withdrawal proof generated successfully".to_string(),
+            block_data: Some(BlockDataResponse::from(block_data)),
+            tx_nr: Some(tx_nr as u64),
+            which: Some(which),
+            commitment: Some(format!("0x{}", hex::encode(&kzg_result.commitment))),
+            proof: Some(format!("0x{}", hex::encode(&kzg_result.proof))),
+        }),
+    )
+}
+
+// ============================================================================
+// Sync API Handlers
+// ============================================================================
+
+/// Query params for day roots endpoint
+#[derive(Debug, Deserialize)]
+pub struct DayRootsQuery {
+    pub from: u16,
+    pub to: u16,
+}
+
+/// Query params for block roots endpoint
+#[derive(Debug, Deserialize)]
+pub struct BlockRootsQuery {
+    pub day: u16,
+}
+
+/// Query params for day path endpoint
+#[derive(Debug, Deserialize)]
+pub struct DayPathQuery {
+    pub day: u16,
+}
+
+/// Query params for block path endpoint
+#[derive(Debug, Deserialize)]
+pub struct BlockPathQuery {
+    pub day: u16,
+    pub block: u16,
+}
+
+/// Query params for block tree proof endpoint
+#[derive(Debug, Deserialize)]
+pub struct BlockTreeProofQuery {
+    pub block_nr: u64,
+    pub leaf_index: u32,
+}
+
+/// Query params for full proof endpoint
+#[derive(Debug, Deserialize)]
+pub struct FullProofQuery {
+    pub block_nr: u64,
+    pub leaf_index: u32,
+}
+
+/// GET /sync/status - Get current sync status
+async fn sync_status(State(state): State<Arc<ApiState>>) -> impl IntoResponse {
+    let Some(sync_state) = &state.sync_state else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Sync state not available"})),
+        );
+    };
+
+    let response = sync_state.get_sync_status().await;
+    match serde_json::to_value(response) {
+        Ok(value) => (StatusCode::OK, Json(value)),
+        Err(e) => {
+            warn!("Failed to serialize sync status response: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to serialize response"})),
+            )
+        }
+    }
+}
+
+/// GET /sync/day-roots - Get day roots for a range
+async fn sync_day_roots(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<DayRootsQuery>,
+) -> impl IntoResponse {
+    let Some(sync_state) = &state.sync_state else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Sync state not available"})),
+        );
+    };
+
+    let response = sync_state.get_day_roots(params.from, params.to).await;
+    match serde_json::to_value(response) {
+        Ok(value) => (StatusCode::OK, Json(value)),
+        Err(e) => {
+            warn!("Failed to serialize day roots response: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to serialize response"})),
+            )
+        }
+    }
+}
+
+/// GET /sync/block-roots - Get block roots for a day
+async fn sync_block_roots(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<BlockRootsQuery>,
+) -> impl IntoResponse {
+    let Some(sync_state) = &state.sync_state else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Sync state not available"})),
+        );
+    };
+
+    let response = sync_state.get_block_roots(params.day).await;
+    match serde_json::to_value(response) {
+        Ok(value) => (StatusCode::OK, Json(value)),
+        Err(e) => {
+            warn!("Failed to serialize block roots response: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to serialize response"})),
+            )
+        }
+    }
+}
+
+/// GET /sync/day-path - Get day path for merkle proof
+async fn sync_day_path(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<DayPathQuery>,
+) -> impl IntoResponse {
+    let Some(sync_state) = &state.sync_state else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Sync state not available"})),
+        );
+    };
+
+    let response = sync_state.get_day_path(params.day).await;
+    match serde_json::to_value(response) {
+        Ok(value) => (StatusCode::OK, Json(value)),
+        Err(e) => {
+            warn!("Failed to serialize day path response: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to serialize response"})),
+            )
+        }
+    }
+}
+
+/// GET /sync/block-path - Get block-in-day path for merkle proof
+async fn sync_block_path(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<BlockPathQuery>,
+) -> impl IntoResponse {
+    let Some(sync_state) = &state.sync_state else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Sync state not available"})),
+        );
+    };
+
+    let response = sync_state.get_block_path(params.day, params.block).await;
+    match serde_json::to_value(response) {
+        Ok(value) => (StatusCode::OK, Json(value)),
+        Err(e) => {
+            warn!("Failed to serialize block path response: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to serialize response"})),
+            )
+        }
+    }
+}
+
+/// GET /sync/block-tree-proof - Get block tree proof for a leaf
+async fn sync_block_tree_proof(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<BlockTreeProofQuery>,
+) -> impl IntoResponse {
+    let Some(sync_state) = &state.sync_state else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Sync state not available"})),
+        );
+    };
+
+    match sync_state
+        .get_block_tree_proof(params.block_nr, params.leaf_index)
+        .await
+    {
+        Some(response) => match serde_json::to_value(response) {
+            Ok(value) => (StatusCode::OK, Json(value)),
+            Err(e) => {
+                warn!("Failed to serialize block tree proof response: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "Failed to serialize response"})),
+                )
+            }
+        },
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Block tree proof not found"})),
+        ),
+    }
+}
+
+/// GET /sync/full-proof - Get full 44-level proof for a leaf
+async fn sync_full_proof(
+    State(state): State<Arc<ApiState>>,
+    Query(params): Query<FullProofQuery>,
+) -> impl IntoResponse {
+    let Some(sync_state) = &state.sync_state else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({"error": "Sync state not available"})),
+        );
+    };
+
+    match sync_state
+        .get_full_proof(params.block_nr, params.leaf_index)
+        .await
+    {
+        Some(response) => match serde_json::to_value(response) {
+            Ok(value) => (StatusCode::OK, Json(value)),
+            Err(e) => {
+                warn!("Failed to serialize full proof response: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": "Failed to serialize response"})),
+                )
+            }
+        },
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Full proof not found"})),
+        ),
+    }
+}
+
+/// Result of the API server task.
+///
+/// This is returned when the API server terminates, either normally or with an error.
+#[derive(Debug)]
+pub enum ApiServerResult {
+    /// Server shut down gracefully
+    Shutdown,
+    /// Server encountered an error
+    Error(String),
+}
+
+/// Start the API server without sync support.
 ///
 /// This function spawns a Tokio task that runs the HTTP server.
 /// It returns the task handle so it can be monitored or cancelled.
+/// Note: Sync endpoints will return 503 Service Unavailable.
 pub async fn start_api_server(
     listen_addr: &str,
     mempool: Arc<Mempool>,
-) -> eyre::Result<tokio::task::JoinHandle<()>> {
+) -> eyre::Result<tokio::task::JoinHandle<ApiServerResult>> {
     let state = Arc::new(ApiState::new(mempool));
     let router = create_router(state);
 
@@ -299,8 +922,48 @@ pub async fn start_api_server(
     info!("API server listening on {}", listen_addr);
 
     let handle = tokio::spawn(async move {
-        if let Err(e) = axum::serve(listener, router).await {
-            tracing::error!("API server error: {}", e);
+        match axum::serve(listener, router).await {
+            Ok(()) => {
+                info!("API server shut down gracefully");
+                ApiServerResult::Shutdown
+            }
+            Err(e) => {
+                tracing::error!("API server error: {}", e);
+                ApiServerResult::Error(e.to_string())
+            }
+        }
+    });
+
+    Ok(handle)
+}
+
+/// Start the API server with full sync support.
+///
+/// This version includes the SyncState for serving merkle proof endpoints.
+pub async fn start_api_server_with_sync(
+    listen_addr: &str,
+    mempool: Arc<Mempool>,
+    sync_state: Arc<SyncState>,
+) -> eyre::Result<tokio::task::JoinHandle<ApiServerResult>> {
+    let state = Arc::new(ApiState::with_sync(mempool, sync_state));
+    let router = create_router(state);
+
+    let listener = tokio::net::TcpListener::bind(listen_addr).await?;
+    info!(
+        "API server listening on {} (with sync support)",
+        listen_addr
+    );
+
+    let handle = tokio::spawn(async move {
+        match axum::serve(listener, router).await {
+            Ok(()) => {
+                info!("API server (with sync) shut down gracefully");
+                ApiServerResult::Shutdown
+            }
+            Err(e) => {
+                tracing::error!("API server error: {}", e);
+                ApiServerResult::Error(e.to_string())
+            }
         }
     });
 

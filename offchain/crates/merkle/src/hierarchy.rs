@@ -115,9 +115,7 @@ impl TreePosition {
 
     /// Convert to a flat 44-bit leaf index.
     pub fn to_flat_index(&self) -> u64 {
-        ((self.day as u64) << 29)
-            | ((self.block_in_day as u64) << 16)
-            | (self.leaf_in_block as u64)
+        ((self.day as u64) << 29) | ((self.block_in_day as u64) << 16) | (self.leaf_in_block as u64)
     }
 
     /// Get the tree index for the root tree (28 levels).
@@ -217,7 +215,11 @@ impl HierarchicalProof {
     /// * `position` - The leaf position
     /// * `leaf` - The leaf value
     /// * `flat_siblings` - All 44 siblings from leaf to root
-    pub fn from_flat(position: TreePosition, leaf: B256, flat_siblings: &[B256; TOTAL_DEPTH]) -> Self {
+    pub fn from_flat(
+        position: TreePosition,
+        leaf: B256,
+        flat_siblings: &[B256; TOTAL_DEPTH],
+    ) -> Self {
         let mut block_siblings = [B256::ZERO; BLOCK_TREE_DEPTH];
         let mut day_siblings = [B256::ZERO; BLOCK_IN_DAY_DEPTH];
         let mut global_siblings = [B256::ZERO; DAY_TREE_DEPTH];

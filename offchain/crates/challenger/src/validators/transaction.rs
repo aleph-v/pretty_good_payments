@@ -401,6 +401,108 @@ mod tests {
     }
 
     #[test]
+    fn test_anchor_lookup_is_valid_reference() {
+        let mut lookup = AnchorLookup::new();
+        lookup.set_current_block(100);
+
+        // Insert anchors at block 50 with update_nr 0, 1, 2
+        lookup.insert(50, 0, false, B256::repeat_byte(0x11));
+        lookup.insert(50, 1, false, B256::repeat_byte(0x22));
+        lookup.insert(50, 2, false, B256::repeat_byte(0x33));
+        lookup.insert(50, 0, true, B256::repeat_byte(0x44)); // deposit
+
+        // Valid references
+        assert!(lookup.is_valid_reference(50, 0, false));
+        assert!(lookup.is_valid_reference(50, 1, false));
+        assert!(lookup.is_valid_reference(50, 2, false));
+        assert!(lookup.is_valid_reference(50, 0, true));
+
+        // Invalid: future block
+        assert!(!lookup.is_valid_reference(101, 0, false));
+
+        // Invalid: update_nr out of bounds
+        assert!(!lookup.is_valid_reference(50, 3, false)); // max is 2
+        assert!(!lookup.is_valid_reference(50, 1, true)); // max for deposits is 0
+
+        // Block that exists but we don't have data for
+        // - is_valid_reference only checks bounds, not existence of anchor
+        assert!(lookup.is_valid_reference(60, 0, false)); // No data, but within bounds
+    }
+
+    #[test]
+    fn test_anchor_lookup_rollback() {
+        let mut lookup = AnchorLookup::new();
+        lookup.set_current_block(100);
+
+        // Insert anchors at various blocks
+        lookup.insert(50, 0, false, B256::repeat_byte(0x11));
+        lookup.insert(60, 0, false, B256::repeat_byte(0x22));
+        lookup.insert(70, 0, false, B256::repeat_byte(0x33));
+        lookup.insert(80, 0, false, B256::repeat_byte(0x44));
+
+        assert_eq!(lookup.len(), 4);
+
+        // Rollback from block 70 - should remove blocks 70 and 80
+        lookup.rollback_from(70);
+
+        assert_eq!(lookup.len(), 2);
+        assert!(lookup.get(50, 0, false).is_some());
+        assert!(lookup.get(60, 0, false).is_some());
+        assert!(lookup.get(70, 0, false).is_none());
+        assert!(lookup.get(80, 0, false).is_none());
+
+        // max_update_nrs should also be rolled back
+        assert!(lookup.get_max_update_nr(50, false).is_some());
+        assert!(lookup.get_max_update_nr(60, false).is_some());
+        assert!(lookup.get_max_update_nr(70, false).is_none());
+    }
+
+    #[test]
+    fn test_anchor_lookup_batch_insert() {
+        let mut lookup = AnchorLookup::new();
+        lookup.set_current_block(100);
+
+        let anchors = vec![
+            (50, 0, false, B256::repeat_byte(0x11)),
+            (50, 1, false, B256::repeat_byte(0x22)),
+            (60, 0, true, B256::repeat_byte(0x33)),
+        ];
+
+        lookup.insert_batch(&anchors);
+
+        assert_eq!(lookup.len(), 3);
+        assert_eq!(lookup.get(50, 0, false), Some(B256::repeat_byte(0x11)));
+        assert_eq!(lookup.get(50, 1, false), Some(B256::repeat_byte(0x22)));
+        assert_eq!(lookup.get(60, 0, true), Some(B256::repeat_byte(0x33)));
+    }
+
+    #[test]
+    fn test_anchor_lookup_all_anchors() {
+        let mut lookup = AnchorLookup::new();
+        lookup.set_current_block(100);
+
+        lookup.insert(50, 0, false, B256::repeat_byte(0x11));
+        lookup.insert(50, 0, true, B256::repeat_byte(0x22));
+        lookup.insert(60, 1, false, B256::repeat_byte(0x33));
+
+        let all = lookup.all_anchors();
+        assert_eq!(all.len(), 3);
+
+        // Verify all entries are present (order not guaranteed)
+        assert!(all.contains(&(50, 0, false, B256::repeat_byte(0x11))));
+        assert!(all.contains(&(50, 0, true, B256::repeat_byte(0x22))));
+        assert!(all.contains(&(60, 1, false, B256::repeat_byte(0x33))));
+    }
+
+    #[test]
+    fn test_anchor_lookup_empty() {
+        let lookup = AnchorLookup::new();
+        assert!(lookup.is_empty());
+        assert_eq!(lookup.len(), 0);
+        assert_eq!(lookup.current_block_nr(), 0);
+    }
+
+    #[test]
     fn test_decoded_anchor_info() {
         let info = DecodedAnchorInfo {
             block_nr: 100,
@@ -416,5 +518,42 @@ mod tests {
         assert_eq!(decoded.update_nr, 5);
         assert!(decoded.is_deposit);
         assert_eq!(decoded.eth_key, Address::repeat_byte(0xAB));
+    }
+
+    #[test]
+    fn test_decoded_anchor_info_not_deposit() {
+        let info = DecodedAnchorInfo {
+            block_nr: 999,
+            update_nr: 42,
+            is_deposit: false,
+            eth_key: Address::ZERO,
+        };
+
+        let encoded = info.encode();
+        let decoded = DecodedAnchorInfo::decode(encoded);
+
+        assert_eq!(decoded.block_nr, 999);
+        assert_eq!(decoded.update_nr, 42);
+        assert!(!decoded.is_deposit);
+        assert_eq!(decoded.eth_key, Address::ZERO);
+    }
+
+    #[test]
+    fn test_decoded_anchor_info_max_values() {
+        // Test with maximum values for block_nr and update_nr
+        let info = DecodedAnchorInfo {
+            block_nr: u32::MAX,
+            update_nr: u32::MAX,
+            is_deposit: true,
+            eth_key: Address::repeat_byte(0xFF),
+        };
+
+        let encoded = info.encode();
+        let decoded = DecodedAnchorInfo::decode(encoded);
+
+        assert_eq!(decoded.block_nr, u32::MAX);
+        assert_eq!(decoded.update_nr, u32::MAX);
+        assert!(decoded.is_deposit);
+        assert_eq!(decoded.eth_key, Address::repeat_byte(0xFF));
     }
 }

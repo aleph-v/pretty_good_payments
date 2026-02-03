@@ -15,8 +15,8 @@ pub use deposit::DepositValidator;
 pub use nullifier::NullifierValidator;
 pub use transaction::{AnchorLookup, TransactionValidator};
 pub use tree_update::{
-    compute_anchor_from_path, BlockTreeTracker, RootTreeTracker, TreeUpdateValidator,
-    BLOCKS_PER_DAY,
+    compute_anchor_from_path, BlockTreeTracker, HierarchicalRootTracker, RootTreeTracker,
+    TreeUpdateValidator, BLOCKS_PER_DAY, BLOCK_IN_DAY_DEPTH, DAY_DEPTH,
 };
 
 use alloy::primitives::{Address, B256};

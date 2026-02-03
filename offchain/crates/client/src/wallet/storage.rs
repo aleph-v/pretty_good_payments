@@ -1,9 +1,10 @@
 //! Wallet storage (encrypted JSON file).
 
 use crate::wallet::keys::{derive_public_key, derive_spending_key};
-use crate::wallet::notes::TrackedNote;
+use crate::wallet::notes::{StoredProof, TrackedNote};
 use alloy_primitives::{Address, B256, U256};
 use eyre::{Result, WrapErr};
+use pgp_merkle::hierarchy::BLOCK_IN_DAY_DEPTH;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::fs;
@@ -24,6 +25,9 @@ pub struct Wallet {
     pub notes: Vec<TrackedNote>,
     /// Spent nullifiers (to prevent double-spend and for tracking)
     pub spent_nullifiers: HashSet<B256>,
+    /// Transaction counter for deterministic blinding derivation
+    #[serde(default)]
+    pub tx_counter: u64,
 }
 
 impl Wallet {
@@ -39,7 +43,36 @@ impl Wallet {
             public_key,
             notes: Vec::new(),
             spent_nullifiers: HashSet::new(),
+            tx_counter: 0,
         }
+    }
+
+    /// Create a wallet directly from a spending key.
+    ///
+    /// This is useful for testing scenarios where you have a pre-derived key.
+    /// The seed is set to an empty string since it's not available.
+    pub fn from_spending_key(spending_key: B256) -> Self {
+        let public_key = derive_public_key(spending_key);
+
+        Self {
+            version: 1,
+            seed: String::new(),
+            spending_key,
+            public_key,
+            notes: Vec::new(),
+            spent_nullifiers: HashSet::new(),
+            tx_counter: 0,
+        }
+    }
+
+    /// Get the next transaction counter and increment it.
+    ///
+    /// This is used for deterministic blinding factor derivation.
+    /// Each call returns the current value and increments the counter.
+    pub fn next_tx_counter(&mut self) -> u64 {
+        let counter = self.tx_counter;
+        self.tx_counter += 1;
+        counter
     }
 
     /// Load wallet from a JSON file.
@@ -55,12 +88,12 @@ impl Wallet {
     pub fn save(&self, path: &Path) -> Result<()> {
         // Create parent directories if needed
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .wrap_err_with(|| format!("Failed to create wallet directory: {}", parent.display()))?;
+            fs::create_dir_all(parent).wrap_err_with(|| {
+                format!("Failed to create wallet directory: {}", parent.display())
+            })?;
         }
 
-        let contents = serde_json::to_string_pretty(self)
-            .wrap_err("Failed to serialize wallet")?;
+        let contents = serde_json::to_string_pretty(self).wrap_err("Failed to serialize wallet")?;
 
         fs::write(path, contents)
             .wrap_err_with(|| format!("Failed to write wallet file: {}", path.display()))
@@ -166,6 +199,80 @@ impl Wallet {
             .collect();
         assets.sort();
         assets
+    }
+
+    /// Get unspent notes that don't have a stored proof yet.
+    ///
+    /// These notes need their block tree proof fetched and stored.
+    pub fn notes_needing_block_proof(&self) -> Vec<&TrackedNote> {
+        self.notes
+            .iter()
+            .filter(|n| !n.spent && !n.has_stored_proof())
+            .collect()
+    }
+
+    /// Get unspent notes that have partial proofs (day not finalized yet).
+    ///
+    /// Only returns notes from past days that need block-in-day siblings.
+    /// Notes from the current day should remain partial until the day ends.
+    pub fn notes_needing_day_finalization(&self, current_day: u16) -> Vec<&TrackedNote> {
+        self.notes
+            .iter()
+            .filter(|n| {
+                !n.spent
+                    && n.has_stored_proof()
+                    && !n.has_complete_proof()
+                    && n.position.day < current_day
+            })
+            .collect()
+    }
+
+    /// Store a block proof with a note.
+    ///
+    /// Called when first syncing a note to store the immutable block tree siblings.
+    pub fn store_block_proof(&mut self, commitment: B256, proof: StoredProof) -> bool {
+        if let Some(note) = self.notes.iter_mut().find(|n| n.commitment == commitment) {
+            note.stored_proof = Some(proof);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Finalize day proofs for notes in a completed day.
+    ///
+    /// Called when a day ends to add the block-in-day siblings to notes.
+    pub fn finalize_day_proofs(
+        &mut self,
+        day: u16,
+        block_in_day_siblings: &[(u16, [B256; BLOCK_IN_DAY_DEPTH])],
+        day_root: B256,
+    ) -> usize {
+        let mut finalized = 0;
+        for note in self.notes.iter_mut() {
+            if !note.spent
+                && note.position.day == day
+                && note.has_stored_proof()
+                && !note.has_complete_proof()
+            {
+                if let Some(siblings) = block_in_day_siblings
+                    .iter()
+                    .find(|(b, _)| *b == note.position.block_in_day)
+                    .map(|(_, s)| *s)
+                {
+                    if let Some(ref mut proof) = note.stored_proof {
+                        proof.finalize_day(siblings, day_root);
+                        finalized += 1;
+                    }
+                }
+            }
+        }
+        finalized
+    }
+
+    /// Get a mutable reference to a note by commitment.
+    pub fn get_note_mut(&mut self, commitment: B256) -> Option<&mut TrackedNote> {
+        self.notes.iter_mut().find(|n| n.commitment == commitment)
     }
 }
 
@@ -286,5 +393,228 @@ mod tests {
         assert_eq!(assets.len(), 2);
         assert!(assets.contains(&asset1));
         assert!(assets.contains(&asset2));
+    }
+
+    #[test]
+    fn test_wallet_from_spending_key() {
+        use crate::wallet::keys::derive_spending_key;
+
+        let spending_key = derive_spending_key("test seed");
+        let wallet = Wallet::from_spending_key(spending_key);
+
+        assert_eq!(wallet.spending_key, spending_key);
+        assert_ne!(wallet.public_key, B256::ZERO);
+        assert_ne!(wallet.public_key, spending_key);
+        assert!(wallet.notes.is_empty());
+        assert_eq!(wallet.tx_counter, 0);
+    }
+
+    #[test]
+    fn test_wallet_next_tx_counter() {
+        let mut wallet = Wallet::new("test");
+
+        assert_eq!(wallet.tx_counter, 0);
+
+        let counter0 = wallet.next_tx_counter();
+        assert_eq!(counter0, 0);
+        assert_eq!(wallet.tx_counter, 1);
+
+        let counter1 = wallet.next_tx_counter();
+        assert_eq!(counter1, 1);
+        assert_eq!(wallet.tx_counter, 2);
+
+        let counter2 = wallet.next_tx_counter();
+        assert_eq!(counter2, 2);
+        assert_eq!(wallet.tx_counter, 3);
+    }
+
+    #[test]
+    fn test_wallet_tx_counter_persists() {
+        let dir = tempdir().unwrap();
+        let wallet_path = dir.path().join("test_wallet.json");
+
+        let mut wallet = Wallet::new("test seed");
+        wallet.next_tx_counter();
+        wallet.next_tx_counter();
+        assert_eq!(wallet.tx_counter, 2);
+        wallet.save(&wallet_path).unwrap();
+
+        let loaded = Wallet::load(&wallet_path).unwrap();
+        assert_eq!(loaded.tx_counter, 2);
+
+        // Continue incrementing after load
+        let mut loaded = loaded;
+        assert_eq!(loaded.next_tx_counter(), 2);
+        assert_eq!(loaded.tx_counter, 3);
+    }
+
+    #[test]
+    fn test_notes_needing_block_proof() {
+        use crate::wallet::notes::StoredProof;
+        use pgp_merkle::hierarchy::BLOCK_TREE_DEPTH;
+
+        let mut wallet = Wallet::new("test");
+
+        // Add note without stored proof
+        let mut note1 = make_test_note(1000, Address::ZERO, false);
+        note1.commitment = B256::repeat_byte(0x01);
+        wallet.add_note(note1);
+
+        // Add note with stored proof
+        let mut note2 = make_test_note(2000, Address::ZERO, false);
+        note2.commitment = B256::repeat_byte(0x02);
+        note2.stored_proof = Some(StoredProof::new_partial(
+            [B256::ZERO; BLOCK_TREE_DEPTH],
+            B256::repeat_byte(0x33),
+        ));
+        wallet.add_note(note2);
+
+        let needing_proof = wallet.notes_needing_block_proof();
+        assert_eq!(needing_proof.len(), 1);
+        assert_eq!(needing_proof[0].commitment, B256::repeat_byte(0x01));
+    }
+
+    #[test]
+    fn test_notes_needing_day_finalization() {
+        use crate::wallet::notes::StoredProof;
+        use pgp_merkle::hierarchy::{BLOCK_IN_DAY_DEPTH, BLOCK_TREE_DEPTH};
+
+        let mut wallet = Wallet::new("test");
+        let current_day = 5;
+
+        // Note in past day with partial proof (needs finalization)
+        let mut note1 = TrackedNote::new(
+            B256::repeat_byte(0x01),
+            TreePosition::new(3, 0, 0), // Day 3, past
+            0,
+            0,
+            Address::ZERO,
+            U256::from(1000u64),
+            B256::ZERO,
+        );
+        note1.stored_proof = Some(StoredProof::new_partial(
+            [B256::ZERO; BLOCK_TREE_DEPTH],
+            B256::repeat_byte(0x11),
+        ));
+        wallet.add_note(note1);
+
+        // Note in current day with partial proof (should NOT need finalization yet)
+        let mut note2 = TrackedNote::new(
+            B256::repeat_byte(0x02),
+            TreePosition::new(5, 0, 0), // Day 5, current
+            0,
+            1,
+            Address::ZERO,
+            U256::from(2000u64),
+            B256::ZERO,
+        );
+        note2.stored_proof = Some(StoredProof::new_partial(
+            [B256::ZERO; BLOCK_TREE_DEPTH],
+            B256::repeat_byte(0x22),
+        ));
+        wallet.add_note(note2);
+
+        // Note in past day with complete proof (already finalized)
+        let mut note3 = TrackedNote::new(
+            B256::repeat_byte(0x03),
+            TreePosition::new(2, 0, 0), // Day 2, past
+            0,
+            2,
+            Address::ZERO,
+            U256::from(3000u64),
+            B256::ZERO,
+        );
+        note3.stored_proof = Some(StoredProof::new_complete(
+            [B256::ZERO; BLOCK_TREE_DEPTH],
+            B256::repeat_byte(0x33),
+            [B256::ZERO; BLOCK_IN_DAY_DEPTH],
+            B256::repeat_byte(0x44),
+        ));
+        wallet.add_note(note3);
+
+        let needing_finalization = wallet.notes_needing_day_finalization(current_day);
+        assert_eq!(needing_finalization.len(), 1);
+        assert_eq!(needing_finalization[0].commitment, B256::repeat_byte(0x01));
+    }
+
+    #[test]
+    fn test_store_block_proof() {
+        use crate::wallet::notes::StoredProof;
+        use pgp_merkle::hierarchy::BLOCK_TREE_DEPTH;
+
+        let mut wallet = Wallet::new("test");
+        let commitment = B256::repeat_byte(0x42);
+
+        let mut note = make_test_note(1000, Address::ZERO, false);
+        note.commitment = commitment;
+        wallet.add_note(note);
+
+        assert!(!wallet.notes[0].has_stored_proof());
+
+        let proof = StoredProof::new_partial(
+            [B256::repeat_byte(0x11); BLOCK_TREE_DEPTH],
+            B256::repeat_byte(0x22),
+        );
+
+        let result = wallet.store_block_proof(commitment, proof);
+        assert!(result);
+        assert!(wallet.notes[0].has_stored_proof());
+        assert!(!wallet.notes[0].has_complete_proof());
+    }
+
+    #[test]
+    fn test_finalize_day_proofs() {
+        use crate::wallet::notes::StoredProof;
+        use pgp_merkle::hierarchy::{BLOCK_IN_DAY_DEPTH, BLOCK_TREE_DEPTH};
+
+        let mut wallet = Wallet::new("test");
+
+        // Add two notes in the same day, different blocks
+        let mut note1 = TrackedNote::new(
+            B256::repeat_byte(0x01),
+            TreePosition::new(3, 10, 0),
+            0,
+            0,
+            Address::ZERO,
+            U256::from(1000u64),
+            B256::ZERO,
+        );
+        note1.stored_proof = Some(StoredProof::new_partial(
+            [B256::ZERO; BLOCK_TREE_DEPTH],
+            B256::repeat_byte(0x11),
+        ));
+        wallet.add_note(note1);
+
+        let mut note2 = TrackedNote::new(
+            B256::repeat_byte(0x02),
+            TreePosition::new(3, 20, 0),
+            0,
+            1,
+            Address::ZERO,
+            U256::from(2000u64),
+            B256::ZERO,
+        );
+        note2.stored_proof = Some(StoredProof::new_partial(
+            [B256::ZERO; BLOCK_TREE_DEPTH],
+            B256::repeat_byte(0x22),
+        ));
+        wallet.add_note(note2);
+
+        // Finalize day 3
+        let block_paths = vec![
+            (10, [B256::repeat_byte(0xAA); BLOCK_IN_DAY_DEPTH]),
+            (20, [B256::repeat_byte(0xBB); BLOCK_IN_DAY_DEPTH]),
+        ];
+        let day_root = B256::repeat_byte(0xDD);
+
+        let finalized = wallet.finalize_day_proofs(3, &block_paths, day_root);
+        assert_eq!(finalized, 2);
+
+        assert!(wallet.notes[0].has_complete_proof());
+        assert!(wallet.notes[1].has_complete_proof());
+        assert_eq!(
+            wallet.notes[0].stored_proof.as_ref().unwrap().day_root,
+            Some(day_root)
+        );
     }
 }

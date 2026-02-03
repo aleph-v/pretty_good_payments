@@ -21,8 +21,9 @@ pub mod block_submitter;
 pub mod epoch;
 pub mod error;
 pub mod mempool;
+pub mod sync_state;
 
-pub use api::{create_router, start_api_server, ApiState};
+pub use api::{create_router, start_api_server, start_api_server_with_sync, ApiState};
 pub use blob_builder::{
     combine_blobs_into_sidecar, combine_blobs_into_sidecar_simple, create_raw_sidecar, BlobBuilder,
     BuiltBlob, BuiltBlock, MAX_BLOBS_PER_BLOCK,
@@ -39,3 +40,4 @@ pub use error::SequencerError;
 pub use mempool::{
     AddResult, Mempool, MempoolConfig, MempoolTransaction, ValidationError, TRANSACTIONS_PER_BLOB,
 };
+pub use sync_state::SyncState;

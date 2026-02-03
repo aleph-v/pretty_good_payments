@@ -50,7 +50,7 @@ contract SequencerRegistry is Spine, Ownable {
             return (sequencer == firstLookSequencers[current % firstLookSequencers.length] && active);
         } else {
             return active;
-        }    
+        }
     }
 
     /// @notice Returns current epoch number and whether we're in the closed (priority) period

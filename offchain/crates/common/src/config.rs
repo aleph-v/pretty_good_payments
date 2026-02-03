@@ -186,18 +186,23 @@ impl Default for StorageConfig {
 
 // ============================================================================
 // Default value functions
+//
+// IMPORTANT: These defaults are for LOCAL DEVELOPMENT only (Anvil, local beacon node).
+// For production deployments, always configure these values explicitly via:
+// - TOML config file
+// - Environment variables (PGP_RPC_URL, PGP_BEACON_URL, PGP_CHAIN_ID, etc.)
 // ============================================================================
 
 fn default_rpc_url() -> String {
-    "http://localhost:8545".to_string()
+    "http://localhost:8545".to_string() // Development only - Anvil/local node
 }
 
 fn default_beacon_url() -> String {
-    "http://localhost:5052".to_string()
+    "http://localhost:5052".to_string() // Development only - local beacon node
 }
 
 fn default_chain_id() -> u64 {
-    31337 // Anvil default
+    31337 // Development only - Anvil default chain ID
 }
 
 fn default_api_host() -> String {
@@ -522,6 +527,45 @@ impl ChallengerRunnerConfig for ConfigWithDryRun<'_> {
 // ============================================================================
 // Validation
 // ============================================================================
+
+/// Check if URL is a localhost development URL.
+fn is_localhost_url(url: &str) -> bool {
+    url.contains("localhost") || url.contains("127.0.0.1") || url.contains("0.0.0.0")
+}
+
+/// Warn about development defaults that should be overridden in production.
+///
+/// Returns a list of warnings. In production deployments, these should be addressed.
+pub fn check_production_readiness(config: &Config) -> Vec<String> {
+    let mut warnings = Vec::new();
+
+    if is_localhost_url(&config.network.rpc_url) {
+        warnings.push(format!(
+            "RPC URL '{}' appears to be a localhost address. Set PGP_RPC_URL for production.",
+            config.network.rpc_url
+        ));
+    }
+
+    if is_localhost_url(&config.network.beacon_url) {
+        warnings.push(format!(
+            "Beacon URL '{}' appears to be a localhost address. Set PGP_BEACON_URL for production.",
+            config.network.beacon_url
+        ));
+    }
+
+    if config.network.chain_id == 31337 {
+        warnings.push(
+            "Chain ID 31337 is the Anvil default. Set PGP_CHAIN_ID for production.".to_string(),
+        );
+    }
+
+    if config.contracts.entrypoint == Address::ZERO {
+        warnings
+            .push("Entrypoint address is not configured. Set PGP_ENTRYPOINT_ADDRESS.".to_string());
+    }
+
+    warnings
+}
 
 /// Validate configuration for running as challenger
 pub fn validate_challenger_config(config: &Config) -> Result<()> {

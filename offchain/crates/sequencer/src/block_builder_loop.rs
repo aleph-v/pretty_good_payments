@@ -280,7 +280,7 @@ pub async fn try_build_and_submit_block<P: Provider + Clone>(
         deposits.len()
     );
 
-    // Load root tree state from the database
+    // Load root tree state from the database (hierarchical format)
     let block_roots = match state.load_block_roots() {
         Ok(roots) => roots,
         Err(e) => {
@@ -290,9 +290,9 @@ pub async fn try_build_and_submit_block<P: Provider + Clone>(
         }
     };
 
-    // Restore the root tree tracker from persisted state
+    // Restore the root tree tracker from persisted state (using hierarchical format)
     let root_tree = if !block_roots.is_empty() {
-        RootTreeTracker::from_block_roots(&block_roots)
+        RootTreeTracker::from_hierarchical_block_roots(&block_roots)
     } else {
         RootTreeTracker::new()
     };

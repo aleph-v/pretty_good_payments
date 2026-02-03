@@ -26,8 +26,11 @@ pub struct WitnessOutputNote {
     pub asset: Address,
     /// Amount
     pub amount: U256,
-    /// Blinding factor
+    /// Blinding factor (computed as Poseidon(random, hashLeavesIn) for transfers)
     pub blinding: B256,
+    /// Random value used to derive the blinding (for non-withdrawals)
+    /// The circuit enforces: blinding = Poseidon(random, hashLeavesIn)
+    pub random: B256,
     /// Public key of the recipient (0 for withdrawal)
     pub public_key: B256,
 }
@@ -138,6 +141,7 @@ mod tests {
             asset: Address::ZERO,
             amount: U256::from(100u64),
             blinding: B256::ZERO,
+            random: B256::ZERO,
             public_key: B256::ZERO,
         });
         assert!(witness.validate().is_err());
@@ -171,6 +175,7 @@ mod tests {
             asset: Address::ZERO,
             amount: U256::from(50u64),
             blinding: B256::ZERO,
+            random: B256::ZERO,
             public_key: B256::ZERO,
         });
 
@@ -182,10 +187,201 @@ mod tests {
             asset: Address::ZERO,
             amount: U256::from(50u64),
             blinding: B256::ZERO,
+            random: B256::ZERO,
             public_key: B256::repeat_byte(0x22),
         });
 
         // Now should pass
+        assert!(witness.validate().is_ok());
+    }
+
+    #[test]
+    fn test_transfer_witness_too_many_inputs() {
+        let mut witness = TransferWitness::new(B256::repeat_byte(0x11), B256::ZERO);
+
+        // Add 3 inputs (maximum is 2)
+        for _ in 0..3 {
+            witness.inputs.push(WitnessInputNote {
+                asset: Address::ZERO,
+                amount: U256::from(100u64),
+                blinding: B256::ZERO,
+                public_key: B256::ZERO,
+                proof: make_test_proof(),
+            });
+        }
+
+        witness.outputs.push(WitnessOutputNote {
+            asset: Address::ZERO,
+            amount: U256::from(300u64),
+            blinding: B256::ZERO,
+            random: B256::ZERO,
+            public_key: B256::ZERO,
+        });
+
+        let result = witness.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Maximum 2 input"));
+    }
+
+    #[test]
+    fn test_transfer_witness_too_many_outputs() {
+        let mut witness = TransferWitness::new(B256::repeat_byte(0x11), B256::ZERO);
+
+        witness.inputs.push(WitnessInputNote {
+            asset: Address::ZERO,
+            amount: U256::from(400u64),
+            blinding: B256::ZERO,
+            public_key: B256::ZERO,
+            proof: make_test_proof(),
+        });
+
+        // Add 4 outputs (maximum is 3)
+        for _ in 0..4 {
+            witness.outputs.push(WitnessOutputNote {
+                asset: Address::ZERO,
+                amount: U256::from(100u64),
+                blinding: B256::ZERO,
+                random: B256::ZERO,
+                public_key: B256::ZERO,
+            });
+        }
+
+        let result = witness.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Maximum 3 output"));
+    }
+
+    #[test]
+    fn test_transfer_witness_no_outputs() {
+        let mut witness = TransferWitness::new(B256::repeat_byte(0x11), B256::ZERO);
+
+        witness.inputs.push(WitnessInputNote {
+            asset: Address::ZERO,
+            amount: U256::from(100u64),
+            blinding: B256::ZERO,
+            public_key: B256::ZERO,
+            proof: make_test_proof(),
+        });
+
+        // No outputs
+        let result = witness.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("At least one output"));
+    }
+
+    #[test]
+    fn test_transfer_witness_mixed_input_assets() {
+        let mut witness = TransferWitness::new(B256::repeat_byte(0x11), B256::ZERO);
+
+        // Input 1: asset A
+        witness.inputs.push(WitnessInputNote {
+            asset: Address::repeat_byte(0xAA),
+            amount: U256::from(100u64),
+            blinding: B256::ZERO,
+            public_key: B256::ZERO,
+            proof: make_test_proof(),
+        });
+
+        // Input 2: asset B (different!)
+        witness.inputs.push(WitnessInputNote {
+            asset: Address::repeat_byte(0xBB),
+            amount: U256::from(100u64),
+            blinding: B256::ZERO,
+            public_key: B256::ZERO,
+            proof: make_test_proof(),
+        });
+
+        witness.outputs.push(WitnessOutputNote {
+            asset: Address::repeat_byte(0xAA),
+            amount: U256::from(200u64),
+            blinding: B256::ZERO,
+            random: B256::ZERO,
+            public_key: B256::ZERO,
+        });
+
+        let result = witness.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("same asset"));
+    }
+
+    #[test]
+    fn test_transfer_witness_mixed_output_assets() {
+        let mut witness = TransferWitness::new(B256::repeat_byte(0x11), B256::ZERO);
+
+        witness.inputs.push(WitnessInputNote {
+            asset: Address::repeat_byte(0xAA),
+            amount: U256::from(200u64),
+            blinding: B256::ZERO,
+            public_key: B256::ZERO,
+            proof: make_test_proof(),
+        });
+
+        // Output 1: asset A
+        witness.outputs.push(WitnessOutputNote {
+            asset: Address::repeat_byte(0xAA),
+            amount: U256::from(100u64),
+            blinding: B256::ZERO,
+            random: B256::ZERO,
+            public_key: B256::ZERO,
+        });
+
+        // Output 2: asset B (different!)
+        witness.outputs.push(WitnessOutputNote {
+            asset: Address::repeat_byte(0xBB),
+            amount: U256::from(100u64),
+            blinding: B256::ZERO,
+            random: B256::ZERO,
+            public_key: B256::ZERO,
+        });
+
+        let result = witness.validate();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("same asset"));
+    }
+
+    #[test]
+    fn test_transfer_witness_valid_two_inputs_three_outputs() {
+        let mut witness = TransferWitness::new(B256::repeat_byte(0x11), B256::ZERO);
+
+        // Max valid: 2 inputs, 3 outputs
+        witness.inputs.push(WitnessInputNote {
+            asset: Address::ZERO,
+            amount: U256::from(500u64),
+            blinding: B256::ZERO,
+            public_key: B256::ZERO,
+            proof: make_test_proof(),
+        });
+        witness.inputs.push(WitnessInputNote {
+            asset: Address::ZERO,
+            amount: U256::from(500u64),
+            blinding: B256::ZERO,
+            public_key: B256::ZERO,
+            proof: make_test_proof(),
+        });
+
+        witness.outputs.push(WitnessOutputNote {
+            asset: Address::ZERO,
+            amount: U256::from(400u64),
+            blinding: B256::ZERO,
+            random: B256::ZERO,
+            public_key: B256::repeat_byte(0x22),
+        });
+        witness.outputs.push(WitnessOutputNote {
+            asset: Address::ZERO,
+            amount: U256::from(400u64),
+            blinding: B256::ZERO,
+            random: B256::ZERO,
+            public_key: B256::repeat_byte(0x33),
+        });
+        witness.outputs.push(WitnessOutputNote {
+            asset: Address::ZERO,
+            amount: U256::from(200u64),
+            blinding: B256::ZERO,
+            random: B256::ZERO,
+            public_key: B256::repeat_byte(0x44),
+        });
+
+        // Should pass with max inputs/outputs
         assert!(witness.validate().is_ok());
     }
 }

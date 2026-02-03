@@ -99,7 +99,10 @@ impl RustCircomProver {
         let proof = self.convert_proof(&result)?;
         let anchor_after = self.extract_anchor_after(&result)?;
 
-        info!("Proof generated successfully, anchor_after={:?}", anchor_after);
+        info!(
+            "Proof generated successfully, anchor_after={:?}",
+            anchor_after
+        );
 
         Ok((anchor_after, proof))
     }
@@ -201,14 +204,14 @@ impl RustCircomProver {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 struct UpdateInput {
-    anchor_before: Vec<String>,      // Single-element array for scalar
-    block_root_before: Vec<String>,  // Single-element array for scalar
-    updates: Vec<String>,            // Already an array
-    block_index: Vec<String>,        // Single-element array for scalar
-    in_block_index: Vec<String>,     // Single-element array for scalar
-    nonzero_field: Vec<String>,      // Single-element array for scalar
-    block_proofs: Vec<String>,       // Flattened 2D array (4*16=64 elements in row-major order)
-    root_path: Vec<String>,          // 1D array
+    anchor_before: Vec<String>,     // Single-element array for scalar
+    block_root_before: Vec<String>, // Single-element array for scalar
+    updates: Vec<String>,           // Already an array
+    block_index: Vec<String>,       // Single-element array for scalar
+    in_block_index: Vec<String>,    // Single-element array for scalar
+    nonzero_field: Vec<String>,     // Single-element array for scalar
+    block_proofs: Vec<String>,      // Flattened 2D array (4*16=64 elements in row-major order)
+    root_path: Vec<String>,         // 1D array
 }
 
 /// Convert B256 to decimal string (for circuit JSON input)

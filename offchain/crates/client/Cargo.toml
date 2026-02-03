@@ -44,8 +44,25 @@ hex.workspace = true
 # Crypto
 sha2.workspace = true
 
+# Crypto - Groth16 proof generation
+ark-bn254.workspace = true
+num-bigint.workspace = true
+circom-prover.workspace = true
+rust-witness.workspace = true
+
 # File paths
 dirs = "5"
 
+[build-dependencies]
+rust-witness.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
+
+# Integration test dependencies
+pgp-challenger = { path = "../challenger" }
+pgp-sequencer = { path = "../sequencer" }
+
+# API testing
+axum.workspace = true
+tower.workspace = true

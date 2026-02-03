@@ -112,7 +112,11 @@ impl SequencerClient {
     }
 
     /// Get the block-in-day path (13-level siblings from block to day root).
-    pub async fn get_block_path(&self, day: u16, block_in_day: u16) -> Result<BlockInDayPathResponse> {
+    pub async fn get_block_path(
+        &self,
+        day: u16,
+        block_in_day: u16,
+    ) -> Result<BlockInDayPathResponse> {
         let url = format!(
             "{}/sync/block-path?day={}&block={}",
             self.base_url, day, block_in_day
@@ -166,7 +170,11 @@ impl SequencerClient {
     }
 
     /// Get the full 44-level proof for a specific leaf.
-    pub async fn get_full_proof(&self, block_nr: u64, leaf_index: u32) -> Result<FullProofResponse> {
+    pub async fn get_full_proof(
+        &self,
+        block_nr: u64,
+        leaf_index: u32,
+    ) -> Result<FullProofResponse> {
         let url = format!(
             "{}/sync/full-proof?block_nr={}&leaf_index={}",
             self.base_url, block_nr, leaf_index
@@ -214,6 +222,35 @@ impl SequencerClient {
         }
 
         Ok(body)
+    }
+
+    /// Get a withdrawal proof for executing an L1 withdrawal.
+    ///
+    /// This searches for a leaf commitment in a specific block and returns
+    /// the KZG proof needed to withdraw on L1.
+    pub async fn get_withdrawal_proof(
+        &self,
+        leaf_commitment: alloy_primitives::B256,
+        block_nr: u64,
+    ) -> Result<WithdrawalProofResponse> {
+        let url = format!("{}/withdrawal-proof", self.base_url);
+        let request = WithdrawalProofRequest {
+            leaf_commitment,
+            block_nr,
+        };
+
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .wrap_err("Failed to get withdrawal proof")?;
+
+        response
+            .json()
+            .await
+            .wrap_err("Failed to parse withdrawal proof response")
     }
 }
 

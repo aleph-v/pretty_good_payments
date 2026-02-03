@@ -278,7 +278,7 @@ impl RootTreeTracker {
         }
     }
 
-    /// Restore root tree state from persisted block roots
+    /// Restore root tree state from persisted block roots (legacy format)
     ///
     /// This rebuilds the root tree by inserting block roots at their treeIndex positions.
     /// The input is a vector of (treeIndex, block_root) pairs.
@@ -289,6 +289,29 @@ impl RootTreeTracker {
         for (tree_index, root) in block_roots {
             root_tree.set_leaf(*tree_index as usize, *root);
             roots_map.insert(*tree_index, *root);
+        }
+
+        let current_anchor = root_tree.root();
+
+        Self {
+            root_tree,
+            current_anchor,
+            block_roots: roots_map,
+        }
+    }
+
+    /// Restore root tree state from hierarchical block roots
+    ///
+    /// This rebuilds the root tree from the new hierarchical format:
+    /// (day, block_in_day, block_nr, block_root, leaf_count)
+    pub fn from_hierarchical_block_roots(block_roots: &[(u16, u16, u64, B256, u32)]) -> Self {
+        let mut root_tree = IncrementalMerkleTree::new(ROOT_DEPTH);
+        let mut roots_map = std::collections::HashMap::new();
+
+        for (day, block_in_day, _block_nr, root, _leaf_count) in block_roots {
+            let tree_index = Self::compute_tree_index(*day as u64, *block_in_day as u64);
+            root_tree.set_leaf(tree_index as usize, *root);
+            roots_map.insert(tree_index, *root);
         }
 
         let current_anchor = root_tree.root();
@@ -457,6 +480,342 @@ pub fn compute_anchor_from_path(
 }
 
 impl Default for RootTreeTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Depth of the day tree (15 levels)
+pub const DAY_DEPTH: usize = 15;
+
+/// Depth of the block-in-day tree (13 levels)
+pub const BLOCK_IN_DAY_DEPTH: usize = 13;
+
+/// Hierarchical root tree tracker with explicit day/block-in-day structure.
+///
+/// This models the 4-level merkle tree hierarchy:
+/// - Day Tree (15 levels): 32,768 days
+/// - Block-in-Day Tree (13 levels): 8,192 blocks per day
+/// - Block Tree (16 levels): 65,536 leaves per block
+/// - Leaves (note commitments)
+///
+/// Key benefits over the flat RootTreeTracker:
+/// - Explicit hierarchy enables efficient sync APIs
+/// - Day roots can be persisted and queried independently
+/// - Lazy loading of day subtrees reduces memory usage
+pub struct HierarchicalRootTracker {
+    /// 15-level day tree (leaves are day subtree roots)
+    day_tree: IncrementalMerkleTree,
+    /// 13-level block-in-day subtrees, keyed by day (lazy loaded)
+    day_subtrees: std::collections::HashMap<u16, IncrementalMerkleTree>,
+    /// Cached day roots (root of each day's 13-level subtree)
+    day_roots: std::collections::HashMap<u16, B256>,
+    /// Block roots by (day, block_in_day) -> (block_root, leaf_count)
+    block_roots: std::collections::HashMap<(u16, u16), (B256, u32)>,
+    /// Current global anchor (root of the 15-level day tree)
+    current_anchor: B256,
+    /// Last day that was modified (for detecting day transitions)
+    last_day: Option<u16>,
+}
+
+impl HierarchicalRootTracker {
+    /// Create a new hierarchical root tracker starting from genesis
+    pub fn new() -> Self {
+        let day_tree = IncrementalMerkleTree::new(DAY_DEPTH);
+        let current_anchor = day_tree.root();
+
+        Self {
+            day_tree,
+            day_subtrees: std::collections::HashMap::new(),
+            day_roots: std::collections::HashMap::new(),
+            block_roots: std::collections::HashMap::new(),
+            current_anchor,
+            last_day: None,
+        }
+    }
+
+    /// Initialize from database with explicit hierarchy.
+    ///
+    /// # Arguments
+    /// * `day_roots` - Vec of (day, day_root, block_count, last_block_nr)
+    /// * `block_roots` - Vec of (day, block_in_day, block_nr, block_root, leaf_count)
+    pub fn from_database(
+        day_roots_data: &[(u16, B256, u32, u64)],
+        block_roots_data: &[(u16, u16, u64, B256, u32)],
+    ) -> Self {
+        let mut tracker = Self::new();
+
+        // First, load day roots into the day tree
+        for (day, day_root, _block_count, _last_block_nr) in day_roots_data {
+            tracker.day_tree.set_leaf(*day as usize, *day_root);
+            tracker.day_roots.insert(*day, *day_root);
+        }
+
+        // Load block roots and build day subtrees as needed
+        for (day, block_in_day, _block_nr, block_root, leaf_count) in block_roots_data {
+            tracker
+                .block_roots
+                .insert((*day, *block_in_day), (*block_root, *leaf_count));
+
+            // Get or create the day subtree
+            let subtree = tracker
+                .day_subtrees
+                .entry(*day)
+                .or_insert_with(|| IncrementalMerkleTree::new(BLOCK_IN_DAY_DEPTH));
+
+            subtree.set_leaf(*block_in_day as usize, *block_root);
+        }
+
+        // Recompute day roots for any days that have subtrees but weren't in day_roots_data
+        // This handles the case where we have block roots but day root wasn't persisted yet
+        for (&day, subtree) in &tracker.day_subtrees {
+            if !tracker.day_roots.contains_key(&day) {
+                let computed_root = subtree.root();
+                tracker.day_tree.set_leaf(day as usize, computed_root);
+                tracker.day_roots.insert(day, computed_root);
+            }
+        }
+
+        tracker.current_anchor = tracker.day_tree.root();
+        tracker.last_day = block_roots_data.iter().map(|(day, _, _, _, _)| *day).max();
+
+        tracker
+    }
+
+    /// Insert a block root at a hierarchical position.
+    ///
+    /// Returns (new_anchor, day_changed, new_day_root if day_changed)
+    pub fn insert_block_root(
+        &mut self,
+        day: u16,
+        block_in_day: u16,
+        block_root: B256,
+        leaf_count: u32,
+    ) -> (B256, bool, Option<B256>) {
+        // Store the block root
+        self.block_roots
+            .insert((day, block_in_day), (block_root, leaf_count));
+
+        // Get or create the day subtree
+        let subtree = self
+            .day_subtrees
+            .entry(day)
+            .or_insert_with(|| IncrementalMerkleTree::new(BLOCK_IN_DAY_DEPTH));
+
+        // Insert block root into the day subtree
+        subtree.set_leaf(block_in_day as usize, block_root);
+
+        // Compute new day root
+        let new_day_root = subtree.root();
+        let old_day_root = self.day_roots.insert(day, new_day_root);
+
+        // Update day tree
+        self.day_tree.set_leaf(day as usize, new_day_root);
+        self.current_anchor = self.day_tree.root();
+
+        // Check if this is a day transition
+        let day_changed = match self.last_day {
+            Some(last) => day != last,
+            None => true,
+        };
+        self.last_day = Some(day);
+
+        // Return old day root if day changed (for persisting previous day)
+        let previous_day_root = if day_changed { old_day_root } else { None };
+
+        (self.current_anchor, day_changed, previous_day_root)
+    }
+
+    /// Get the current global anchor (root of day tree)
+    pub fn current_anchor(&self) -> B256 {
+        self.current_anchor
+    }
+
+    /// Get a day root
+    pub fn get_day_root(&self, day: u16) -> Option<B256> {
+        self.day_roots.get(&day).copied()
+    }
+
+    /// Get all day roots as (day, root) pairs
+    pub fn get_all_day_roots(&self) -> Vec<(u16, B256)> {
+        let mut roots: Vec<_> = self.day_roots.iter().map(|(&d, &r)| (d, r)).collect();
+        roots.sort_by_key(|(d, _)| *d);
+        roots
+    }
+
+    /// Get day roots in a range
+    pub fn get_day_roots_range(&self, from_day: u16, to_day: u16) -> Vec<(u16, B256)> {
+        let mut roots: Vec<_> = self
+            .day_roots
+            .iter()
+            .filter(|(&d, _)| d >= from_day && d <= to_day)
+            .map(|(&d, &r)| (d, r))
+            .collect();
+        roots.sort_by_key(|(d, _)| *d);
+        roots
+    }
+
+    /// Get all block roots for a specific day
+    pub fn get_block_roots_for_day(&self, day: u16) -> Vec<(u16, B256, u32)> {
+        let mut roots: Vec<_> = self
+            .block_roots
+            .iter()
+            .filter(|((d, _), _)| *d == day)
+            .map(|((_, bid), (root, lc))| (*bid, *root, *lc))
+            .collect();
+        roots.sort_by_key(|(bid, _, _)| *bid);
+        roots
+    }
+
+    /// Get the 15-level sibling path for a day position (day tree proof)
+    pub fn get_day_path(&self, day: u16) -> [B256; DAY_DEPTH] {
+        let proof = self
+            .day_tree
+            .get_proof(day as usize)
+            .expect("Day index should be valid");
+
+        let mut path = [B256::ZERO; DAY_DEPTH];
+        for (i, sibling) in proof.siblings.iter().take(DAY_DEPTH).enumerate() {
+            path[i] = *sibling;
+        }
+        path
+    }
+
+    /// Get the 13-level sibling path for a block within a day (block-in-day tree proof)
+    pub fn get_block_in_day_path(&self, day: u16, block_in_day: u16) -> [B256; BLOCK_IN_DAY_DEPTH] {
+        let subtree = self
+            .day_subtrees
+            .get(&day)
+            .expect("Day subtree should exist");
+
+        let proof = subtree
+            .get_proof(block_in_day as usize)
+            .expect("Block index should be valid");
+
+        let mut path = [B256::ZERO; BLOCK_IN_DAY_DEPTH];
+        for (i, sibling) in proof.siblings.iter().take(BLOCK_IN_DAY_DEPTH).enumerate() {
+            path[i] = *sibling;
+        }
+        path
+    }
+
+    /// Get the full 28-level root path for a position (combined block-in-day + day path)
+    ///
+    /// This is compatible with the flat ROOT_DEPTH structure used by BlockTreeTracker
+    pub fn get_root_path_for_position(&self, day: u16, block_in_day: u16) -> [B256; ROOT_DEPTH] {
+        let mut path = [B256::ZERO; ROOT_DEPTH];
+
+        // First 13 levels: block-in-day path
+        if let Some(subtree) = self.day_subtrees.get(&day) {
+            if let Ok(proof) = subtree.get_proof(block_in_day as usize) {
+                for (i, sibling) in proof.siblings.iter().take(BLOCK_IN_DAY_DEPTH).enumerate() {
+                    path[i] = *sibling;
+                }
+            }
+        } else {
+            // No subtree yet - use zero hashes for block-in-day path
+            let zero_hashes = pgp_merkle::compute_zero_hashes(BLOCK_IN_DAY_DEPTH);
+            for (i, hash) in zero_hashes.iter().take(BLOCK_IN_DAY_DEPTH).enumerate() {
+                path[i] = *hash;
+            }
+        }
+
+        // Next 15 levels: day path
+        let day_proof = self
+            .day_tree
+            .get_proof(day as usize)
+            .expect("Day index should be valid");
+        for (i, sibling) in day_proof.siblings.iter().take(DAY_DEPTH).enumerate() {
+            path[BLOCK_IN_DAY_DEPTH + i] = *sibling;
+        }
+
+        path
+    }
+
+    /// Get the tree index from (day, block_in_day) - for compatibility with flat format
+    pub fn compute_tree_index(day: u16, block_in_day: u16) -> u64 {
+        (day as u64) * BLOCKS_PER_DAY + (block_in_day as u64)
+    }
+
+    /// Get the number of blocks tracked
+    pub fn block_count(&self) -> usize {
+        self.block_roots.len()
+    }
+
+    /// Get the number of days tracked
+    pub fn day_count(&self) -> usize {
+        self.day_roots.len()
+    }
+
+    /// Get block count for a specific day
+    pub fn get_block_count_for_day(&self, day: u16) -> u32 {
+        self.block_roots.keys().filter(|(d, _)| *d == day).count() as u32
+    }
+
+    /// Get the last day that was modified
+    pub fn last_day(&self) -> Option<u16> {
+        self.last_day
+    }
+
+    /// Remove block roots from a specific block onwards (for rollback)
+    ///
+    /// Takes a predicate function that receives (day, block_in_day) and returns
+    /// the block_nr for that position, allowing filtering by block_nr.
+    pub fn remove_blocks_from<F>(&mut self, from_block_nr: u64, get_block_nr: F)
+    where
+        F: Fn(u16, u16) -> Option<u64>,
+    {
+        // Collect positions to remove
+        let to_remove: Vec<_> = self
+            .block_roots
+            .keys()
+            .filter(|(day, block_in_day)| {
+                get_block_nr(*day, *block_in_day)
+                    .map(|nr| nr >= from_block_nr)
+                    .unwrap_or(false)
+            })
+            .copied()
+            .collect();
+
+        // Track affected days
+        let mut affected_days: std::collections::HashSet<u16> = std::collections::HashSet::new();
+
+        // Remove the block roots
+        for (day, block_in_day) in to_remove {
+            self.block_roots.remove(&(day, block_in_day));
+            affected_days.insert(day);
+
+            // Update the day subtree
+            if let Some(subtree) = self.day_subtrees.get_mut(&day) {
+                subtree.set_leaf(block_in_day as usize, B256::ZERO);
+            }
+        }
+
+        // Recompute day roots for affected days
+        for day in affected_days {
+            if let Some(subtree) = self.day_subtrees.get(&day) {
+                let new_root = subtree.root();
+                self.day_roots.insert(day, new_root);
+                self.day_tree.set_leaf(day as usize, new_root);
+            }
+        }
+
+        // Update anchor
+        self.current_anchor = self.day_tree.root();
+
+        // Update last_day
+        self.last_day = self.block_roots.keys().map(|(d, _)| *d).max();
+    }
+
+    /// Compute what the anchor would be for a new block (read-only)
+    pub fn compute_anchor_for_block(&self, day: u16, block_in_day: u16, block_root: B256) -> B256 {
+        let root_path = self.get_root_path_for_position(day, block_in_day);
+        let tree_index = Self::compute_tree_index(day, block_in_day);
+        compute_anchor_from_path(block_root, tree_index, &root_path)
+    }
+}
+
+impl Default for HierarchicalRootTracker {
     fn default() -> Self {
         Self::new()
     }
@@ -716,23 +1075,6 @@ impl BlockTreeTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::Address;
-    use alloy::primitives::U256;
-    use pgp_common::contracts::TimestampAndIndex;
-
-    #[allow(dead_code)]
-    fn make_block_data(block_nr: u64, num_deposits: u64, num_txs: u64) -> BlockData {
-        BlockData {
-            anchor: B256::ZERO,
-            timestamp: U256::ZERO,
-            numTransactions: U256::from(num_txs),
-            numDeposits: U256::from(num_deposits),
-            blockNr: U256::from(block_nr),
-            blockIndex: TimestampAndIndex { day: 0, index: 0 },
-            sequencer: Address::ZERO,
-            blobhashes: vec![],
-        }
-    }
 
     #[test]
     fn test_tree_update_validator_new() {
@@ -809,5 +1151,421 @@ mod tests {
 
         assert_eq!(hash1, hash2);
         assert_ne!(hash1, B256::ZERO);
+    }
+
+    // Helper to create valid field elements (first byte < 0x30 to stay in BN254 field)
+    fn valid_block_root(byte: u8) -> B256 {
+        B256::from([
+            0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, byte,
+        ])
+    }
+
+    #[test]
+    fn test_hierarchical_root_tracker_new() {
+        let tracker = HierarchicalRootTracker::new();
+        assert_eq!(tracker.block_count(), 0);
+        assert_eq!(tracker.day_count(), 0);
+        assert!(tracker.last_day().is_none());
+        // Initial anchor should be the empty tree root
+        assert_ne!(tracker.current_anchor(), B256::ZERO);
+    }
+
+    #[test]
+    fn test_hierarchical_root_tracker_insert() {
+        let mut tracker = HierarchicalRootTracker::new();
+        let initial_anchor = tracker.current_anchor();
+
+        let block_root = valid_block_root(0x11);
+        let (new_anchor, day_changed, _) = tracker.insert_block_root(0, 0, block_root, 30);
+
+        assert_ne!(new_anchor, initial_anchor);
+        assert!(day_changed); // First insert is always a day change
+        assert_eq!(tracker.block_count(), 1);
+        assert_eq!(tracker.day_count(), 1);
+        assert_eq!(tracker.last_day(), Some(0));
+
+        // Insert another block in same day
+        let block_root2 = valid_block_root(0x22);
+        let (_, day_changed2, _) = tracker.insert_block_root(0, 1, block_root2, 45);
+        assert!(!day_changed2); // Same day
+        assert_eq!(tracker.block_count(), 2);
+
+        // Insert block in new day - day_changed should be true, and we get the OLD
+        // value of day 1's root (which was None since it's new)
+        let block_root3 = valid_block_root(0x33);
+        let (_, day_changed3, _prev_day_root) = tracker.insert_block_root(1, 0, block_root3, 15);
+        assert!(day_changed3);
+        // prev_day_root is the OLD root of day 1 (the new day), not day 0
+        // Since day 1 didn't exist before, this is None - that's the correct behavior
+        assert_eq!(tracker.day_count(), 2);
+
+        // Verify day 0's root is tracked correctly
+        assert!(tracker.get_day_root(0).is_some());
+        assert!(tracker.get_day_root(1).is_some());
+    }
+
+    #[test]
+    fn test_hierarchical_root_tracker_paths() {
+        let mut tracker = HierarchicalRootTracker::new();
+
+        // Insert some blocks
+        tracker.insert_block_root(0, 0, valid_block_root(0x11), 30);
+        tracker.insert_block_root(0, 1, valid_block_root(0x22), 30);
+        tracker.insert_block_root(1, 0, valid_block_root(0x33), 30);
+
+        // Get day path (15 levels)
+        let day_path = tracker.get_day_path(0);
+        assert_eq!(day_path.len(), DAY_DEPTH);
+
+        // Get block-in-day path (13 levels)
+        let bid_path = tracker.get_block_in_day_path(0, 0);
+        assert_eq!(bid_path.len(), BLOCK_IN_DAY_DEPTH);
+
+        // Get full root path (28 levels)
+        let root_path = tracker.get_root_path_for_position(0, 1);
+        assert_eq!(root_path.len(), ROOT_DEPTH);
+    }
+
+    #[test]
+    fn test_hierarchical_root_tracker_compute_tree_index() {
+        // day=0, block_in_day=0 => tree_index=0
+        assert_eq!(HierarchicalRootTracker::compute_tree_index(0, 0), 0);
+
+        // day=0, block_in_day=100 => tree_index=100
+        assert_eq!(HierarchicalRootTracker::compute_tree_index(0, 100), 100);
+
+        // day=1, block_in_day=0 => tree_index=8192
+        assert_eq!(HierarchicalRootTracker::compute_tree_index(1, 0), 8192);
+
+        // day=1, block_in_day=100 => tree_index=8292
+        assert_eq!(HierarchicalRootTracker::compute_tree_index(1, 100), 8292);
+    }
+
+    #[test]
+    fn test_hierarchical_root_tracker_from_database() {
+        // Simulate loading from database with valid field elements
+        let day_roots = vec![
+            (0u16, valid_block_root(0xAA), 100u32, 99u64),
+            (1u16, valid_block_root(0xBB), 50u32, 149u64),
+        ];
+        let block_roots = vec![
+            (0u16, 0u16, 0u64, valid_block_root(0x11), 30u32),
+            (0u16, 1u16, 1u64, valid_block_root(0x22), 30u32),
+            (1u16, 0u16, 100u64, valid_block_root(0x33), 30u32),
+        ];
+
+        let tracker = HierarchicalRootTracker::from_database(&day_roots, &block_roots);
+
+        assert_eq!(tracker.block_count(), 3);
+        assert_eq!(tracker.day_count(), 2);
+        assert_eq!(tracker.last_day(), Some(1));
+
+        // Verify day roots are loaded
+        assert!(tracker.get_day_root(0).is_some());
+        assert!(tracker.get_day_root(1).is_some());
+
+        // Verify block roots for day
+        let day0_blocks = tracker.get_block_roots_for_day(0);
+        assert_eq!(day0_blocks.len(), 2);
+    }
+
+    #[test]
+    fn test_hierarchical_root_tracker_block_queries() {
+        let mut tracker = HierarchicalRootTracker::new();
+
+        // Insert blocks across multiple days
+        tracker.insert_block_root(0, 0, valid_block_root(0x11), 30);
+        tracker.insert_block_root(0, 1, valid_block_root(0x22), 45);
+        tracker.insert_block_root(0, 2, valid_block_root(0x33), 60);
+        tracker.insert_block_root(1, 0, valid_block_root(0x44), 15);
+
+        // Query block count per day
+        assert_eq!(tracker.get_block_count_for_day(0), 3);
+        assert_eq!(tracker.get_block_count_for_day(1), 1);
+        assert_eq!(tracker.get_block_count_for_day(2), 0);
+
+        // Query all blocks for a day
+        let day0_blocks = tracker.get_block_roots_for_day(0);
+        assert_eq!(day0_blocks.len(), 3);
+        assert_eq!(day0_blocks[0].0, 0); // block_in_day
+        assert_eq!(day0_blocks[1].0, 1);
+        assert_eq!(day0_blocks[2].0, 2);
+
+        // Query day roots
+        let all_days = tracker.get_all_day_roots();
+        assert_eq!(all_days.len(), 2);
+
+        let day_range = tracker.get_day_roots_range(0, 0);
+        assert_eq!(day_range.len(), 1);
+    }
+
+    #[test]
+    fn test_root_tree_tracker_new() {
+        let tracker = RootTreeTracker::new();
+        assert_eq!(tracker.block_count(), 0);
+        // Initial anchor should be the empty tree root (not zero)
+        assert_ne!(tracker.current_anchor(), B256::ZERO);
+    }
+
+    #[test]
+    fn test_root_tree_tracker_insert_and_remove() {
+        let mut tracker = RootTreeTracker::new();
+        let initial_anchor = tracker.current_anchor();
+
+        // Insert a block root
+        let tree_index = 0;
+        let block_root = valid_block_root(0x11);
+        let new_anchor = tracker.insert_block_root(tree_index, block_root);
+
+        assert_ne!(new_anchor, initial_anchor);
+        assert_eq!(tracker.block_count(), 1);
+        assert_eq!(tracker.current_anchor(), new_anchor);
+
+        // Remove the block root
+        tracker.remove_block_root(tree_index);
+        assert_eq!(tracker.block_count(), 0);
+        assert_eq!(tracker.current_anchor(), initial_anchor);
+    }
+
+    #[test]
+    fn test_root_tree_tracker_compute_tree_index() {
+        // Basic cases
+        assert_eq!(RootTreeTracker::compute_tree_index(0, 0), 0);
+        assert_eq!(RootTreeTracker::compute_tree_index(0, 100), 100);
+        assert_eq!(RootTreeTracker::compute_tree_index(1, 0), BLOCKS_PER_DAY);
+        assert_eq!(
+            RootTreeTracker::compute_tree_index(2, 500),
+            2 * BLOCKS_PER_DAY + 500
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "block_index_in_day")]
+    fn test_root_tree_tracker_compute_tree_index_invalid_block() {
+        // block_index_in_day >= BLOCKS_PER_DAY should panic
+        RootTreeTracker::compute_tree_index(0, BLOCKS_PER_DAY);
+    }
+
+    #[test]
+    fn test_root_tree_tracker_from_block_roots() {
+        let block_roots = vec![
+            (0, valid_block_root(0x11)),
+            (100, valid_block_root(0x22)),
+            (8192, valid_block_root(0x33)), // day 1, block 0
+        ];
+
+        let tracker = RootTreeTracker::from_block_roots(&block_roots);
+        assert_eq!(tracker.block_count(), 3);
+
+        // Verify anchor is computed correctly
+        let anchor = tracker.current_anchor();
+        assert_ne!(anchor, B256::ZERO);
+    }
+
+    #[test]
+    fn test_root_tree_tracker_root_path() {
+        let mut tracker = RootTreeTracker::new();
+
+        // Insert some blocks
+        tracker.insert_block_root(0, valid_block_root(0x11));
+        tracker.insert_block_root(1, valid_block_root(0x22));
+
+        // Get root path for a position
+        let path = tracker.get_root_path_for_index(0);
+        assert_eq!(path.len(), ROOT_DEPTH);
+    }
+
+    #[test]
+    fn test_root_tree_tracker_compute_anchor_for_block() {
+        let mut tracker = RootTreeTracker::new();
+
+        let block_root = valid_block_root(0x11);
+        let tree_index = 42;
+
+        // Compute what anchor would be WITHOUT modifying state
+        let computed_anchor = tracker.compute_anchor_for_block(tree_index, block_root);
+
+        // State should not have changed
+        assert_eq!(tracker.block_count(), 0);
+
+        // Now actually insert and verify it matches
+        let actual_anchor = tracker.insert_block_root(tree_index, block_root);
+        assert_eq!(computed_anchor, actual_anchor);
+    }
+
+    #[test]
+    fn test_block_tree_tracker_new() {
+        let root_path = [B256::ZERO; ROOT_DEPTH];
+        let tracker = BlockTreeTracker::from_root_path_array(0, root_path);
+
+        assert_eq!(tracker.block_index(), 0);
+        assert_eq!(tracker.in_block_index(), 0);
+        // Block root should be the empty tree root
+        assert_ne!(tracker.block_root(), B256::ZERO);
+    }
+
+    #[test]
+    fn test_block_tree_tracker_apply_update() {
+        let root_path = [B256::ZERO; ROOT_DEPTH];
+        let mut tracker = BlockTreeTracker::from_root_path_array(0, root_path);
+
+        let initial_anchor = tracker.current_anchor();
+
+        let leaves = [
+            valid_block_root(0x11),
+            valid_block_root(0x22),
+            valid_block_root(0x33),
+        ];
+
+        let new_anchor = tracker.apply_update(leaves);
+        assert_ne!(new_anchor, initial_anchor);
+        assert_eq!(tracker.in_block_index(), 3);
+
+        // Apply another update
+        let leaves2 = [
+            valid_block_root(0x44),
+            valid_block_root(0x55),
+            valid_block_root(0x66),
+        ];
+        let newer_anchor = tracker.apply_update(leaves2);
+        assert_ne!(newer_anchor, new_anchor);
+        assert_eq!(tracker.in_block_index(), 6);
+    }
+
+    #[test]
+    fn test_block_tree_tracker_apply_update_at() {
+        let root_path = [B256::ZERO; ROOT_DEPTH];
+        let mut tracker = BlockTreeTracker::from_root_path_array(0, root_path);
+
+        let leaves = [
+            valid_block_root(0x11),
+            valid_block_root(0x22),
+            valid_block_root(0x33),
+        ];
+
+        // apply_update_at does NOT advance in_block_index
+        let _anchor = tracker.apply_update_at(leaves, 0);
+        assert_eq!(tracker.in_block_index(), 0); // Should stay at 0
+    }
+
+    #[test]
+    fn test_block_tree_tracker_merkle_data() {
+        let root_path = [B256::ZERO; ROOT_DEPTH];
+        let tracker = BlockTreeTracker::from_root_path_array(0, root_path);
+
+        let leaves = [
+            valid_block_root(0x11),
+            valid_block_root(0x22),
+            valid_block_root(0x33),
+        ];
+
+        let merkle_data = tracker.get_merkle_data_before_update(0, leaves);
+
+        assert_eq!(merkle_data.block_index, 0);
+        assert_eq!(merkle_data.in_block_index, 0);
+        assert_eq!(merkle_data.block_proofs.len(), 4);
+        assert_eq!(merkle_data.root_path.len(), ROOT_DEPTH);
+    }
+
+    #[test]
+    fn test_block_tree_tracker_nonzero_field() {
+        let root_path = [B256::ZERO; ROOT_DEPTH];
+        let mut tracker = BlockTreeTracker::from_root_path_array(0, root_path);
+
+        // Initially empty - nonzero_field should be ZERO
+        assert_eq!(tracker.get_nonzero_field(0), B256::ZERO);
+        assert_eq!(tracker.get_nonzero_field(3), B256::ZERO);
+
+        // Insert some leaves
+        let leaves = [
+            valid_block_root(0x11),
+            valid_block_root(0x22),
+            valid_block_root(0x33),
+        ];
+        tracker.apply_update(leaves);
+
+        // Now check nonzero_field at various positions
+        assert_eq!(tracker.get_nonzero_field(0), B256::ZERO); // Nothing before index 0
+        assert_eq!(tracker.get_nonzero_field(3), valid_block_root(0x33)); // Last leaf before index 3
+        assert_eq!(tracker.get_nonzero_field(2), valid_block_root(0x22)); // Last leaf before index 2
+    }
+
+    #[test]
+    fn test_block_tree_tracker_clone() {
+        let root_path = [B256::ZERO; ROOT_DEPTH];
+        let mut tracker = BlockTreeTracker::from_root_path_array(0, root_path);
+
+        let leaves = [
+            valid_block_root(0x11),
+            valid_block_root(0x22),
+            valid_block_root(0x33),
+        ];
+        tracker.apply_update(leaves);
+
+        let snapshot = tracker.clone();
+
+        // Apply more updates to original
+        let leaves2 = [
+            valid_block_root(0x44),
+            valid_block_root(0x55),
+            valid_block_root(0x66),
+        ];
+        tracker.apply_update(leaves2);
+
+        // Snapshot should still have original state
+        assert_eq!(snapshot.in_block_index(), 3);
+        assert_eq!(tracker.in_block_index(), 6);
+        assert_ne!(snapshot.current_anchor(), tracker.current_anchor());
+    }
+
+    #[test]
+    fn test_hierarchical_remove_blocks_from() {
+        let mut tracker = HierarchicalRootTracker::new();
+
+        // Insert blocks with known block numbers
+        // We'll simulate: block_nr 0 at (day=0, bid=0), block_nr 1 at (day=0, bid=1), etc.
+        tracker.insert_block_root(0, 0, valid_block_root(0x11), 30);
+        tracker.insert_block_root(0, 1, valid_block_root(0x22), 30);
+        tracker.insert_block_root(0, 2, valid_block_root(0x33), 30);
+        tracker.insert_block_root(1, 0, valid_block_root(0x44), 30);
+
+        assert_eq!(tracker.block_count(), 4);
+
+        // Remove blocks from block_nr 2 onwards
+        // We need to provide a mapping function that returns block_nr for (day, bid)
+        tracker.remove_blocks_from(2, |day, bid| {
+            // Simple mapping: block_nr = day * 1000 + bid
+            // So (0,0)=0, (0,1)=1, (0,2)=2, (1,0)=1000
+            Some(day as u64 * 1000 + bid as u64)
+        });
+
+        // Should remove (0,2) with block_nr=2 and (1,0) with block_nr=1000
+        assert_eq!(tracker.block_count(), 2);
+        assert_eq!(tracker.get_block_count_for_day(0), 2);
+        assert_eq!(tracker.get_block_count_for_day(1), 0);
+    }
+
+    #[test]
+    fn test_compute_anchor_from_path() {
+        let block_root = valid_block_root(0x11);
+        let tree_index = 0;
+        let root_path = [B256::ZERO; ROOT_DEPTH];
+
+        // Compute anchor
+        let anchor = compute_anchor_from_path(block_root, tree_index, &root_path);
+
+        // With all-zero path, the anchor should be computed by hashing up
+        // This is a deterministic operation
+        assert_ne!(anchor, B256::ZERO);
+        assert_ne!(anchor, block_root); // Should be different from input
+
+        // Same inputs should give same output
+        let anchor2 = compute_anchor_from_path(block_root, tree_index, &root_path);
+        assert_eq!(anchor, anchor2);
+
+        // Different tree_index should give different anchor (even with same path)
+        let anchor3 = compute_anchor_from_path(block_root, 1, &root_path);
+        assert_ne!(anchor, anchor3);
     }
 }

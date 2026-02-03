@@ -492,59 +492,6 @@ impl ChallengeBuilder {
 
     /// Build challenge parameters for an invalid transaction proof
     ///
-    /// DEPRECATED: This convenience method only works for single-blob blocks.
-    /// Use `build_transaction_challenge_multi_blob` for proper multi-blob support.
-    #[deprecated(note = "Use build_transaction_challenge_multi_blob for multi-blob support")]
-    pub fn build_transaction_challenge(
-        &self,
-        evidence: &FraudEvidence,
-        blob_data: &[u8],
-        anchor: B256,
-        prior_anchor_block: BlockData,
-        prior_anchor_blob_data: &[u8],
-        prior_anchor_field_index: usize,
-        rollback_target_block: BlockData,
-    ) -> Result<TransactionChallengeParams> {
-        let (block_data, _tx_nr) = match evidence {
-            FraudEvidence::InvalidTransactionProof {
-                block_data, tx_nr, ..
-            } => (block_data.clone(), *tx_nr),
-            FraudEvidence::InvalidAnchorReference {
-                block_data, tx_nr, ..
-            } => (block_data.clone(), *tx_nr),
-            FraudEvidence::MissingEthKeyAuth {
-                block_data, tx_nr, ..
-            } => (block_data.clone(), *tx_nr),
-            _ => return Err(eyre!("Expected transaction-related fraud evidence")),
-        };
-
-        let blob_hash = block_data.blobhashes.first().copied().unwrap_or(B256::ZERO);
-        let blobs = vec![BlobWithHash {
-            data: blob_data,
-            hash: blob_hash,
-        }];
-
-        let prior_blob_hash = prior_anchor_block
-            .blobhashes
-            .first()
-            .copied()
-            .unwrap_or(B256::ZERO);
-        let prior_blobs = vec![BlobWithHash {
-            data: prior_anchor_blob_data,
-            hash: prior_blob_hash,
-        }];
-
-        self.build_transaction_challenge_multi_blob(
-            evidence,
-            &blobs,
-            anchor,
-            prior_anchor_block,
-            &prior_blobs,
-            prior_anchor_field_index,
-            rollback_target_block,
-        )
-    }
-
     /// Build challenge parameters for an invalid transaction proof (multi-blob version)
     ///
     /// This method handles transactions that may span across blob boundaries.
@@ -614,56 +561,6 @@ impl ChallengeBuilder {
             prior_anchor_proof: Bytes::from(prior_anchor_kzg.proof),
             rollback_target_block,
         })
-    }
-
-    /// Build challenge parameters for an incorrect tree update
-    ///
-    /// DEPRECATED: This convenience method only works for single-blob blocks.
-    /// Use `build_tree_update_challenge_multi_blob` for proper multi-blob support.
-    #[deprecated(note = "Use build_tree_update_challenge_multi_blob for multi-blob support")]
-    pub fn build_tree_update_challenge(
-        &self,
-        evidence: &FraudEvidence,
-        blob_data: &[u8],
-        prior_anchor: B256,
-        prior_anchor_blob_data: &[u8],
-        prior_anchor_field_index: usize,
-        true_anchor: B256,
-        zk_proof: Proof,
-        rollback_target_block: BlockData,
-    ) -> Result<TreeUpdateChallengeParams> {
-        let (block_data, _, _) = match evidence {
-            FraudEvidence::IncorrectTreeUpdate {
-                block_data,
-                update_nr,
-                is_tx,
-                ..
-            } => (block_data.clone(), *update_nr, *is_tx),
-            _ => return Err(eyre!("Expected IncorrectTreeUpdate fraud evidence")),
-        };
-
-        let blob_hash = block_data.blobhashes.first().copied().unwrap_or(B256::ZERO);
-        let blobs = vec![BlobWithHash {
-            data: blob_data,
-            hash: blob_hash,
-        }];
-
-        let prior_blob_hash = B256::ZERO; // No prior block data available in this deprecated API
-        let prior_blobs = vec![BlobWithHash {
-            data: prior_anchor_blob_data,
-            hash: prior_blob_hash,
-        }];
-
-        self.build_tree_update_challenge_multi_blob(
-            evidence,
-            &blobs,
-            prior_anchor,
-            &prior_blobs,
-            prior_anchor_field_index,
-            true_anchor,
-            zk_proof,
-            rollback_target_block,
-        )
     }
 
     /// Build challenge parameters for an incorrect tree update (multi-blob version)

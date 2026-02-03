@@ -2608,10 +2608,22 @@ async fn test_tree_update_fraud_e2e_with_circom_prover() -> Result<()> {
     println!("  block_index: {}", merkle_data.block_index);
     println!("  in_block_index: {}", merkle_data.in_block_index);
     println!("  nonzero_field: {:?}", merkle_data.nonzero_field);
-    println!("  block_proofs[0][0..4]: {:?}", &merkle_data.block_proofs[0][0..4]);
-    println!("  block_proofs[1][0..4]: {:?}", &merkle_data.block_proofs[1][0..4]);
-    println!("  block_proofs[2][0..4]: {:?}", &merkle_data.block_proofs[2][0..4]);
-    println!("  block_proofs[3][0..4]: {:?}", &merkle_data.block_proofs[3][0..4]);
+    println!(
+        "  block_proofs[0][0..4]: {:?}",
+        &merkle_data.block_proofs[0][0..4]
+    );
+    println!(
+        "  block_proofs[1][0..4]: {:?}",
+        &merkle_data.block_proofs[1][0..4]
+    );
+    println!(
+        "  block_proofs[2][0..4]: {:?}",
+        &merkle_data.block_proofs[2][0..4]
+    );
+    println!(
+        "  block_proofs[3][0..4]: {:?}",
+        &merkle_data.block_proofs[3][0..4]
+    );
     println!("  root_path[0..4]: {:?}", &merkle_data.root_path[0..4]);
 
     // Use native rust-witness for fast proof generation
