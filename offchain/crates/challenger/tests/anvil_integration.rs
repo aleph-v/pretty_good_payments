@@ -607,18 +607,9 @@ async fn test_anvil_deposit_fraud_detection_real_blobs() -> Result<()> {
         return Ok(());
     };
 
-    // Register as sequencer (using old stake calculation for this test)
-    let stake_req = ctx.entrypoint().requiredStake().call().await?;
-    let receipt = ctx
-        .entrypoint()
-        .fund()
-        .value(stake_req)
-        .send()
-        .await?
-        .get_receipt()
-        .await?;
-    assert!(receipt.status());
-    println!("✓ Sequencer registered");
+    // Register as sequencer and advance to open period
+    ctx.register_sequencer().await?;
+    ctx.advance_to_open_period().await?;
 
     // Verify sequencer is allowed
     assert!(
