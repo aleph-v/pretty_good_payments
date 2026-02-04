@@ -42,7 +42,13 @@ pub fn parse_amount(s: &str) -> Result<U256> {
 
     // Try parsing as hex
     if let Some(hex_str) = s.strip_prefix("0x") {
-        let bytes = hex::decode(hex_str)
+        // Pad to even length (hex::decode requires pairs of hex digits)
+        let padded = if hex_str.len() % 2 == 1 {
+            format!("0{hex_str}")
+        } else {
+            hex_str.to_string()
+        };
+        let bytes = hex::decode(&padded)
             .wrap_err_with(|| format!("Invalid hex amount: '{s}' is not valid hex"))?;
         return Ok(U256::from_be_slice(&bytes));
     }
