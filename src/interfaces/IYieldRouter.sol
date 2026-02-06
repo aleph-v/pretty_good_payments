@@ -6,16 +6,19 @@ pragma solidity ^0.8.28;
 /// @dev Bridge contract calls triggerDeposit/triggerWithdraw; sequencers claim via payout system
 
 interface IYieldRouter {
+    /// @notice Returns the WETH address used for native ETH wrapping/unwrapping
+    function weth() external view returns (address);
+
     /// @notice Called by bridge to deposit assets into yield source
     /// @param asset Token address to deposit
     /// @param amount Amount to deposit (must already be transferred to router)
-    function triggerDeposit(address asset, uint256 amount) external;
+    function triggerDeposit(address asset, uint256 amount) external payable;
 
     /// @notice Called by bridge to withdraw assets for user withdrawals
     /// @param asset Token address to withdraw
     /// @param amount Amount to withdraw
     /// @param destination Recipient address
-    function triggerWithdraw(address asset, uint256 amount, address destination) external;
+    function triggerWithdraw(address asset, uint256 amount, address destination) external payable;
 
     /// @notice Reports payout percentage for a sequencer in an epoch
     /// @param sequencer Sequencer address

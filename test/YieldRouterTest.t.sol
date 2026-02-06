@@ -15,7 +15,8 @@ import {
     NotBridge,
     AlreadyPaid,
     SequencerChallenged,
-    EpochNotFinished
+    EpochNotFinished,
+    PayoutFailed
 } from "../src/library/Errors.sol";
 
 // Mock entrypoint that implements IEntrypoint for testing
@@ -55,10 +56,62 @@ contract MockEntrypoint is IEntrypoint {
     }
 }
 
+// Mock WETH for testing native ETH wrapping/unwrapping
+contract MockWETH {
+    string public name = "Wrapped Ether";
+    string public symbol = "WETH";
+    uint8 public decimals = 18;
+
+    mapping(address => uint256) public balanceOf;
+    mapping(address => mapping(address => uint256)) public allowance;
+
+    function deposit() external payable {
+        balanceOf[msg.sender] += msg.value;
+    }
+
+    function withdraw(uint256 amount) external {
+        require(balanceOf[msg.sender] >= amount, "insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        (bool success,) = msg.sender.call{value: amount}("");
+        require(success, "ETH transfer failed");
+    }
+
+    function transfer(address to, uint256 amount) external returns (bool) {
+        require(balanceOf[msg.sender] >= amount, "insufficient balance");
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+        return true;
+    }
+
+    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        require(balanceOf[from] >= amount, "insufficient balance");
+        if (msg.sender != from) {
+            require(allowance[from][msg.sender] >= amount, "insufficient allowance");
+            allowance[from][msg.sender] -= amount;
+        }
+        balanceOf[from] -= amount;
+        balanceOf[to] += amount;
+        return true;
+    }
+
+    function approve(address spender, uint256 amount) external returns (bool) {
+        allowance[msg.sender][spender] = amount;
+        return true;
+    }
+
+    function totalSupply() external view returns (uint256) {
+        return address(this).balance;
+    }
+
+    receive() external payable {
+        balanceOf[msg.sender] += msg.value;
+    }
+}
+
 // Harness to set state and call internal functions for testing
 contract YieldRouterHarness is YieldRouter {
-    constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked)
-        YieldRouter(periodLength, epochPerPeriod, _bridge, tracked)
+    constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked, address _weth)
+        YieldRouter(periodLength, epochPerPeriod, _bridge, tracked, _weth)
     {
         _initializeOwner(msg.sender);
     }
@@ -116,7 +169,7 @@ contract YieldRouterTest is Test {
 
         // Create router with MockEntrypoint as bridge
         address[] memory emptyTracked = new address[](0);
-        router = new YieldRouterHarness(PERIOD_LENGTH, EPOCHS_PER_PERIOD, address(mockBridge), emptyTracked);
+        router = new YieldRouterHarness(PERIOD_LENGTH, EPOCHS_PER_PERIOD, address(mockBridge), emptyTracked, address(0));
 
         // Setup: configure vault as source
         router.setSource(address(token), vault);
@@ -646,4 +699,110 @@ contract YieldRouterTest is Test {
 
         assertEq(received, 1 ether, "Sequencer should receive their share after epoch finalization");
     }
+}
+
+// ==================== NATIVE ETH TESTS ====================
+
+contract YieldRouterETHTest is Test {
+    YieldRouterHarness router;
+    MockEntrypoint mockBridge;
+    MockWETH mockWeth;
+    MockERC4626 wethVault;
+
+    address user = address(0xBEEF);
+
+    uint256 constant PERIOD_LENGTH = 1 days;
+    uint256 constant EPOCHS_PER_PERIOD = 10;
+
+    function setUp() public {
+        mockWeth = new MockWETH();
+        mockBridge = new MockEntrypoint();
+
+        address[] memory emptyTracked = new address[](0);
+        router = new YieldRouterHarness(
+            PERIOD_LENGTH, EPOCHS_PER_PERIOD, address(mockBridge), emptyTracked, address(mockWeth)
+        );
+
+        // Create a vault that uses WETH as the underlying asset
+        wethVault = new MockERC4626(FakeERC20(address(mockWeth)));
+        router.setSource(address(mockWeth), wethVault);
+
+        // Approve vault to spend WETH from the router
+        vm.startPrank(address(router));
+        mockWeth.approve(address(wethVault), type(uint256).max);
+        vm.stopPrank();
+    }
+
+    function test_TriggerDeposit_NativeETH() public {
+        vm.deal(address(mockBridge), 10 ether);
+
+        vm.prank(address(mockBridge));
+        router.triggerDeposit{value: 10 ether}(address(mockWeth), 10 ether);
+
+        assertEq(router.priorBalances(address(mockWeth)), 10 ether, "Prior balance should be set");
+        assertEq(wethVault.balanceOf(address(router)), 10 ether, "Router should have vault shares");
+    }
+
+    function test_TriggerDeposit_NativeETH_OnlyBridge() public {
+        vm.deal(user, 10 ether);
+
+        vm.prank(user);
+        vm.expectRevert(NotBridge.selector);
+        router.triggerDeposit{value: 10 ether}(address(mockWeth), 10 ether);
+    }
+
+    function test_TriggerWithdraw_NativeETH() public {
+        // First deposit some WETH via native ETH
+        vm.deal(address(mockBridge), 10 ether);
+        vm.prank(address(mockBridge));
+        router.triggerDeposit{value: 10 ether}(address(mockWeth), 10 ether);
+
+        uint256 userBalanceBefore = user.balance;
+
+        // Withdraw should unwrap WETH and send native ETH
+        vm.prank(address(mockBridge));
+        router.triggerWithdraw(address(mockWeth), 5 ether, user);
+
+        assertEq(user.balance - userBalanceBefore, 5 ether, "User should receive native ETH");
+        assertEq(router.priorBalances(address(mockWeth)), 5 ether, "Prior balance should decrease");
+    }
+
+    function test_TriggerWithdraw_NativeETH_FullAmount() public {
+        vm.deal(address(mockBridge), 10 ether);
+        vm.prank(address(mockBridge));
+        router.triggerDeposit{value: 10 ether}(address(mockWeth), 10 ether);
+
+        uint256 userBalanceBefore = user.balance;
+
+        vm.prank(address(mockBridge));
+        router.triggerWithdraw(address(mockWeth), 10 ether, user);
+
+        assertEq(user.balance - userBalanceBefore, 10 ether, "User should receive full native ETH");
+        assertEq(router.priorBalances(address(mockWeth)), 0, "Prior balance should be zero");
+    }
+
+    function test_TriggerWithdraw_NativeETH_PayoutFailed() public {
+        vm.deal(address(mockBridge), 10 ether);
+        vm.prank(address(mockBridge));
+        router.triggerDeposit{value: 10 ether}(address(mockWeth), 10 ether);
+
+        // Deploy a contract that rejects ETH
+        ETHRejecter rejecter = new ETHRejecter();
+
+        vm.prank(address(mockBridge));
+        vm.expectRevert(PayoutFailed.selector);
+        router.triggerWithdraw(address(mockWeth), 5 ether, address(rejecter));
+    }
+
+    function test_ReceiveETH() public {
+        // Router should accept ETH (needed for WETH unwrap)
+        vm.deal(address(this), 1 ether);
+        (bool success,) = address(router).call{value: 1 ether}("");
+        assertTrue(success, "Router should accept ETH");
+    }
+}
+
+// Helper contract that rejects ETH transfers
+contract ETHRejecter {
+    // No receive or fallback - will reject ETH
 }

@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {IERC4626} from "lib/openzeppelin-contracts/contracts/interfaces/IERC4626.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {IEntrypoint} from "./interfaces/IEntrypoint.sol";
+import {IWETH} from "./interfaces/IWETH.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 import {
     NotBridge,
@@ -11,7 +12,8 @@ import {
     TokenNotEnabled,
     AlreadyPaid,
     SequencerChallenged,
-    EpochNotFinished
+    EpochNotFinished,
+    PayoutFailed
 } from "./library/Errors.sol";
 
 /// @title YieldRouter
@@ -21,6 +23,7 @@ import {
 contract YieldRouter is Ownable {
     // The bridge is the contract which accepts the user deposits
     address public immutable bridge;
+    address public immutable weth;
     mapping(address => IERC4626) public sources;
 
     // For tracking the yields for sequencer payouts
@@ -46,12 +49,15 @@ contract YieldRouter is Ownable {
     /// @param epochPerPeriod Number of epochs per yield period (yield is split evenly across epochs)
     /// @param _bridge Address of the bridge contract (only caller allowed for deposits/withdrawals)
     /// @param tracked Initial list of token addresses to track yield for
-    constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked) payable {
+    constructor(uint256 periodLength, uint256 epochPerPeriod, address _bridge, address[] memory tracked, address _weth)
+        payable
+    {
         _initializeOwner(msg.sender);
         EPOCHS_PER_PERIOD = epochPerPeriod;
         PERIOD_LENGTH = periodLength;
         bridge = _bridge;
         trackedYieldSources = tracked;
+        weth = _weth;
     }
 
     modifier onlyBridge() {
@@ -66,7 +72,10 @@ contract YieldRouter is Ownable {
     /// @notice This function triggers a deposit
     /// @param asset The asset we are depositing
     /// @param amount The amount of asset we are depositing
-    function triggerDeposit(address asset, uint256 amount) external onlyBridge {
+    function triggerDeposit(address asset, uint256 amount) external payable onlyBridge {
+        if (msg.value > 0) {
+            IWETH(weth).deposit{value: msg.value}();
+        }
         if (IERC20(asset).balanceOf(address(this)) < amount) revert TokenNotTransferred();
         if (address(sources[asset]) == address(0)) revert TokenNotEnabled();
         priorBalances[asset] += amount;
@@ -86,7 +95,14 @@ contract YieldRouter is Ownable {
             uint256 fixedPercent = (priorBalances[asset] * 1e18) / currentGlobalValue;
             userAmount = fixedPercent * amount / 1e18;
         }
-        sources[asset].withdraw(userAmount, destination, address(this));
+        if (asset == weth) {
+            sources[asset].withdraw(userAmount, address(this), address(this));
+            IWETH(weth).withdraw(userAmount);
+            (bool success,) = destination.call{value: userAmount}("");
+            if (!success) revert PayoutFailed();
+        } else {
+            sources[asset].withdraw(userAmount, destination, address(this));
+        }
         priorBalances[asset] -= userAmount;
     }
 
@@ -199,4 +215,7 @@ contract YieldRouter is Ownable {
     function setMaxInterest(address token, uint256 max) external onlyOwner {
         maxInterest[token] = max;
     }
+
+    /// @notice Accepts ETH from WETH unwrap
+    receive() external payable {}
 }

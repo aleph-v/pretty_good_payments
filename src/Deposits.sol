@@ -5,7 +5,7 @@ import {Spine} from "./Spine.sol";
 import {PredictableMerkleLib, Leaf} from "./library/PredictableMerkleLib.sol";
 import {IERC20} from "lib/openzeppelin-contracts/contracts/interfaces/IERC20.sol";
 import {SafeERC20} from "lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
-import {InvalidDepositAmount, MaxDepositsExceeded} from "./library/Errors.sol";
+import {InvalidDepositAmount, InvalidETHAmount, MaxDepositsExceeded} from "./library/Errors.sol";
 
 /// @title Deposits
 /// @notice Handles L1 deposit creation for the L2 privacy-preserving payment system
@@ -38,11 +38,17 @@ contract Deposits is Spine {
     /// @dev Leaf hash is computed via Poseidon. Deposit targets max(highestDeposit, currentBlock+2).
     /// @param leaf Deposit leaf with asset, amount, and publicKey. amount must be > 0.
     ///        leaf.blinding will be overwritten with BLINDING constant.
-    function deposit(Leaf memory leaf) external {
+    function deposit(Leaf memory leaf) external payable {
         if (leaf.amount == 0) revert InvalidDepositAmount();
         // First we transfer from the user to the yield system and trigger deposit
-        IERC20(leaf.asset).safeTransferFrom(msg.sender, address(yieldRouter), leaf.amount);
-        yieldRouter.triggerDeposit(leaf.asset, leaf.amount);
+        if (msg.value > 0) {
+            if (msg.value != leaf.amount) revert InvalidETHAmount();
+            if (leaf.asset != yieldRouter.weth()) revert InvalidETHAmount();
+            yieldRouter.triggerDeposit{value: msg.value}(leaf.asset, leaf.amount);
+        } else {
+            IERC20(leaf.asset).safeTransferFrom(msg.sender, address(yieldRouter), leaf.amount);
+            yieldRouter.triggerDeposit(leaf.asset, leaf.amount);
+        }
 
         // The blinding factors have internal hash structure so to special case them for recursive zk we have a constant in deposits
         leaf.blinding = BLINDING;
