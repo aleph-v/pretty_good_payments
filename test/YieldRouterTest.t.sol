@@ -805,4 +805,5 @@ contract YieldRouterETHTest is Test {
 // Helper contract that rejects ETH transfers
 contract ETHRejecter {
     // No receive or fallback - will reject ETH
-}
+
+    }
