@@ -17,13 +17,19 @@ contract MockYieldRouter is IYieldRouter {
     uint256 public lastWithdrawAmount;
     address public lastWithdrawRecipient;
 
-    function triggerDeposit(address asset, uint256 amount) external override {
+    address public override weth;
+
+    constructor() {
+        weth = address(0);
+    }
+
+    function triggerDeposit(address asset, uint256 amount) external payable override {
         depositCount++;
         lastDepositAsset = asset;
         lastDepositAmount = amount;
     }
 
-    function triggerWithdraw(address asset, uint256 amount, address recipient) external override {
+    function triggerWithdraw(address asset, uint256 amount, address recipient) external payable override {
         withdrawCount++;
         lastWithdrawAsset = asset;
         lastWithdrawAmount = amount;

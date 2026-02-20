@@ -110,8 +110,9 @@ contract DeployTestnet is Script {
         console.log("Genesis Anchor:", vm.toString(genesis));
 
         // 8. Deploy YieldRouter with Entrypoint as bridge
+        // NOTE: Pass the WETH address for the target chain in production deployments
         YieldRouter yieldRouter =
-            new YieldRouter(PERIOD_LENGTH, getEpochsPerPeriod(), address(entrypoint), trackedTokens);
+            new YieldRouter(PERIOD_LENGTH, getEpochsPerPeriod(), address(entrypoint), trackedTokens, address(0));
         require(address(yieldRouter) == predictedYieldRouter, "YieldRouter address mismatch - check nonce");
 
         console.log("YieldRouter deployed:", address(yieldRouter));

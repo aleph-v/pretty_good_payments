@@ -64,6 +64,9 @@ error InvalidDepositAmount();
 /// @notice Maximum deposits per block exceeded (internal assertion)
 error MaxDepositsExceeded();
 
+/// @notice Native ETH amount does not match leaf amount
+error InvalidETHAmount();
+
 /// @notice Which parameter must be less than 3 for leaves
 error InvalidLeafWhich();
 
